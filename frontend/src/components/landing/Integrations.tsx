@@ -1,61 +1,94 @@
+import { T } from '../dashboard/tokens';
+import { Database, Shield } from 'lucide-react';
+
 const tools = [
-    { icon: '🐘', name: 'PostgreSQL', type: 'Database', color: '#336791' },
-    { icon: '🐬', name: 'MySQL', type: 'Database', color: '#00758f' },
-    { icon: '❄️', name: 'Snowflake', type: 'Data Warehouse', color: '#e8443a' },
-    { icon: '🔶', name: 'BigQuery', type: 'Data Warehouse', color: '#ff9900' },
-    { icon: '📗', name: 'Excel', type: 'Spreadsheet', color: '#217346' },
-    { icon: '📊', name: 'Google Sheets', type: 'Spreadsheet', color: '#0f9d58' },
-    { icon: '🦆', name: 'DuckDB', type: 'Embedded DB', color: '#e97627' },
-    { icon: '🔴', name: 'Redis', type: 'Cache / Store', color: '#cc2927' },
-    { icon: '☁️', name: 'Airtable', type: 'No-code DB', color: '#4285f4' },
-    { icon: '🔗', name: 'REST APIs', type: 'Custom Source', color: '#ff4500' },
+    { name: 'POSTGRESQL', type: 'DATABASE', id: 'PSQL_01' },
+    { name: 'SNOWFLAKE', type: 'WAREHOUSE', id: 'SNFK_04' },
+    { name: 'BIGQUERY', type: 'WAREHOUSE', id: 'BQRY_09' },
+    { name: 'MONGODB', type: 'NOSQL', id: 'MGDB_02' },
+    { name: 'MYSQL', type: 'DATABASE', id: 'MSQL_07' },
+    { name: 'EXCEL', type: 'FLAT_FILE', id: 'EXCL_03' },
+    { name: 'GSHEETS', type: 'CLOUD_FILE', id: 'GSH_05' },
+    { name: 'AIRTABLE', type: 'LOW_CODE', id: 'ARTB_08' },
+    { name: 'CLICKHOUSE', type: 'OLAP', id: 'CKHS_06' },
+    { name: 'DATABRICKS', type: 'LAKEHOUSE', id: 'DBKS_10' },
 ];
 
 export function Integrations() {
     return (
-        <section id="integrations" style={{ background: 'var(--bg)', padding: '100px 60px' }}>
-            <div style={{ textAlign: 'center', marginBottom: 56 }} className="reveal">
-                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: '0.72rem', color: 'var(--accent)', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 14, display: 'block' }}>Integrations</span>
-                <h2 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: 'clamp(1.8rem, 3.5vw, 2.8rem)', letterSpacing: -1, lineHeight: 1.1, marginBottom: 16, fontStyle: 'normal' }}>
-                    Connect to the tools<br />you already use
-                </h2>
-                <p style={{ color: 'var(--muted)', fontSize: '1rem', lineHeight: 1.7, maxWidth: 520, margin: '0 auto', fontWeight: 300 }}>
-                    One-click connectors for every major database and data source. Your stack, your rules.
-                </p>
-            </div>
+        <section id="integrations" style={{ background: T.bg, padding: '160px 60px', borderTop: `1px solid ${T.border}` }}>
+            <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+                <div style={{ textAlign: 'center', marginBottom: 100 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, marginBottom: 24 }}>
+                      <div style={{ width: 60, height: 1, background: T.accent }} />
+                      <span style={{ fontFamily: T.fontMono, fontSize: '0.65rem', color: T.accent, letterSpacing: 5, textTransform: 'uppercase', fontWeight: 950 }}>ECOSYSTEM_TOPOLOGY</span>
+                      <div style={{ width: 60, height: 1, background: T.accent }} />
+                    </div>
+                    <h2 style={{ fontFamily: T.fontHead, fontWeight: 950, fontSize: 'clamp(2.5rem, 5vw, 4.5rem)', letterSpacing: -3, lineHeight: 0.9, color: T.text, textTransform: 'uppercase', fontStyle: 'italic' }}>
+                        UNIVERSAL_NODE_ACCESS.
+                    </h2>
+                </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16, maxWidth: 1000, margin: '0 auto' }}>
-                {tools.map((t) => (
-                    <a
-                        key={t.name}
-                        href="#"
-                        className="tool-card-hover"
-                        style={{
-                            background: 'var(--surface)',
-                            border: '1px solid var(--border)',
-                            borderRadius: 14,
-                            padding: '28px 20px',
-                            textAlign: 'center',
-                            cursor: 'pointer',
-                            textDecoration: 'none',
-                            color: 'var(--text)',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            gap: 14,
-                            transition: 'border-color 0.3s, transform 0.25s, box-shadow 0.3s',
-                            ['--tool-color' as string]: t.color,
-                        }}
-                        onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.transform = 'translateY(-6px)'; }}
-                        onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.transform = 'translateY(0)'; }}
-                    >
-                        <div style={{ width: 52, height: 52, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.6rem', background: 'rgba(255,255,255,0.04)' }}>
-                            {t.icon}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 1, background: T.border, border: `1px solid ${T.border}` }}>
+                    {tools.map((t, i) => (
+                        <div
+                            key={t.name}
+                            style={{
+                                background: T.bg,
+                                padding: '56px 32px',
+                                textAlign: 'left',
+                                cursor: 'default',
+                                position: 'relative',
+                                overflow: 'hidden',
+                                transition: 'all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)',
+                            }}
+                            onMouseEnter={e => { 
+                              e.currentTarget.style.background = T.s1;
+                              const overlay = e.currentTarget.querySelector('.node-overlay') as HTMLDivElement;
+                              if (overlay) overlay.style.opacity = '1';
+                            }}
+                            onMouseLeave={e => { 
+                              e.currentTarget.style.background = T.bg;
+                              const overlay = e.currentTarget.querySelector('.node-overlay') as HTMLDivElement;
+                              if (overlay) overlay.style.opacity = '0';
+                            }}
+                        >
+                            {/* Technical Overlay */}
+                            <div className="node-overlay" style={{ 
+                              position: 'absolute', inset: 0, background: `${T.accent}05`, 
+                              opacity: 0, transition: 'opacity 0.4s', pointerEvents: 'none' 
+                            }} />
+
+                            <div style={{ position: 'absolute', top: 20, right: 20, fontFamily: T.fontMono, fontSize: '0.5rem', color: T.text3, fontWeight: 950 }}>
+                              NODE_{t.id}
+                            </div>
+
+                            <div style={{ 
+                              width: 56, height: 56, background: T.s2, border: `1px solid ${T.border}`, 
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                              marginBottom: 32, position: 'relative'
+                            }}>
+                                <Database size={20} color={T.accent} />
+                                <div style={{ position: 'absolute', bottom: -4, right: -4, width: 8, height: 8, background: T.green }} />
+                            </div>
+
+                            <div style={{ fontFamily: T.fontHead, fontWeight: 950, fontSize: '0.95rem', color: T.text, textTransform: 'uppercase', marginBottom: 8 }}>{t.name}</div>
+                            <div style={{ fontSize: '0.6rem', color: T.text3, fontFamily: T.fontMono, fontWeight: 800, letterSpacing: '1.5px' }}>{t.type}</div>
+                            
+                            <div style={{ marginTop: 24, display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <div style={{ flex: 1, height: 1, background: T.border }} />
+                              <Shield size={10} color={T.text3} />
+                              <div style={{ flex: 1, height: 1, background: T.border }} />
+                            </div>
                         </div>
-                        <div style={{ fontFamily: "'Syne', sans-serif", fontWeight: 700, fontSize: '0.82rem', letterSpacing: 0.3, fontStyle: 'normal' }}>{t.name}</div>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>{t.type}</div>
-                    </a>
-                ))}
+                    ))}
+                </div>
+                
+                <div style={{ marginTop: 64, textAlign: 'center' }}>
+                  <p style={{ fontFamily: T.fontMono, fontSize: '0.65rem', color: T.text3, fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase' }}>
+                    + 40_ADDITIONAL_CONNECTORS_AVAILABLE // <a href="/auth" style={{ color: T.accent, textDecoration: 'none' }}>REQUEST_NODE_ACCESS</a>
+                  </p>
+                </div>
             </div>
         </section>
     );

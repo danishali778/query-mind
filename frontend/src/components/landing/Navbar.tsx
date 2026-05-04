@@ -1,71 +1,103 @@
-import { useState } from 'react';
-import { Menu, X } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Menu, X, Activity, Shield, Terminal } from 'lucide-react';
+import { T } from '../dashboard/tokens';
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+  const [uptime, setUptime] = useState('99.982%');
+
+  useEffect(() => {
+    const handleScroll = () => setScrolled(window.scrollY > 20);
+    window.addEventListener('scroll', handleScroll);
+    
+    // Mock uptime drift
+    const interval = setInterval(() => {
+      setUptime((99.98 + Math.random() * 0.01).toFixed(3) + '%');
+    }, 3000);
+    
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      clearInterval(interval);
+    };
+  }, []);
 
   return (
     <nav 
-      className="glass-topbar"
       style={{ 
         position: 'fixed', top: 0, left: 0, right: 0, zIndex: 900, 
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', 
-        padding: '14px 20px', // Smaller padding for mobile by default
-        transition: 'all 0.3s ease'
+        padding: scrolled ? '16px 40px' : '24px 60px',
+        background: scrolled ? 'rgba(252, 250, 247, 0.85)' : 'transparent',
+        backdropFilter: scrolled ? 'blur(20px) saturate(180%)' : 'none',
+        borderBottom: `1px solid ${scrolled ? T.border : 'transparent'}`,
+        transition: 'all 0.5s cubic-bezier(0.2, 0.8, 0.2, 1)'
       }}
     >
-      {/* Desktop Padding via CSS wrapper or media query logic below */}
-      <style>{`
-        @media (min-width: 1024px) {
-          nav.glass-topbar { padding: 18px 60px !important; }
-          .nav-links { display: flex !important; }
-          .mobile-toggle { display: none !important; }
-        }
-        @media (max-width: 1023px) {
-          .nav-links { display: none; }
-          .mobile-toggle { display: block; }
-        }
-      `}</style>
+      {/* Brand */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ 
+          width: 32, height: 32, background: T.text, display: 'flex', 
+          alignItems: 'center', justifyContent: 'center', color: '#fff', 
+          fontSize: '1.2rem', fontWeight: 950, fontFamily: T.fontHead,
+          boxShadow: `4px 4px 0px ${T.accent}`
+        }}>Q</div>
+        <div style={{ fontFamily: T.fontHead, fontWeight: 950, fontSize: '1.4rem', letterSpacing: '-1px', color: T.text, textTransform: 'uppercase' }}>
+          QUERY<span style={{ color: T.accent }}>MIND</span>
+        </div>
+      </div>
 
-      <div style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: '1.45rem', letterSpacing: -0.8, color: 'var(--text)', fontStyle: 'normal', zIndex: 1001 }}>
-        Query<span style={{ color: 'var(--accent)' }}>Mind</span>
+      {/* Center Telemetry (Desktop) */}
+      <div style={{ 
+        display: 'flex', alignItems: 'center', gap: 24, 
+        padding: '6px 20px', background: T.s2, border: `1px solid ${T.border}`,
+        fontFamily: T.fontMono, fontSize: '0.6rem', color: T.text3,
+        fontWeight: 900, letterSpacing: '1.5px', textTransform: 'uppercase'
+      }} className="nav-telemetry">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ width: 6, height: 6, background: T.green, borderRadius: '50%' }} />
+          SYSTEM_READY
+        </div>
+        <div style={{ width: 1, height: 12, background: T.border }} />
+        <div>UPTIME: <span style={{ color: T.text2 }}>{uptime}</span></div>
+        <div style={{ width: 1, height: 12, background: T.border }} />
+        <div>SECURE_NODE: <span style={{ color: T.text2 }}>778_ALPHA</span></div>
       </div>
 
       {/* Desktop Links */}
-      <ul className="nav-links" style={{ display: 'none', gap: 32, listStyle: 'none', alignItems: 'center' }}>
-        <li><a href="#features" style={{ color: 'var(--muted)', textDecoration: 'none', fontSize: '0.9rem', fontWeight: 500, transition: 'color 0.2s' }}>Features</a></li>
-        <li><a href="#how" style={{ color: 'var(--muted)', textDecoration: 'none', fontSize: '0.9rem', fontWeight: 500, transition: 'color 0.2s' }}>How it works</a></li>
+      <ul style={{ display: 'flex', gap: 32, listStyle: 'none', alignItems: 'center', margin: 0, padding: 0 }}>
+        <li><a href="#features" style={{ color: T.text2, textDecoration: 'none', fontSize: '0.65rem', fontWeight: 950, fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '1.5px', transition: 'color 0.2s' }}>01_FEATURES</a></li>
+        <li><a href="#how" style={{ color: T.text2, textDecoration: 'none', fontSize: '0.65rem', fontWeight: 950, fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '1.5px', transition: 'color 0.2s' }}>02_WORKFLOW</a></li>
+        <li style={{ width: 1, height: 16, background: T.border, marginLeft: 8, marginRight: 8 }} />
         <li>
-          <a href="/dashboard" style={{ background: 'var(--accent)', color: '#fff', padding: '10px 24px', borderRadius: 8, fontWeight: 700, fontSize: '0.85rem', textDecoration: 'none', boxShadow: '0 4px 12px rgba(14, 165, 233, 0.15)', transition: 'all 0.2s' }}>
-            Get Started Free
+          <a href="/auth" style={{ 
+            color: T.text, textDecoration: 'none', fontSize: '0.65rem', fontWeight: 950, 
+            fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '1.5px' 
+          }}>
+            SIGN IN
+          </a>
+        </li>
+        <li>
+          <a href="/auth" style={{ 
+            background: T.text, color: T.bg, padding: '10px 24px', borderRadius: 0, 
+            fontWeight: 950, fontSize: '0.65rem', textDecoration: 'none', 
+            fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '1.5px',
+            transition: 'all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)',
+            border: `1px solid ${T.text}`
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = T.text; }}
+          onMouseLeave={e => { e.currentTarget.style.background = T.text; e.currentTarget.style.color = T.bg; }}
+          >
+            GET STARTED FREE
           </a>
         </li>
       </ul>
 
-      {/* Mobile Toggle */}
-      <button 
-        className="mobile-toggle"
-        onClick={() => setIsOpen(!isOpen)}
-        style={{ background: 'transparent', border: 'none', color: 'var(--text)', cursor: 'pointer', zIndex: 1001, padding: 8 }}
-      >
-        {isOpen ? <X size={24} /> : <Menu size={24} />}
-      </button>
-
-      {/* Mobile Menu Overlay */}
-      {isOpen && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(255,255,255,0.98)', 
-          backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-          gap: 32, zIndex: 1000, animation: 'fadeDown 0.3s ease'
-        }}>
-          <a href="#features" onClick={() => setIsOpen(false)} style={{ color: 'var(--text)', textDecoration: 'none', fontSize: '1.5rem', fontWeight: 700, fontFamily: "'Syne', sans-serif" }}>Features</a>
-          <a href="#how" onClick={() => setIsOpen(false)} style={{ color: 'var(--text)', textDecoration: 'none', fontSize: '1.5rem', fontWeight: 700, fontFamily: "'Syne', sans-serif" }}>How it works</a>
-          <a href="/dashboard" style={{ background: 'var(--accent)', color: '#fff', padding: '16px 40px', borderRadius: 12, fontWeight: 700, fontSize: '1.1rem', textDecoration: 'none', boxShadow: '0 8px 16px rgba(14, 165, 233, 0.2)' }}>
-            Get Started Free
-          </a>
-        </div>
-      )}
+      <style>{`
+        @media (max-width: 1000px) {
+          .nav-telemetry { display: none; }
+        }
+      `}</style>
     </nav>
   );
 }
