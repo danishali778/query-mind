@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { T } from '../components/dashboard/tokens';
 import { useAuth } from '../context/AuthContext';
+import { Shield, Lock, Mail, ChevronRight, Activity, Terminal, Globe, LockKeyhole } from 'lucide-react';
+import { LandingOverlay } from '../components/landing/LandingOverlay';
 
 export function AuthPage() {
   const navigate = useNavigate();
@@ -12,9 +14,9 @@ export function AuthPage() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [auditLogs, setAuditLogs] = useState<string[]>([]);
 
-  // If already logged in (or if DEV mode forces a mock user), push to dashboard immediately
-  React.useEffect(() => {
+  useEffect(() => {
     const freshCheck = async () => {
       if (user || isDevMode) {
         if (!isDevMode) {
@@ -32,7 +34,20 @@ export function AuthPage() {
       }
     };
     freshCheck();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    
+    // Mock audit logs for the visual side
+    const logs = [
+      'SECURE_GATEWAY_INITIALIZED',
+      'LISTENING_ON_PORT_443',
+      'ENCRYPTION_LAYER: AES-256',
+      'SCANNING_IDENTITY_SIGNALS...',
+      'NODE_READY_FOR_HANDSHAKE',
+    ];
+    let i = 0;
+    const iv = setInterval(() => {
+      if (i < logs.length) setAuditLogs(prev => [...prev, logs[i++]]);
+    }, 1000);
+    return () => clearInterval(iv);
   }, [user, isDevMode, navigate]);
 
   const handleOAuthLogin = async (provider: 'google') => {
@@ -41,13 +56,11 @@ export function AuthPage() {
       setError(null);
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
-        options: {
-          redirectTo: window.location.origin + '/dashboard'
-        }
+        options: { redirectTo: window.location.origin + '/dashboard' }
       });
       if (error) throw error;
-    } catch (err: unknown) {
-      setError((err as Error).message || 'Failed to authenticate with Google');
+    } catch (err: any) {
+      setError(err.message || 'Failed to authenticate');
     } finally {
       setLoading(false);
     }
@@ -60,174 +73,200 @@ export function AuthPage() {
       setError(null);
       
       if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        // The useEffect will detect the session change and handle onboarding/navigation
       } else {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-        });
+        const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
-        
-        // If session is returned immediately (confirmation disabled), the useEffect will handle it
-        if (!data.session) {
-          setError("Success! Please check your email for a confirmation link.");
-        }
+        if (!data.session) setError("SUCCESS // CHECK_EMAIL_FOR_LINK");
       }
-    } catch (err: unknown) {
-      setError((err as Error).message || 'Authentication failed');
+    } catch (err: any) {
+      setError(err.message?.toUpperCase() || 'AUTHENTICATION_FAILURE');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: '40px 16px',
-      boxSizing: 'border-box',
-      background: T.s1, // Light background
-      fontFamily: T.fontBody,
-    }}>
-      <div style={{
-        width: '100%',
-        maxWidth: 420,
-        padding: '40px 32px',
-        background: '#ffffff',
-        border: `1px solid ${T.border}`,
-        borderRadius: 20,
-        boxShadow: '0 20px 40px rgba(0,0,0,0.03)',
-      }}>
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            width: 48, height: 48, borderRadius: 12,
-            background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`,
-            color: '#fff', fontSize: '1.4rem', fontWeight: 800,
-            marginBottom: 16,
-          }}>Q</div>
-          <h2 style={{ margin: 0, fontFamily: T.fontHead, fontWeight: 800, fontSize: '1.6rem', color: T.text, letterSpacing: -0.5 }}>
-            {isLogin ? 'Welcome back' : 'Create your account'}
-          </h2>
-          <p style={{ margin: '8px 0 0', color: T.text3, fontSize: '0.9rem' }}>
-            {isLogin ? 'Enter your details to access your workspace.' : 'Start querying your data magically.'}
-          </p>
-        </div>
-
-        {error && (
-          <div style={{
-            padding: '12px 16px', borderRadius: 8, marginBottom: 20, fontSize: '0.82rem',
-            background: error.startsWith('Success') ? T.greenDim : '#fee2e2',
-            color: error.startsWith('Success') ? T.green : '#b91c1c',
-            border: `1px solid ${error.startsWith('Success') ? 'rgba(34,211,165,0.2)' : 'rgba(185,28,28,0.2)'}`
+    <div style={{ minHeight: '100vh', display: 'flex', background: T.bg, position: 'relative', overflow: 'hidden' }}>
+      <LandingOverlay />
+      
+      {/* Left side: Cyber-Industrial Visual */}
+      <div style={{ 
+        flex: 1, position: 'relative', overflow: 'hidden', background: T.text,
+        display: 'flex', flexDirection: 'column', padding: 60, color: T.bg
+      }} className="auth-visual">
+        {/* Background Grid */}
+        <div style={{ 
+          position: 'absolute', inset: 0, 
+          backgroundImage: `linear-gradient(${T.accent}11 1px, transparent 1px), linear-gradient(90deg, ${T.accent}11 1px, transparent 1px)`, 
+          backgroundSize: '40px 40px', opacity: 0.3 
+        }} />
+        
+        <div style={{ position: 'relative', zIndex: 1 }}>
+          <div style={{ 
+            display: 'inline-flex', alignItems: 'center', gap: 12, 
+            background: 'rgba(0,0,0,0.3)', border: `1px solid ${T.accent}33`, 
+            padding: '8px 16px', fontFamily: T.fontMono, fontSize: '0.55rem', 
+            letterSpacing: 2, fontWeight: 950, marginBottom: 40
           }}>
-            {error}
+            <Activity size={10} color={T.accent} />
+            SECURITY_AUDIT_PROTOCOL
           </div>
-        )}
-
-        <form onSubmit={handleEmailAuth} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: T.text2, marginBottom: 6 }}>Email</label>
-            <input 
-              type="email" 
-              required
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="you@company.com"
-              style={{
-                width: '100%', padding: '12px 14px', borderRadius: 10,
-                border: `1px solid ${T.border}`, background: T.s2,
-                fontSize: '0.9rem', color: T.text, outline: 'none', transition: 'border 0.2s',
-                boxSizing: 'border-box'
-              }}
-              onFocus={e => e.currentTarget.style.borderColor = T.accent}
-              onBlur={e => e.currentTarget.style.borderColor = T.border}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: T.text2, marginBottom: 6 }}>Password</label>
-            <input 
-              type="password" 
-              required
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••"
-              style={{
-                width: '100%', padding: '12px 14px', borderRadius: 10,
-                border: `1px solid ${T.border}`, background: T.s2,
-                fontSize: '0.9rem', color: T.text, outline: 'none', transition: 'border 0.2s',
-                boxSizing: 'border-box'
-              }}
-              onFocus={e => e.currentTarget.style.borderColor = T.accent}
-              onBlur={e => e.currentTarget.style.borderColor = T.border}
-            />
-          </div>
-
-          <button 
-            type="submit" 
-            disabled={loading}
-            style={{
-              width: '100%', padding: '14px', marginTop: 8, borderRadius: 10, border: 'none',
-              background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`,
-              color: '#ffffff', fontWeight: 600, fontSize: '0.95rem',
-              cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1,
-              transition: 'opacity 0.2s',
-            }}
-          >
-            {loading ? 'Processing...' : (isLogin ? 'Sign In' : 'Create Account')}
-          </button>
-        </form>
-
-        <div style={{ display: 'flex', alignItems: 'center', margin: '24px 0', color: T.text3 }}>
-          <div style={{ flex: 1, height: 1, background: T.border }} />
-          <span style={{ padding: '0 12px', fontSize: '0.75rem', fontWeight: 500, fontFamily: T.fontMono, textTransform: 'uppercase' }}>OR</span>
-          <div style={{ flex: 1, height: 1, background: T.border }} />
+          
+          <h2 style={{ 
+            fontFamily: T.fontHead, fontWeight: 950, fontSize: '4.5rem', 
+            letterSpacing: -3, lineHeight: 0.9, textTransform: 'uppercase', fontStyle: 'italic'
+          }}>
+            PROTECTING_YOUR_<br />
+            <span style={{ color: T.accent }}>INTELLIGENCE.</span>
+          </h2>
         </div>
 
-        <button 
-          onClick={() => handleOAuthLogin('google')}
-          disabled={loading}
-          style={{
-            width: '100%', padding: '12px 14px', borderRadius: 10,
-            border: `1px solid ${T.border}`, background: '#ffffff',
-            color: T.text, fontWeight: 600, fontSize: '0.9rem',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-            transition: 'background 0.2s',
-          }}
-          onMouseEnter={e => e.currentTarget.style.background = T.s2}
-          onMouseLeave={e => e.currentTarget.style.background = '#ffffff'}
-        >
-          <svg viewBox="0 0 24 24" style={{ width: 18, height: 18 }}>
-            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-          </svg>
-          Continue with Google
-        </button>
-
-        <div style={{ textAlign: 'center', marginTop: 24, fontSize: '0.85rem', color: T.text3 }}>
-          {isLogin ? "Don't have an account? " : "Already have an account? "}
-          <button 
-            onClick={() => setIsLogin(!isLogin)}
-            style={{
-              background: 'none', border: 'none', color: T.accent, fontWeight: 600,
-              cursor: 'pointer', padding: 0, textDecoration: 'underline'
-            }}
-          >
-            {isLogin ? 'Sign up' : 'Sign in'}
-          </button>
+        {/* Audit Logs */}
+        <div style={{ marginTop: 'auto', position: 'relative', zIndex: 1 }}>
+          <div style={{ 
+            fontFamily: T.fontMono, fontSize: '0.6rem', color: T.accent, 
+            display: 'flex', flexDirection: 'column', gap: 8 
+          }}>
+            {auditLogs.map((log, i) => (
+              <div key={i} style={{ display: 'flex', gap: 12, opacity: 0.7 + (i * 0.05) }}>
+                <span style={{ color: T.accent }}>[{new Date().toLocaleTimeString()}]</span>
+                <span>{'>'} {log}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
+
+      {/* Right side: Clean Form */}
+      <div style={{ 
+        width: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', 
+        padding: 40, borderLeft: `1px solid ${T.border}`, background: T.bg, zIndex: 1 
+      }} className="auth-form-container">
+        <div style={{ width: '100%', maxWidth: 400 }}>
+          <div style={{ marginBottom: 48 }}>
+            <div style={{ 
+              width: 40, height: 40, background: T.text, display: 'flex', 
+              alignItems: 'center', justifyContent: 'center', color: '#fff', 
+              fontFamily: T.fontHead, fontWeight: 950, fontSize: '1.4rem', 
+              marginBottom: 32, boxShadow: `6px 6px 0px ${T.accent}`
+            }}>Q</div>
+            <h1 style={{ 
+              fontFamily: T.fontHead, fontWeight: 950, fontSize: '2.5rem', 
+              letterSpacing: -1, textTransform: 'uppercase', marginBottom: 12 
+            }}>
+              {isLogin ? 'Welcome Back' : 'Get Started'}
+            </h1>
+            <p style={{ fontFamily: T.fontMono, fontSize: '0.65rem', color: T.text3, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 800 }}>
+              {isLogin ? 'Sign in to access your data nodes' : 'Create an account to begin initialization'}
+            </p>
+          </div>
+
+          {error && (
+            <div style={{ 
+              padding: '16px', background: `${T.red}11`, border: `1px solid ${T.red}`, 
+              color: T.red, fontFamily: T.fontMono, fontSize: '0.7rem', fontWeight: 950, 
+              marginBottom: 32, textTransform: 'uppercase' 
+            }}>
+              {error}
+            </div>
+          )}
+
+          <form onSubmit={handleEmailAuth} style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            <div>
+              <label style={{ display: 'block', fontFamily: T.fontMono, fontSize: '0.6rem', fontWeight: 950, letterSpacing: 1.5, marginBottom: 8, color: T.text3, textTransform: 'uppercase' }}>Email Address</label>
+              <div style={{ position: 'relative' }}>
+                <Mail size={16} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: T.text3 }} />
+                <input 
+                  type="email" required value={email} onChange={e => setEmail(e.target.value)}
+                  placeholder="name@company.com"
+                  style={{
+                    width: '100%', padding: '16px 16px 16px 48px', background: T.s2, 
+                    border: `1px solid ${T.border}`, fontFamily: T.fontMono, fontSize: '0.8rem', 
+                    color: T.text, outline: 'none', transition: 'all 0.2s'
+                  }}
+                  onFocus={e => e.currentTarget.style.borderColor = T.accent}
+                  onBlur={e => e.currentTarget.style.borderColor = T.border}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontFamily: T.fontMono, fontSize: '0.6rem', fontWeight: 950, letterSpacing: 1.5, marginBottom: 8, color: T.text3, textTransform: 'uppercase' }}>Password</label>
+              <div style={{ position: 'relative' }}>
+                <LockKeyhole size={16} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: T.text3 }} />
+                <input 
+                  type="password" required value={password} onChange={e => setPassword(e.target.value)}
+                  placeholder="••••••••••••"
+                  style={{
+                    width: '100%', padding: '16px 16px 16px 48px', background: T.s2, 
+                    border: `1px solid ${T.border}`, fontFamily: T.fontMono, fontSize: '0.8rem', 
+                    color: T.text, outline: 'none', transition: 'all 0.2s'
+                  }}
+                  onFocus={e => e.currentTarget.style.borderColor = T.accent}
+                  onBlur={e => e.currentTarget.style.borderColor = T.border}
+                />
+              </div>
+            </div>
+
+            <button 
+              type="submit" disabled={loading}
+              style={{
+                background: T.text, color: T.bg, padding: '18px', fontWeight: 950, 
+                fontFamily: T.fontMono, fontSize: '0.8rem', textTransform: 'uppercase', 
+                letterSpacing: 3, border: 'none', cursor: 'pointer',
+                transition: 'all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = T.accent; e.currentTarget.style.color = '#000'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = T.text; e.currentTarget.style.color = T.bg; }}
+            >
+              {loading ? 'PROCESSING...' : (isLogin ? 'Sign In' : 'Sign Up')}
+              <ChevronRight size={16} />
+            </button>
+          </form>
+
+          <div style={{ display: 'flex', alignItems: 'center', margin: '40px 0', color: T.border }}>
+            <div style={{ flex: 1, height: 1, background: T.border }} />
+            <span style={{ padding: '0 20px', fontFamily: T.fontMono, fontSize: '0.6rem', fontWeight: 950, letterSpacing: 2 }}>OR CONTINUE WITH</span>
+            <div style={{ flex: 1, height: 1, background: T.border }} />
+          </div>
+
+          <button 
+            onClick={() => handleOAuthLogin('google')}
+            style={{
+              width: '100%', padding: '16px', background: 'transparent', 
+              border: `1px solid ${T.border}`, color: T.text, fontWeight: 950, 
+              fontFamily: T.fontMono, fontSize: '0.75rem', textTransform: 'uppercase', 
+              letterSpacing: 2, cursor: 'pointer', transition: 'all 0.2s',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = T.s1; e.currentTarget.style.borderColor = T.text; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = T.border; }}
+          >
+            <Globe size={16} />
+            Google Identity
+          </button>
+
+          <p style={{ textAlign: 'center', marginTop: 40, fontFamily: T.fontMono, fontSize: '0.65rem', color: T.text3, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>
+            {isLogin ? "Don't have an account?" : "Already have an account?"}
+            <button 
+              onClick={() => setIsLogin(!isLogin)}
+              style={{ background: 'none', border: 'none', color: T.accent, fontWeight: 950, cursor: 'pointer', marginLeft: 8, textTransform: 'uppercase' }}
+            >
+              {isLogin ? 'Sign Up' : 'Sign In'}
+            </button>
+          </p>
+        </div>
+      </div>
+
+      <style>{`
+        @media (max-width: 1100px) {
+          .auth-visual { display: none; }
+          .auth-form-container { width: 100%; border: none; }
+        }
+      `}</style>
     </div>
   );
 }
