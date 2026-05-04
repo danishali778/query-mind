@@ -124,16 +124,25 @@ def upgrade_to_pro(user_id: str) -> UserSubscription:
 def onboard_user(user_id: str) -> bool:
     """Ensure default settings and subscription rows exist for a user."""
     try:
+        logger.debug("Checking settings for user %s", user_id)
         existing_settings = supabase.table("user_settings").select("owner_id").eq("owner_id", user_id).execute()
+        logger.debug("Settings check response: %s", existing_settings.data)
+        
         if not existing_settings.data:
+            logger.info("Initializing settings for new user %s", user_id)
             defaults = UserSettingsBase().model_dump()
             defaults["owner_id"] = user_id
             supabase.table("user_settings").insert(defaults).execute()
+            logger.debug("Settings initialized")
 
+        logger.debug("Checking subscription for user %s", user_id)
         existing_subscription = (
             supabase.table("user_subscriptions").select("owner_id").eq("owner_id", user_id).execute()
         )
+        logger.debug("Subscription check response: %s", existing_subscription.data)
+        
         if not existing_subscription.data:
+            logger.info("Initializing subscription for new user %s", user_id)
             sub_defaults = {
                 "owner_id": user_id,
                 "plan_type": "free",
@@ -143,6 +152,8 @@ def onboard_user(user_id: str) -> bool:
                 "ai_limit": 30,
             }
             supabase.table("user_subscriptions").insert(sub_defaults).execute()
+            logger.debug("Subscription initialized")
+            
         return True
     except Exception as exc:
         is_mock = user_id == "00000000-0000-0000-0000-000000000000"

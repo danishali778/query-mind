@@ -1,4 +1,7 @@
+import logging
 from fastapi import APIRouter, HTTPException
+
+logger = logging.getLogger(__name__)
 
 from app.api.deps import CurrentUserDep
 from app.api.v1.schemas.common import StatusMessageResponse
@@ -109,6 +112,7 @@ async def get_database_schema(connection_id: str, current_user: CurrentUserDep):
             tables=tables,
         )
     except Exception as e:
+        logger.error("Schema inspection failed for connection %s: %s", connection_id, e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Schema inspection failed: {str(e)}")
 
 
