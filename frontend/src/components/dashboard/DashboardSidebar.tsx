@@ -1,8 +1,9 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { T } from './tokens';
+import { Activity, Terminal, Shield, Zap, Database, Settings, Bell, LayoutGrid, MessageSquare, Library } from 'lucide-react';
 
 type SidebarItem = {
-  icon: string;
+  icon: React.ReactNode;
   label: string;
   path?: string;
   badge?: string;
@@ -10,16 +11,16 @@ type SidebarItem = {
 };
 
 const NAV_ITEMS: SidebarItem[] = [
-  { icon: 'C', label: 'Chat', path: '/chat' },
-  { icon: 'D', label: 'Dashboards', badge: '3', path: '/dashboard' },
-  { icon: 'L', label: 'Query Library', badge: '24', path: '/library' },
-  { icon: 'A', label: 'Analytics', path: '/analytics' },
+  { icon: <MessageSquare size={14} />, label: 'CHAT_PROTOCOL', path: '/chat' },
+  { icon: <LayoutGrid size={14} />, label: 'DASHBOARDS', badge: '03', path: '/dashboard' },
+  { icon: <Library size={14} />, label: 'QUERY_LIBRARY', badge: '24', path: '/library' },
+  { icon: <Activity size={14} />, label: 'LIVE_ANALYTICS', path: '/analytics' },
 ];
 
 const WORKSPACE_ITEMS: SidebarItem[] = [
-  { icon: 'N', label: 'Connections', badge: '3', path: '/connections' },
-  { icon: '!', label: 'Alerts', badge: '2', badgeColor: true },
-  { icon: 'G', label: 'Settings' },
+  { icon: <Database size={14} />, label: 'NODE_CONNECTIONS', badge: '03', path: '/connections' },
+  { icon: <Bell size={14} />, label: 'SYSTEM_ALERTS', badge: '02', badgeColor: true },
+  { icon: <Settings size={14} />, label: 'CORE_SETTINGS', path: '/settings' },
 ];
 
 export function DashboardSidebar() {
@@ -36,22 +37,23 @@ export function DashboardSidebar() {
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 9,
-          padding: '8px 10px',
-          borderRadius: 8,
+          gap: 12,
+          padding: '12px 16px',
           cursor: item.path ? 'pointer' : 'default',
-          transition: 'all 0.15s',
-          marginBottom: 1,
+          transition: 'all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1)',
           color: isActive ? T.text : T.text3,
-          fontSize: '0.82rem',
+          fontSize: '0.62rem',
           background: isActive ? T.s2 : 'transparent',
-          border: `1px solid ${isActive ? 'rgba(0,229,255,0.12)' : 'transparent'}`,
-          textDecoration: 'none',
+          borderLeft: `2px solid ${isActive ? T.accent : 'transparent'}`,
+          fontFamily: T.fontMono,
+          fontWeight: 900,
+          letterSpacing: '1.5px',
+          textTransform: 'uppercase'
         }}
         onMouseEnter={(e) => {
           if (!isActive && item.path) {
             e.currentTarget.style.background = T.s2;
-            e.currentTarget.style.color = T.text2;
+            e.currentTarget.style.color = T.text;
           }
         }}
         onMouseLeave={(e) => {
@@ -61,23 +63,7 @@ export function DashboardSidebar() {
           }
         }}
       >
-        <span
-          style={{
-            width: 16,
-            height: 16,
-            flexShrink: 0,
-            borderRadius: 4,
-            border: `1px solid ${isActive ? 'rgba(0,229,255,0.2)' : T.border}`,
-            background: isActive ? T.accentDim : 'transparent',
-            color: isActive ? T.accent : T.text3,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '0.62rem',
-            fontFamily: T.fontMono,
-            fontWeight: 700,
-          }}
-        >
+        <span style={{ color: isActive ? T.accent : T.text3, opacity: isActive ? 1 : 0.6 }}>
           {item.icon}
         </span>
         {item.label}
@@ -85,13 +71,12 @@ export function DashboardSidebar() {
           <span
             style={{
               marginLeft: 'auto',
-              background: item.badgeColor ? T.redDim : T.accentDim,
-              color: item.badgeColor ? T.red : T.accent,
-              fontSize: '0.62rem',
+              background: item.badgeColor ? T.red : T.text,
+              color: T.bg,
+              fontSize: '0.55rem',
               fontFamily: T.fontMono,
-              padding: '1px 6px',
-              borderRadius: 10,
-              border: `1px solid ${item.badgeColor ? 'rgba(248,113,113,0.2)' : 'rgba(0,229,255,0.2)'}`,
+              padding: '2px 6px',
+              fontWeight: 950
             }}
           >
             {item.badge}
@@ -104,83 +89,98 @@ export function DashboardSidebar() {
   return (
     <aside
       style={{
-        width: 220,
+        width: 240,
         flexShrink: 0,
-        background: T.s1,
+        background: T.bg,
         borderRight: `1px solid ${T.border}`,
         display: 'flex',
         flexDirection: 'column',
         height: '100vh',
         overflow: 'hidden',
+        zIndex: 100
       }}
     >
-      <div style={{ padding: '16px 14px 12px' }}>
+      {/* Brand Section */}
+      <div style={{ padding: '32px 24px', borderBottom: `1px solid ${T.border}` }}>
         <div
+          onClick={() => navigate('/')}
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 9,
+            gap: 12,
             fontFamily: T.fontHead,
-            fontWeight: 800,
-            fontSize: '1.1rem',
-            letterSpacing: -0.5,
-            padding: '4px 6px',
-            marginBottom: 16,
+            fontWeight: 950,
+            fontSize: '1.3rem',
+            letterSpacing: -1,
             color: T.text,
+            cursor: 'pointer'
           }}
         >
           <div
             style={{
-              width: 26,
-              height: 26,
-              borderRadius: 7,
-              background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`,
+              width: 28,
+              height: 28,
+              background: T.text,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: '0.7rem',
-              color: '#000',
-              fontWeight: 800,
+              fontSize: '0.9rem',
+              color: T.bg,
+              fontWeight: 950,
+              boxShadow: `4px 4px 0px ${T.accent}`
             }}
           >
             Q
           </div>
-          Query<span style={{ color: T.accent }}>Mind</span>
+          QUERY<span style={{ color: T.accent }}>MIND</span>
         </div>
+      </div>
 
-        <div style={{ fontSize: '0.62rem', fontWeight: 600, letterSpacing: 1.5, color: T.text3, textTransform: 'uppercase', padding: '10px 8px 5px', fontFamily: T.fontMono }}>
-          Main
+      {/* Nav Groups */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 0' }}>
+        <div style={{ 
+          fontSize: '0.55rem', fontWeight: 950, letterSpacing: '3px', color: T.accent, 
+          textTransform: 'uppercase', padding: '0 24px 16px', fontFamily: T.fontMono,
+          display: 'flex', alignItems: 'center', gap: 8
+        }}>
+          <div style={{ width: 12, height: 1, background: T.accent }} />
+          CORE_PROTOCOLS
         </div>
         {NAV_ITEMS.map(renderItem)}
 
-        <div style={{ fontSize: '0.62rem', fontWeight: 600, letterSpacing: 1.5, color: T.text3, textTransform: 'uppercase', padding: '18px 8px 5px', fontFamily: T.fontMono }}>
-          Workspace
+        <div style={{ 
+          fontSize: '0.55rem', fontWeight: 950, letterSpacing: '3px', color: T.accent, 
+          textTransform: 'uppercase', padding: '32px 24px 16px', fontFamily: T.fontMono,
+          display: 'flex', alignItems: 'center', gap: 8
+        }}>
+          <div style={{ width: 12, height: 1, background: T.accent }} />
+          WORKSPACE_NODES
         </div>
         {WORKSPACE_ITEMS.map(renderItem)}
       </div>
 
-      <div style={{ marginTop: 'auto', padding: '12px 14px', borderTop: `1px solid ${T.border}` }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 4px', borderRadius: 8 }}>
+      {/* Footer / Profile */}
+      <div style={{ marginTop: 'auto', padding: '24px', background: T.s2, borderTop: `1px solid ${T.border}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <div
             style={{
-              width: 28,
-              height: 28,
-              borderRadius: 8,
-              flexShrink: 0,
-              background: `linear-gradient(135deg, ${T.purple}, ${T.accent})`,
+              width: 36,
+              height: 36,
+              background: T.text,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: '0.68rem',
-              fontWeight: 700,
-              color: '#fff',
+              fontSize: '0.75rem',
+              fontWeight: 950,
+              color: T.bg,
+              boxShadow: `3px 3px 0px ${T.accent}`
             }}
           >
             AK
           </div>
-          <div>
-            <div style={{ fontSize: '0.78rem', fontWeight: 600, color: T.text }}>Ahmad Khan</div>
-            <div style={{ fontSize: '0.62rem', color: T.accent, fontFamily: T.fontMono }}>PRO PLAN</div>
+          <div style={{ overflow: 'hidden' }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 950, color: T.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textTransform: 'uppercase' }}>Ahmad Khan</div>
+            <div style={{ fontSize: '0.55rem', color: T.accent, fontFamily: T.fontMono, fontWeight: 950, letterSpacing: 1 }}>PRO_SUBSCRIPTION</div>
           </div>
         </div>
       </div>
