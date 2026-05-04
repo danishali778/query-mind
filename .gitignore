@@ -51,7 +51,6 @@ frontend/build/
 # OS
 .DS_Store
 Thumbs.db
-.gemini/
 
 # Logs
 *.log
@@ -76,9 +75,16 @@ htmlcov/
 
 # Local mockups & metadata
 querymind-*.html
+# Local/Temporary/Scratch
+scratch/
+.gemini/
 .claude/
 .mcp.json
 .playwright-mcp/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
 
 # Assets & media (typically not committed if generated or large)
 # *.png (Commented out to allow professional showcase images)
