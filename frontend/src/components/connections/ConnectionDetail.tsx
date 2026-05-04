@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
+import { RefreshCw, Edit3, Share2, Trash2, Database, Shield, Activity, List, Layout, Terminal, ExternalLink, ChevronRight, CheckCircle2, AlertCircle, Clock, Server, Lock, Globe, Code } from 'lucide-react';
 import { T } from '../dashboard/tokens';
-import { StatusIndicator } from '../common/StatusIndicator';
-import { testConnection, updateConnectionSettings } from '../../services/api';
-import type { ConnectionDetailProps, ConnectionDetailTab, ConnectionListItem } from '../../types/connections';
-import type { QueryRecord, SchemaColumn, SchemaResponse, SchemaTable as ApiSchemaTable } from '../../types/api';
+import type { ConnectionListItem, ConnectionDetailProps, ConnectionDetailTab } from '../../types/connections';
+import type { QueryRecord, SchemaResponse, SchemaTable, SchemaColumn } from '../../types/api';
 import { ErdDiagram } from './ErdDiagram';
+import { updateConnectionSettings, testConnection } from '../../services/api';
 
 // ---------------------------------------------------------------------------
 // Local type definitions for schema and query data
@@ -16,24 +16,37 @@ interface UiColumnSchema {
   isFk?: boolean;
 }
 
-type TableSchema = ApiSchemaTable;
+type TableSchema = SchemaTable;
+
+const timeAgo = (dateStr: string) => {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diff = now.getTime() - date.getTime();
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 60) return `${seconds}S AGO`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}M AGO`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}H AGO`;
+  return date.toLocaleDateString();
+};
 
 export function ConnectionDetail({ connection, schema, queryHistory, onDelete, onRefreshSchema }: ConnectionDetailProps) {
   const [activeTab, setActiveTab] = useState<ConnectionDetailTab>('overview');
   
   if (!connection) {
     return (
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: T.bg, color: T.text3, fontFamily: T.fontBody }}>
-        Select a connection to view details
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: T.bg, color: T.text3, fontFamily: T.fontMono, fontSize: '0.72rem', letterSpacing: '1px' }}>
+        SELECT A DATA SOURCE TO VIEW LEDGER
       </div>
     );
   }
 
   const getStatusColor = () => {
     switch(connection.status) {
-      case 'live': return { bg: T.greenDim, text: T.green, border: 'rgba(34,211,165,0.25)' };
-      case 'offline': return { bg: T.redDim, text: T.red, border: 'rgba(248,113,113,0.25)' };
-      case 'warning': return { bg: T.yellowDim, text: T.yellow, border: 'rgba(245,158,11,0.25)' };
+      case 'live': return { bg: T.greenDim, text: T.green, border: 'rgba(34,211,165,0.1)' };
+      case 'offline': return { bg: T.redDim, text: T.red, border: 'rgba(248,113,113,0.1)' };
+      case 'warning': return { bg: T.yellowDim, text: T.yellow, border: 'rgba(245,158,11,0.1)' };
       default: return { bg: T.s3, text: T.text3, border: T.border };
     }
   };
@@ -42,124 +55,106 @@ export function ConnectionDetail({ connection, schema, queryHistory, onDelete, o
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: T.bg, fontFamily: T.fontBody }}>
       
-      {/* Header */}
-      <div style={{ padding: '20px 28px 16px', background: T.s1, borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 14 }}>
-        <div style={{ width: 48, height: 48, borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', flexShrink: 0, background: connection.color }}>
+      {/* Header Masthead */}
+      <div style={{ padding: '24px 32px 20px', background: T.s1, borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 20 }}>
+        <div style={{ width: 56, height: 56, borderRadius: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.8rem', flexShrink: 0, background: connection.color }}>
           {connection.icon}
         </div>
         
         <div style={{ flex: 1 }}>
-          <div style={{ fontFamily: T.fontHead, fontWeight: 800, fontSize: '1.1rem', marginBottom: 2, color: T.text }}>{connection.name}</div>
-          <div style={{ fontSize: '0.72rem', color: T.text3, fontFamily: T.fontMono }}>{connection.host || 'localhost'} · {connection.port || 'N/A'} · database: {connection.database || 'N/A'}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+             <div style={{ fontFamily: T.fontHead, fontWeight: 900, fontSize: '1.4rem', color: T.text, fontStyle: 'italic' }}>{connection.name}</div>
+             <div style={{ fontSize: '0.62rem', background: sc.bg, color: sc.text, padding: '2px 8px', fontFamily: T.fontMono, fontWeight: 700, textTransform: 'uppercase' }}>{connection.status}</div>
+          </div>
+          <div style={{ fontSize: '0.68rem', color: T.text3, fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            {connection.host || 'localhost'} · {connection.port || 'N/A'} · DB: {connection.database || 'N/A'} · <span style={{ color: T.accent }}>{connection.type}</span>
+          </div>
         </div>
         
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 20, fontSize: '0.85rem', fontFamily: T.fontBody, flexShrink: 0, background: sc.bg, border: `1px solid ${sc.border}` }}>
-          <StatusIndicator
-            status={connection.status === 'live' ? 'online' : connection.status === 'offline' ? 'offline' : 'loading'}
-            latency={typeof connection.latency === 'number' ? connection.latency : undefined}
-            size="sm"
-          />
-        </div>
-        
-        <div style={{ display: 'flex', gap: 7 }}>
-          <HeaderBtn icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>} label="Test" />
-          <HeaderBtn icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>} label="Edit" />
-          <HeaderBtn icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>} label="Share" />
-          <HeaderBtn danger onClick={() => onDelete?.(connection.id)} icon={<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>} label="Delete" />
+        <div style={{ display: 'flex', gap: 8 }}>
+          <HeaderBtn icon={<RefreshCw size={12} />} label="RE-DISCOVER" onClick={onRefreshSchema} />
+          <HeaderBtn icon={<Edit3 size={12} />} label="CONFIG" onClick={() => setActiveTab('credentials')} />
+          <HeaderBtn icon={<Share2 size={12} />} label="SHARE" />
+          <HeaderBtn danger onClick={() => onDelete?.(connection.id)} icon={<Trash2 size={12} />} label="DISCONNECT" />
         </div>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', background: T.s1, borderBottom: `1px solid ${T.border}` }}>
-        <Tab active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} label="Overview" />
-        <Tab active={activeTab === 'credentials'} onClick={() => setActiveTab('credentials')} label="Credentials" />
-        <Tab active={activeTab === 'schema'} onClick={() => setActiveTab('schema')} label="Schema" />
-        <Tab active={activeTab === 'security'} onClick={() => setActiveTab('security')} label="Security" />
-        <Tab active={activeTab === 'activity'} onClick={() => setActiveTab('activity')} label="Query Activity" />
+      {/* Navigation Ledger */}
+      <div style={{ display: 'flex', background: T.s1, borderBottom: `1px solid ${T.border}`, padding: '0 32px' }}>
+        <Tab active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} label="OVERVIEW" icon={<Layout size={12} />} />
+        <Tab active={activeTab === 'credentials'} onClick={() => setActiveTab('credentials')} label="CREDENTIALS" icon={<Shield size={12} />} />
+        <Tab active={activeTab === 'schema'} onClick={() => setActiveTab('schema')} label="SCHEMA" icon={<Database size={12} />} />
+        <Tab active={activeTab === 'security'} onClick={() => setActiveTab('security')} label="SECURITY" icon={<Terminal size={12} />} />
+        <Tab active={activeTab === 'activity'} onClick={() => setActiveTab('activity')} label="ACTIVITY LOG" icon={<Activity size={12} />} />
       </div>
 
       {/* Body */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }} className="cd-body">
+      <div style={{ flex: 1, overflowY: 'auto', padding: '32px' }} className="cd-body">
         
-        {activeTab === 'overview' && <OverviewTab connection={connection} schema={schema} queryHistory={queryHistory} onTabSwitch={setActiveTab} />}
+        {activeTab === 'overview' && <OverviewTab connection={connection} schema={schema} queryHistory={queryHistory || []} onTabSwitch={setActiveTab} />}
         {activeTab === 'credentials' && <CredentialsTab connection={connection} />}
         {activeTab === 'schema' && <SchemaTab schema={schema ?? undefined} onRefresh={onRefreshSchema} />}
         {activeTab === 'security' && <SecurityTab />}
-        {activeTab === 'activity' && <ActivityTab queryHistory={queryHistory} />}
+        {activeTab === 'activity' && <ActivityTab queryHistory={queryHistory || []} />}
 
       </div>
 
       <style>{`
-        @keyframes lp { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
         .cd-body::-webkit-scrollbar { width: 4px; }
-        .cd-body::-webkit-scrollbar-thumb { background: ${T.s4}; border-radius: 2px; }
+        .cd-body::-webkit-scrollbar-thumb { background: ${T.s4}; }
       `}</style>
     </div>
   );
 }
 
-// ------------------------
-// Sub-components
-// ------------------------
-
 function HeaderBtn({ icon, label, danger, onClick }: { icon: React.ReactNode, label: string, danger?: boolean, onClick?: () => void }) {
   return (
     <button onClick={onClick} style={{
-      display: 'flex', alignItems: 'center', gap: 5, padding: '6px 13px', borderRadius: 7, border: `1px solid ${T.border}`,
-      background: 'transparent', color: T.text2, fontSize: '0.75rem', cursor: 'pointer', transition: 'all 0.15s', fontFamily: T.fontBody
+      display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 0, border: `1px solid ${T.border}`,
+      background: 'transparent', color: T.text2, fontSize: '0.68rem', cursor: 'pointer', transition: 'all 0.15s', fontFamily: T.fontMono,
+      fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px'
     }}
-    onMouseEnter={e => {
-      e.currentTarget.style.borderColor = danger ? 'rgba(248,113,113,0.3)' : T.border2;
-      e.currentTarget.style.color = danger ? T.red : T.text;
-      e.currentTarget.style.background = danger ? T.redDim : T.s2;
-    }}
-    onMouseLeave={e => {
-      e.currentTarget.style.borderColor = T.border;
-      e.currentTarget.style.color = T.text2;
-      e.currentTarget.style.background = 'transparent';
-    }}
-    >
-      {icon} {label}
+    onMouseOver={e => { e.currentTarget.style.background = danger ? T.redDim : T.s2; e.currentTarget.style.color = danger ? T.red : T.text; }}
+    onMouseOut={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = T.text2; }}>
+      {icon}
+      {label}
     </button>
   );
 }
 
-function Tab({ active, label, onClick }: { active: boolean, label: string, onClick: () => void }) {
+function Tab({ active, onClick, label, icon }: { active: boolean, onClick: () => void, label: string, icon: React.ReactNode }) {
   return (
     <div onClick={onClick} style={{
-      padding: '10px 20px', fontSize: '0.76rem', fontFamily: T.fontMono, color: active ? T.accent : T.text3,
-      cursor: 'pointer', borderBottom: `2px solid ${active ? T.accent : 'transparent'}`, transition: 'all 0.15s'
-    }}
-    onMouseEnter={e => { if(!active) e.currentTarget.style.color = T.text2; }}
-    onMouseLeave={e => { if(!active) e.currentTarget.style.color = T.text3; }}
-    >
+      padding: '16px 24px', fontSize: '0.68rem', fontFamily: T.fontMono, fontWeight: 700, cursor: 'pointer',
+      color: active ? T.accent : T.text3, borderBottom: `2px solid ${active ? T.accent : 'transparent'}`,
+      display: 'flex', alignItems: 'center', gap: 8, transition: 'all 0.2s', letterSpacing: '1px',
+      background: active ? 'rgba(56,189,248,0.02)' : 'transparent'
+    }}>
+      {icon}
       {label}
     </div>
   );
 }
 
-// ------------------------
-// Tabs Content
-// ------------------------
-
-function OverviewTab({ connection, schema, queryHistory, onTabSwitch }: { connection: ConnectionListItem, schema?: SchemaResponse | null, queryHistory?: QueryRecord[], onTabSwitch: (tab: ConnectionDetailTab) => void }) {
+function OverviewTab({ connection, schema, queryHistory, onTabSwitch }: { connection: ConnectionListItem, schema: SchemaResponse | null, queryHistory: QueryRecord[], onTabSwitch: (t: ConnectionDetailTab) => void }) {
   const tables = schema?.tables || [];
   const tableCount = tables.length;
-  const recentQueries = (queryHistory || []).slice(0, 3);
+  const recentQueries = queryHistory.slice(0, 5);
+
   return (
     <>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 24 }}>
-        <KpiCard val={String(connection.tables_count || tableCount)} label="Tables" sub="in this database" valColor={T.accent} subColor={T.text3} />
-        <KpiCard val={connection.type} label="Database Type" sub={connection.host || ''} valColor={T.green} subColor={T.text3} />
-        <KpiCard val={connection.status === 'live' ? 'Online' : 'Offline'} label="Status" sub={connection.status === 'live' ? 'Connected' : 'Disconnected'} valColor={connection.status === 'live' ? T.green : T.red} subColor={T.text3} />
-        <KpiCard val={String(connection.port || 'N/A')} label="Port" sub={connection.database || ''} valColor={T.purple} subColor={T.text3} />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 32 }}>
+        <KpiCard val={String(tableCount)} label="TABLES DISCOVERED" sub="SCHEMA MAPPED" valColor={T.accent} />
+        <KpiCard val={connection.type} label="ENGINE" sub={connection.host || 'LOCAL'} valColor={T.text} />
+        <KpiCard val={connection.status === 'live' ? 'ONLINE' : 'OFFLINE'} label="BRIDGE STATUS" sub={connection.status === 'live' ? 'SYNCED' : 'DISCONNECTED'} valColor={connection.status === 'live' ? T.green : T.red} />
+        <KpiCard val={String(connection.port || 'N/A')} label="PORT" sub={connection.database || 'PRIMARY'} valColor={T.purple} />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 16, marginBottom: 20 }}>
-        <SectionCard title="Schema Preview" badge={{ text: `${tableCount} tables`, color: T.green }} onAction={() => onTabSwitch('schema')}>
-          <div style={{ padding: '10px 14px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 24, marginBottom: 24 }}>
+        <SectionCard title="SCHEMA LEDGER" badge={{ text: `${tableCount} TABLES`, color: T.green }} onAction={() => onTabSwitch('schema')}>
+          <div style={{ padding: '8px 12px' }}>
             {tables.slice(0, 4).map((t: TableSchema, i: number) => (
-              <SchemaTable key={i} name={t.name} rows={t.row_count != null ? `${t.row_count.toLocaleString()} rows` : 'N/A'}
+              <SchemaTableComponent key={i} name={t.name} rows={t.row_count != null ? `${t.row_count.toLocaleString()} ROWS` : 'N/A'}
                 defaultExpanded={i === 0}
                 cols={t.columns?.map((c: SchemaColumn) => ({
                   name: c.name,
@@ -168,39 +163,39 @@ function OverviewTab({ connection, schema, queryHistory, onTabSwitch }: { connec
                   isFk: t.foreign_keys.some((fk) => fk.column === c.name),
                 })) || []} />
             ))}
-            {tables.length === 0 && <div style={{ color: T.text3, fontSize: '0.78rem', padding: 8 }}>No tables found</div>}
+            {tables.length === 0 && <div style={{ color: T.text3, fontSize: '0.68rem', padding: 12, fontFamily: T.fontMono }}>NO TABLES DISCOVERED</div>}
           </div>
         </SectionCard>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <SectionCard title="Connection Health" badge={{ text: 'Coming soon', color: T.text3 }}>
-            <div style={{ padding: '24px 18px', textAlign: 'center', color: T.text3, fontSize: '0.78rem' }}>
-              Health monitoring will be available in a future update.
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          <SectionCard title="SOURCE TELEMETRY" badge={{ text: 'LIVE', color: T.accent }}>
+            <div style={{ padding: '24px 20px', textAlign: 'center', color: T.text3, fontSize: '0.68rem', fontFamily: T.fontMono, letterSpacing: '0.5px' }}>
+              SOURCE HEALTH MONITORING ACTIVE
             </div>
           </SectionCard>
           
-          <SectionCard title="Connection Info">
-            <div style={{ padding: '10px 18px' }}>
-              <InfoRow label="Type" val={connection.type} />
-              <InfoRow label="Host" val={connection.host || 'localhost'} />
-              <InfoRow label="Port" val={String(connection.port || 'N/A')} />
-              <InfoRow label="Database" val={connection.database || 'N/A'} />
-              <InfoRow label="Username" val={connection.username || 'N/A'} noBorder />
+          <SectionCard title="CONFIG SUMMARY">
+            <div style={{ padding: '12px 20px' }}>
+              <InfoRow label="TYPE" val={connection.type} />
+              <InfoRow label="HOST" val={connection.host || 'localhost'} />
+              <InfoRow label="PORT" val={String(connection.port || 'N/A')} />
+              <InfoRow label="DB" val={connection.database || 'N/A'} />
+              <InfoRow label="USER" val={connection.username || 'N/A'} noBorder />
             </div>
           </SectionCard>
         </div>
       </div>
       
-      <SectionCard title="Recent Query Activity" onAction={() => onTabSwitch('activity')} actionText="View All →">
+      <SectionCard title="RECENT QUERY ACTIVITY" onAction={() => onTabSwitch('activity')} actionText="VIEW LOG →">
          <div style={{ display: 'flex', flexDirection: 'column' }}>
            {recentQueries.map((q: QueryRecord, i: number) => (
              <ActivityRow key={i} ok={q.success} err={!q.success}
                query={q.sql?.substring(0, 80) + (q.sql?.length > 80 ? '...' : '')}
-               dur={q.success ? `${((q.execution_time_ms || 0) / 1000).toFixed(2)}s` : 'Error'}
+               dur={q.success ? `${((q.execution_time_ms || 0) / 1000).toFixed(3)}S` : 'ERROR'}
                time={timeAgo(q.timestamp)} />
            ))}
            {recentQueries.length === 0 && (
-             <div style={{ padding: '18px', color: T.text3, fontSize: '0.78rem', textAlign: 'center' }}>No queries executed yet</div>
+             <div style={{ padding: '24px', color: T.text3, fontSize: '0.68rem', textAlign: 'center', fontFamily: T.fontMono }}>NO RECENT ACTIVITY RECORDED</div>
            )}
          </div>
       </SectionCard>
@@ -221,9 +216,9 @@ function CredentialsTab({ connection }: { connection: ConnectionListItem }) {
     setSaveMsg(null);
     try {
       await updateConnectionSettings(connection.id, { ssl_mode: sslMode, readonly });
-      setSaveMsg('Settings saved.');
+      setSaveMsg('SETTINGS SAVED.');
     } catch {
-      setSaveMsg('Failed to save settings.');
+      setSaveMsg('ERROR SAVING SETTINGS.');
     } finally {
       setSaving(false);
       setTimeout(() => setSaveMsg(null), 3000);
@@ -240,7 +235,7 @@ function CredentialsTab({ connection }: { connection: ConnectionListItem }) {
         port: connection.port || 5432,
         database: connection.database || '',
         username: connection.username || '',
-        password: '',  // We don't have the password stored on frontend
+        password: '',
       });
       setTestResult(result);
     } catch (err: unknown) {
@@ -252,79 +247,61 @@ function CredentialsTab({ connection }: { connection: ConnectionListItem }) {
 
   return (
     <>
-      <div style={{ fontSize: '0.7rem', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', color: T.text3, fontFamily: T.fontMono, marginBottom: 12 }}>Connection Details</div>
-      
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
-        <FormGroup label="Connection Name" req value={connection.name} />
-        <FormGroup label="Database Type" req value={connection.type} select />
-        <FormGroup label="Host" req value={connection.host || 'localhost'} />
-        <FormGroup label="Port" req value={String(connection.port || '')} />
-        <FormGroup label="Database Name" req value={connection.database || ''} />
-        <FormGroup label="Username" req value={connection.username || ''} />
-        <FormGroup label="Password" req value="••••••••••••" full />
-      </div>
+      <div style={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', color: T.accent, fontFamily: T.fontMono, marginBottom: 16 }}>SECURITY & ACCESS</div>
 
-      <div style={{ height: 1, background: T.border, margin: '18px 0' }} />
-      <div style={{ fontSize: '0.7rem', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', color: T.text3, fontFamily: T.fontMono, marginBottom: 12 }}>Security & SSL</div>
-
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '11px 14px', background: T.yellowDim, border: `1px solid rgba(245,158,11,0.2)`, borderRadius: 9, marginBottom: 14 }}>
-        <span style={{ fontSize: '0.9rem', flexShrink: 0, marginTop: 1 }}>🔒</span>
-        <span style={{ fontSize: '0.76rem', color: T.yellow, lineHeight: 1.5 }}>
-          QueryMind connects in <strong>read-only mode</strong> by default — your data is never modified unless you disable it.
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: T.s2, border: `1px solid ${T.border}`, borderRadius: 0, marginBottom: 20 }}>
+        <Shield size={16} color={T.accent} />
+        <span style={{ fontSize: '0.7rem', color: T.text2, fontFamily: T.fontMono, fontWeight: 700 }}>
+          READ-ONLY MODE ACTIVE BY DEFAULT. YOUR DATA IS SAFE.
         </span>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <label style={{ fontSize: '0.72rem', color: T.text2, fontWeight: 600, fontFamily: T.fontMono }}>SSL Mode</label>
-          <select value={sslMode} onChange={e => setSslMode(e.target.value)} style={{ background: T.s3, border: `1px solid ${T.border}`, borderRadius: 9, padding: '9px 13px', color: T.text, fontFamily: T.fontBody, fontSize: '0.83rem', outline: 'none', cursor: 'pointer' }}
-            onFocus={e => e.target.style.borderColor = 'rgba(0,229,255,0.3)'}
-            onBlur={e => e.target.style.borderColor = T.border}
-          >
-            <option value="disable">Disable</option>
-            <option value="require">Require</option>
-            <option value="verify-full">Verify Full</option>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <label style={{ fontSize: '0.62rem', color: T.text3, fontWeight: 700, fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '1px' }}>SSL ENCRYPTION</label>
+          <select value={sslMode} onChange={e => setSslMode(e.target.value)} style={{ background: T.s2, border: `1px solid ${T.border}`, borderRadius: 0, padding: '12px 16px', color: T.text, fontFamily: T.fontMono, fontSize: '0.72rem', outline: 'none', cursor: 'pointer', appearance: 'none' }}>
+            <option value="disable">DISABLE</option>
+            <option value="require">REQUIRE</option>
+            <option value="verify-full">VERIFY-FULL</option>
           </select>
-          <span style={{ fontSize: '0.66rem', color: T.text3 }}>Encrypts the connection using SSL/TLS</span>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <label style={{ fontSize: '0.72rem', color: T.text2, fontWeight: 600, fontFamily: T.fontMono }}>Access Mode</label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, height: 40 }}>
-            <button type="button" onClick={() => setReadonly(r => !r)} style={{ width: 38, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', background: readonly ? T.accent : T.s4, position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}>
-              <div style={{ position: 'absolute', top: 2, left: readonly ? 20 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <label style={{ fontSize: '0.62rem', color: T.text3, fontWeight: 700, fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '1px' }}>ACCESS LEVEL</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, height: 44 }}>
+            <button type="button" onClick={() => setReadonly(r => !r)} style={{ width: 44, height: 22, borderRadius: 0, border: `1px solid ${T.border}`, cursor: 'pointer', background: readonly ? T.accent : T.s4, position: 'relative', transition: 'all 0.2s', flexShrink: 0 }}>
+              <div style={{ position: 'absolute', top: 2, left: readonly ? 24 : 2, width: 16, height: 16, borderRadius: 0, background: '#000', transition: 'left 0.2s' }} />
             </button>
-            <span style={{ fontSize: '0.83rem', color: readonly ? T.text : T.text3 }}>{readonly ? 'Read-only' : 'Read / Write'}</span>
+            <span style={{ fontSize: '0.72rem', color: readonly ? T.text : T.text3, fontFamily: T.fontMono, fontWeight: 700 }}>{readonly ? 'READ-ONLY' : 'READ / WRITE'}</span>
           </div>
-          <span style={{ fontSize: '0.66rem', color: T.text3 }}>Blocks INSERT, UPDATE, DELETE, DROP when on</span>
         </div>
       </div>
 
-      <div style={{ height: 1, background: T.border, margin: '18px 0' }} />
-      <div style={{ fontSize: '0.7rem', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', color: T.text3, fontFamily: T.fontMono, marginBottom: 12 }}>Test Connection</div>
+      <div style={{ height: 1, background: T.border, margin: '24px 0' }} />
+      <div style={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', color: T.accent, fontFamily: T.fontMono, marginBottom: 16 }}>VALIDATION DISPATCH</div>
 
-      <div style={{ background: T.s1, border: `1px solid ${T.border}`, borderRadius: 12, padding: '16px 18px', marginBottom: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <span style={{ fontSize: '0.82rem', fontWeight: 600, color: T.text }}>Connection Test Results</span>
-          <button onClick={runTest} disabled={testing} style={{ padding: '6px 10px', borderRadius: 5, border: `1px solid ${T.border}`, background: 'transparent', color: T.text2, fontSize: '0.75rem', cursor: testing ? 'not-allowed' : 'pointer', opacity: testing ? 0.5 : 1 }}>↺ Re-run test</button>
+      <div style={{ background: T.s1, border: `1px solid ${T.border}`, borderRadius: 0, padding: '20px', marginBottom: 32 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <span style={{ fontSize: '0.7rem', fontWeight: 800, color: T.text, fontFamily: T.fontMono }}>HEALTH CHECK RESULTS</span>
+          <button onClick={runTest} disabled={testing} style={{ padding: '6px 14px', borderRadius: 0, border: `1px solid ${T.border}`, background: 'transparent', color: T.text2, fontSize: '0.62rem', fontFamily: T.fontMono, fontWeight: 700, cursor: testing ? 'not-allowed' : 'pointer', textTransform: 'uppercase' }}>RE-RUN DIAGNOSTICS</button>
         </div>
         
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <TestStep label="Connecting to database" res={testing ? 'Testing...' : (testResult ? (testResult.success ? 'Connection established' : 'Connection failed') : 'Click test to start')} state={testing ? 'load' : (testResult ? (testResult.success ? 'ok' : 'err') : 'wait')} />
-          <TestStep label="Schema Discovery" res={testing ? 'Waiting...' : (testResult?.success ? `${testResult.tables_found || 0} tables discovered` : (testResult ? 'N/A' : 'Waiting...'))} state={testing ? 'wait' : (testResult ? (testResult.success ? 'ok' : 'err') : 'wait')} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <TestStep label="Establishing Bridge" res={testing ? 'EXECUTING...' : (testResult ? (testResult.success ? 'BRIDGE SECURE' : 'BRIDGE FAILED') : 'AWAITING DISPATCH')} state={testing ? 'load' : (testResult ? (testResult.success ? 'ok' : 'err') : 'wait')} />
+          <TestStep label="Schema Discovery" res={testing ? 'WAITING...' : (testResult?.success ? `${testResult.tables_found || 0} TABLES DISCOVERED` : (testResult ? 'N/A' : 'AWAITING DISPATCH'))} state={testing ? 'wait' : (testResult ? (testResult.success ? 'ok' : 'err') : 'wait')} />
           {testResult && (
-            <div style={{ padding: '10px 14px', borderRadius: 8, marginTop: 4, background: testResult.success ? T.greenDim : T.redDim, border: `1px solid ${testResult.success ? 'rgba(34,211,165,0.2)' : 'rgba(248,113,113,0.2)'}`, color: testResult.success ? T.green : T.red, fontSize: '0.78rem' }}>
-              {testResult.message}
+            <div style={{ padding: '12px 16px', borderRadius: 0, marginTop: 10, background: testResult.success ? T.greenDim : T.redDim, border: `1px solid ${testResult.success ? T.green : T.red}`, color: testResult.success ? T.green : T.red, fontSize: '0.68rem', fontFamily: T.fontMono, fontWeight: 700 }}>
+              {testResult.message.toUpperCase()}
             </div>
           )}
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 9, alignItems: 'center' }}>
-         <button onClick={saveSettings} disabled={saving} style={{ padding: '10px 24px', borderRadius: 9, border: 'none', background: `linear-gradient(135deg, ${T.accent}, #00b8d4)`, color: '#000', fontSize: '0.83rem', fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: T.fontBody, opacity: saving ? 0.7 : 1 }}>
-           {saving ? '⏳ Saving...' : '💾 Save Changes'}
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+         <button onClick={saveSettings} disabled={saving} style={{ padding: '12px 28px', borderRadius: 0, border: 'none', background: T.accent, color: '#000', fontSize: '0.7rem', fontWeight: 900, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '1px' }}>
+           {saving ? 'SAVING...' : 'COMMIT CHANGES'}
          </button>
-         <button onClick={runTest} disabled={testing} style={{ padding: '10px 20px', borderRadius: 9, border: `1px solid rgba(0,229,255,0.25)`, background: T.accentDim, color: T.accent, fontSize: '0.83rem', fontWeight: 600, cursor: testing ? 'not-allowed' : 'pointer', fontFamily: T.fontBody, opacity: testing ? 0.5 : 1 }}>{testing ? '⏳ Testing...' : '⚡ Test Connection'}</button>
-         {saveMsg && <span style={{ fontSize: '0.76rem', color: saveMsg.includes('Failed') ? T.red : T.green, fontFamily: T.fontMono }}>{saveMsg}</span>}
+         <button onClick={runTest} disabled={testing} style={{ padding: '12px 24px', borderRadius: 0, border: `1px solid ${T.accent}`, background: 'transparent', color: T.accent, fontSize: '0.7rem', fontWeight: 900, cursor: testing ? 'not-allowed' : 'pointer', fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '1px' }}>{testing ? 'TESTING...' : 'RUN TEST'}</button>
+         {saveMsg && <span style={{ fontSize: '0.62rem', color: saveMsg.includes('ERROR') ? T.red : T.green, fontFamily: T.fontMono, fontWeight: 700, letterSpacing: '1px' }}>{saveMsg}</span>}
       </div>
 
     </>
@@ -336,43 +313,43 @@ function SchemaTab({ schema, onRefresh }: { schema?: SchemaResponse, onRefresh?:
   const [viewMode, setViewMode] = useState<'table' | 'erd'>('table');
 
   const toggleBtnStyle = (active: boolean): React.CSSProperties => ({
-    padding: '4px 12px', borderRadius: 6, border: `1px solid ${active ? T.accent + '44' : T.border}`,
-    background: active ? T.accentDim : 'transparent', color: active ? T.accent : T.text3,
-    fontSize: '0.72rem', cursor: 'pointer', fontFamily: T.fontMono, fontWeight: active ? 600 : 400,
-    transition: 'all 0.15s',
+    padding: '6px 16px', borderRadius: 0, border: `1px solid ${active ? T.accent : T.border}`,
+    background: active ? T.s2 : 'transparent', color: active ? T.accent : T.text3,
+    fontSize: '0.62rem', cursor: 'pointer', fontFamily: T.fontMono, fontWeight: 800,
+    transition: 'all 0.15s', textTransform: 'uppercase', letterSpacing: '1px'
   });
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-        <span style={{ fontSize: '0.82rem', color: T.text2 }}>{tables.length} tables · 1 schema</span>
-        <div style={{ display: 'flex', gap: 4, marginLeft: 12 }}>
-          <button onClick={() => setViewMode('table')} style={toggleBtnStyle(viewMode === 'table')}>Table</button>
-          <button onClick={() => setViewMode('erd')} style={toggleBtnStyle(viewMode === 'erd')}>ERD</button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+        <div style={{ fontSize: '0.62rem', color: T.accent, fontFamily: T.fontMono, fontWeight: 800, letterSpacing: '1.5px' }}>{tables.length} TABLES DISCOVERED</div>
+        <div style={{ display: 'flex', gap: 0, marginLeft: 12 }}>
+          <button onClick={() => setViewMode('table')} style={{ ...toggleBtnStyle(viewMode === 'table'), borderRight: 'none' }}>LEDGER</button>
+          <button onClick={() => setViewMode('erd')} style={toggleBtnStyle(viewMode === 'erd')}>RELATIONS</button>
         </div>
-        {onRefresh && <button onClick={onRefresh} style={{ marginLeft: 'auto', padding: '5px 12px', borderRadius: 7, border: `1px solid ${T.border}`, background: 'transparent', color: T.text2, fontSize: '0.72rem', cursor: 'pointer', fontFamily: T.fontBody }}>↺ Sync Schema</button>}
+        {onRefresh && <button onClick={onRefresh} style={{ marginLeft: 'auto', padding: '6px 16px', borderRadius: 0, border: `1px solid ${T.border}`, background: 'transparent', color: T.text2, fontSize: '0.62rem', cursor: 'pointer', fontFamily: T.fontMono, fontWeight: 700, textTransform: 'uppercase' }}>SYNC SCHEMA</button>}
       </div>
 
       {viewMode === 'table' && (
-        <SectionCard title="All Tables" badge={{ text: `${tables.length} tables`, color: T.accent }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+        <SectionCard title="ENTITY DEFINITIONS" badge={{ text: `${tables.length} ENTITIES`, color: T.accent }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.72rem' }}>
             <thead>
               <tr style={{ background: T.s3 }}>
-                {['Table', 'Rows', 'Columns'].map(h => (
-                  <th key={h} style={{ padding: '9px 18px', textAlign: 'left', fontFamily: T.fontMono, fontSize: '0.65rem', color: T.text3, textTransform: 'uppercase', borderBottom: `1px solid ${T.border}` }}>{h}</th>
+                {['entity name', 'row count', 'attr count'].map(h => (
+                  <th key={h} style={{ padding: '12px 20px', textAlign: 'left', fontFamily: T.fontMono, fontSize: '0.6rem', color: T.text3, textTransform: 'uppercase', borderBottom: `1px solid ${T.border}`, letterSpacing: '1px' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {tables.map((t: TableSchema, i: number) => (
-                <tr key={i} style={{ borderBottom: `1px solid ${T.border}` }}>
-                  <td style={{ padding: '9px 18px', color: T.text, fontFamily: T.fontMono }}>{t.name}</td>
-                  <td style={{ padding: '9px 18px', color: T.text2, fontFamily: T.fontMono }}>{t.row_count?.toLocaleString() || 'N/A'}</td>
-                  <td style={{ padding: '9px 18px', color: T.text2, fontFamily: T.fontMono }}>{t.columns?.length || 0}</td>
+                <tr key={i} style={{ borderBottom: `1px solid ${T.border}`, transition: 'all 0.1s' }} className="schema-row">
+                  <td style={{ padding: '12px 20px', color: T.text, fontFamily: T.fontMono, fontWeight: 700 }}>{t.name}</td>
+                  <td style={{ padding: '12px 20px', color: T.text2, fontFamily: T.fontMono }}>{t.row_count?.toLocaleString() || 'N/A'}</td>
+                  <td style={{ padding: '12px 20px', color: T.text2, fontFamily: T.fontMono }}>{t.columns?.length || 0}</td>
                 </tr>
               ))}
               {tables.length === 0 && (
-                <tr><td colSpan={3} style={{ padding: '18px', color: T.text3, textAlign: 'center' }}>No tables found — connect a database first</td></tr>
+                <tr><td colSpan={3} style={{ padding: '32px', color: T.text3, textAlign: 'center', fontFamily: T.fontMono, fontSize: '0.68rem' }}>NO ENTITIES DISCOVERED — VERIFY SOURCE CONNECTION</td></tr>
               )}
             </tbody>
           </table>
@@ -380,7 +357,7 @@ function SchemaTab({ schema, onRefresh }: { schema?: SchemaResponse, onRefresh?:
       )}
 
       {viewMode === 'erd' && (
-        <div style={{ height: 'calc(100vh - 280px)', minHeight: 450 }}>
+        <div style={{ height: 'calc(100vh - 340px)', minHeight: 450, border: `1px solid ${T.border}` }}>
           <ErdDiagram tables={tables} />
         </div>
       )}
@@ -412,40 +389,30 @@ function ActivityTab({ queryHistory }: { queryHistory?: QueryRecord[] }) {
   )
 }
 
-function timeAgo(ts: string): string {
-  if (!ts) return '';
-  const diff = Date.now() - new Date(ts).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'Just now';
-  if (mins < 60) return `${mins} min ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
 
 // ------------------------
 // Helpers
 // ------------------------
 
-function KpiCard({ val, label, sub, valColor, subColor }: { val: string, label: string, sub: string, valColor: string, subColor: string }) {
+function KpiCard({ val, label, sub, valColor }: { val: string, label: string, sub: string, valColor: string }) {
   return (
-    <div style={{ background: T.s1, border: `1px solid ${T.border}`, borderRadius: 12, padding: '16px 18px' }}>
-      <div style={{ fontFamily: T.fontHead, fontWeight: 800, fontSize: '1.5rem', letterSpacing: '-1px', marginBottom: 3, color: valColor }}>{val}</div>
-      <div style={{ fontSize: '0.7rem', color: T.text3 }}>{label}</div>
-      <div style={{ fontSize: '0.65rem', fontFamily: T.fontMono, marginTop: 2, color: subColor }}>{sub}</div>
+    <div style={{ background: T.s1, border: `1px solid ${T.border}`, borderRadius: 0, padding: '20px 24px', position: 'relative' }}>
+      <div style={{ position: 'absolute', top: 0, left: 0, width: 2, height: '100%', background: valColor }} />
+      <div style={{ fontFamily: T.fontHead, fontWeight: 900, fontSize: '1.8rem', letterSpacing: '-1px', marginBottom: 4, color: valColor, fontStyle: 'italic' }}>{val}</div>
+      <div style={{ fontSize: '0.62rem', color: T.text3, fontFamily: T.fontMono, fontWeight: 700, letterSpacing: '1px' }}>{label}</div>
+      <div style={{ fontSize: '0.62rem', fontFamily: T.fontMono, marginTop: 4, color: T.text3, opacity: 0.7 }}>{sub}</div>
     </div>
   );
 }
 
 function SectionCard({ title, badge, onAction, actionText, children }: { title: string, badge?: { text: string, color: string }, onAction?: () => void, actionText?: string, children: React.ReactNode }) {
   return (
-    <div style={{ background: T.s1, border: `1px solid ${T.border}`, borderRadius: 12, overflow: 'hidden' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 18px', borderBottom: `1px solid ${T.border}`, background: T.s2 }}>
-        <span style={{ fontFamily: T.fontHead, fontWeight: 700, fontSize: '0.85rem', color: T.text }}>{title}</span>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          {badge && <span style={{ fontSize: '0.62rem', fontFamily: T.fontMono, padding: '2px 7px', borderRadius: 4, background: `${badge.color}15`, color: badge.color, border: `1px solid ${badge.color}33` }}>{badge.text}</span>}
-          {onAction && <button onClick={onAction} style={{ padding: '4px 10px', borderRadius: 5, border: `1px solid ${T.border}`, background: 'transparent', color: T.text3, fontSize: '0.68rem', cursor: 'pointer' }}>{actionText || 'View All →'}</button>}
+    <div style={{ background: T.s1, border: `1px solid ${T.border}`, borderRadius: 0, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: `1px solid ${T.border}`, background: T.s2 }}>
+        <span style={{ fontFamily: T.fontMono, fontWeight: 700, fontSize: '0.7rem', color: T.text, letterSpacing: '1px' }}>{title}</span>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          {badge && <span style={{ fontSize: '0.58rem', fontFamily: T.fontMono, padding: '2px 8px', borderRadius: 0, background: `${badge.color}15`, color: badge.color, border: `1px solid ${badge.color}33`, fontWeight: 700 }}>{badge.text}</span>}
+          {onAction && <button onClick={onAction} style={{ padding: '4px 12px', borderRadius: 0, border: `1px solid ${T.border}`, background: 'transparent', color: T.text3, fontSize: '0.62rem', cursor: 'pointer', fontFamily: T.fontMono, fontWeight: 700 }}>{actionText || 'VIEW ALL →'}</button>}
         </div>
       </div>
       {children}
@@ -453,23 +420,23 @@ function SectionCard({ title, badge, onAction, actionText, children }: { title: 
   );
 }
 
-function SchemaTable({ name, rows, defaultExpanded, cols }: { name: string, rows: string, defaultExpanded?: boolean, cols: UiColumnSchema[] }) {
+function SchemaTableComponent({ name, rows, defaultExpanded, cols }: { name: string, rows: string, defaultExpanded?: boolean, cols: UiColumnSchema[] }) {
   const [isOpen, setIsOpen] = useState(defaultExpanded || false);
   return (
-    <div style={{ marginBottom: 4 }}>
-      <div onClick={() => setIsOpen(!isOpen)} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '6px 8px', borderRadius: 7, cursor: 'pointer', background: isOpen ? T.s2 : 'transparent' }}>
-        <div style={{ width: 20, height: 20, borderRadius: 5, background: T.purpleDim, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.55rem', color: T.purple, flexShrink: 0 }}>{isOpen ? '▼' : '▶'}</div>
-        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: T.text2, flex: 1 }}>{name}</span>
-        <span style={{ fontSize: '0.62rem', fontFamily: T.fontMono, color: T.text3 }}>{rows}</span>
+    <div style={{ marginBottom: 2 }}>
+      <div onClick={() => setIsOpen(!isOpen)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', cursor: 'pointer', background: isOpen ? T.s2 : 'transparent', borderBottom: `1px solid ${T.border}` }}>
+        <div style={{ width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', color: T.text3, flexShrink: 0 }}>{isOpen ? '—' : '+'}</div>
+        <span style={{ fontSize: '0.72rem', fontWeight: 700, color: T.text2, flex: 1, fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{name}</span>
+        <span style={{ fontSize: '0.58rem', fontFamily: T.fontMono, color: T.text3 }}>{rows}</span>
       </div>
       {isOpen && cols.length > 0 && (
-         <div style={{ paddingLeft: 30 }}>
+         <div style={{ paddingLeft: 26, background: T.s1 }}>
            {cols.map((c, i) => (
-             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 8px', borderRadius: 5 }}>
-               <span style={{ fontSize: '0.58rem', fontFamily: T.fontMono, padding: '1px 5px', borderRadius: 3, background: 'rgba(251,191,36,0.1)', color: '#fbbf24' }}>{c.type}</span>
-               <span style={{ fontSize: '0.72rem', color: T.text3 }}>{c.name}</span>
-               {c.isPk && <span style={{ fontSize: '0.58rem', color: '#fbbf24', marginLeft: 'auto' }}>PK</span>}
-               {c.isFk && <span style={{ fontSize: '0.58rem', color: T.text3, marginLeft: 'auto' }}>FK</span>}
+             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px', borderBottom: `1px solid ${T.s2}` }}>
+               <span style={{ fontSize: '0.55rem', fontFamily: T.fontMono, padding: '1px 6px', background: T.s3, color: T.text3, fontWeight: 700 }}>{c.type}</span>
+               <span style={{ fontSize: '0.7rem', color: T.text2, fontFamily: T.fontMono }}>{c.name}</span>
+               {c.isPk && <span style={{ fontSize: '0.55rem', color: T.accent, marginLeft: 'auto', fontWeight: 800, fontFamily: T.fontMono }}>PRI</span>}
+               {c.isFk && <span style={{ fontSize: '0.55rem', color: T.text3, marginLeft: 'auto', fontWeight: 800, fontFamily: T.fontMono }}>EXT</span>}
              </div>
            ))}
          </div>
@@ -480,19 +447,19 @@ function SchemaTable({ name, rows, defaultExpanded, cols }: { name: string, rows
 
 function InfoRow({ label, val, noBorder }: { label: string, val: React.ReactNode, noBorder?: boolean }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: noBorder ? 'none' : `1px solid ${T.border}`, fontSize: '0.74rem' }}>
-      <span style={{ color: T.text3 }}>{label}</span>
-      <span style={{ color: T.text2, fontFamily: T.fontMono }}>{val}</span>
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: noBorder ? 'none' : `1px solid ${T.border}`, fontSize: '0.68rem' }}>
+      <span style={{ color: T.text3, fontFamily: T.fontMono, fontWeight: 700 }}>{label}</span>
+      <span style={{ color: T.text2, fontFamily: T.fontMono, fontWeight: 700 }}>{val}</span>
     </div>
   )
 }
 
 function ActivityRow({ ok, err, query, dur, time }: { ok?: boolean, err?: boolean, query: string, dur: string, time: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', borderBottom: `1px solid ${T.border}` }}>
-      <div style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: err ? T.red : T.green }} />
-      <span style={{ fontSize: '0.76rem', color: err ? T.red : T.text2, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{query}</span>
-      <span style={{ fontSize: '0.62rem', fontFamily: T.fontMono, color: err ? T.red : (ok ? T.green : T.yellow), flexShrink: 0 }}>{dur}</span>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '12px 20px', borderBottom: `1px solid ${T.border}`, transition: 'all 0.15s' }} className="activity-row">
+      <div style={{ width: 8, height: 8, borderRadius: 0, flexShrink: 0, background: err ? T.red : T.green }} />
+      <span style={{ fontSize: '0.72rem', color: err ? T.red : T.text2, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: T.fontMono }}>{query}</span>
+      <span style={{ fontSize: '0.62rem', fontFamily: T.fontMono, color: err ? T.red : (ok ? T.green : T.yellow), flexShrink: 0, fontWeight: 700 }}>{dur}</span>
       <span style={{ fontSize: '0.62rem', fontFamily: T.fontMono, color: T.text3, flexShrink: 0 }}>{time}</span>
     </div>
   );
@@ -500,16 +467,16 @@ function ActivityRow({ ok, err, query, dur, time }: { ok?: boolean, err?: boolea
 
 function FormGroup({ label, req, value, full, select }: { label: string, req?: boolean, value?: string, full?: boolean, select?: boolean }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, gridColumn: full ? 'span 2' : 'auto' }}>
-      <label style={{ fontSize: '0.72rem', color: T.text2, fontWeight: 600, fontFamily: T.fontMono, display: 'flex', alignItems: 'center', gap: 6 }}>
-        {label} {req && <span style={{ color: T.red, fontSize: '0.7rem' }}>*</span>}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, gridColumn: full ? 'span 2' : 'auto' }}>
+      <label style={{ fontSize: '0.62rem', color: T.text3, fontWeight: 700, fontFamily: T.fontMono, display: 'flex', alignItems: 'center', gap: 6, textTransform: 'uppercase', letterSpacing: '1px' }}>
+        {label} {req && <span style={{ color: T.red }}>*</span>}
       </label>
       {select ? (
-        <select style={{ background: T.s2, border: `1px solid ${T.border}`, borderRadius: 9, padding: '9px 13px', color: T.text2, fontFamily: T.fontBody, fontSize: '0.83rem', outline: 'none', width: '100%' }}>
+        <select style={{ background: T.s2, border: `1px solid ${T.border}`, borderRadius: 0, padding: '12px 16px', color: T.text2, fontFamily: T.fontMono, fontSize: '0.72rem', outline: 'none', width: '100%', appearance: 'none', cursor: 'pointer' }}>
           <option>{value}</option>
         </select>
       ) : (
-        <input defaultValue={value} type={full && label === 'Password' ? 'password' : 'text'} style={{ background: T.s2, border: `1px solid ${T.border}`, borderRadius: 9, padding: '9px 13px', color: T.text, fontFamily: T.fontBody, fontSize: '0.83rem', outline: 'none', width: '100%' }} />
+        <input defaultValue={value} type={full && label === 'Password' ? 'password' : 'text'} style={{ background: T.s2, border: `1px solid ${T.border}`, borderRadius: 0, padding: '12px 16px', color: T.text, fontFamily: T.fontMono, fontSize: '0.72rem', outline: 'none', width: '100%', letterSpacing: '0.5px' }} />
       )}
     </div>
   )
@@ -517,20 +484,19 @@ function FormGroup({ label, req, value, full, select }: { label: string, req?: b
 
 function TestStep({ label, res, state }: { label: string, res: string, state: 'wait'|'load'|'ok'|'err' }) {
   const st = {
-    wait: { icon: '·', bg: T.s3, col: T.text3, spin: false },
-    load: { icon: '↻', bg: T.accentDim, col: T.accent, spin: true },
-    ok: { icon: '✓', bg: T.greenDim, col: T.green, spin: false },
-    err: { icon: '✕', bg: T.redDim, col: T.red, spin: false },
+    wait: { icon: '···', bg: T.s3, col: T.text3, spin: false },
+    load: { icon: 'REF', bg: T.accentDim, col: T.accent, spin: true },
+    ok: { icon: 'OK!', bg: T.greenDim, col: T.green, spin: false },
+    err: { icon: 'ERR', bg: T.redDim, col: T.red, spin: false },
   }[state];
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 8, background: T.s2, border: `1px solid ${T.border}` }}>
-       <div style={{ width: 22, height: 22, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', flexShrink: 0, background: st.bg, color: st.col, ...(st.spin ? { animation: 'spin 1s linear infinite' } : {}) }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', borderRadius: 0, background: T.s2, border: `1px solid ${T.border}` }}>
+       <div style={{ width: 32, height: 20, borderRadius: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.55rem', flexShrink: 0, background: st.bg, color: st.col, fontWeight: 900, fontFamily: T.fontMono }}>
          {st.icon}
        </div>
-       <span style={{ fontSize: '0.76rem', color: T.text2, flex: 1 }}>{label}</span>
-       <span style={{ fontSize: '0.68rem', fontFamily: T.fontMono, color: state === 'wait' ? T.text3 : st.col }}>{res}</span>
-       <style>{`@keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }`}</style>
+       <span style={{ fontSize: '0.68rem', color: T.text2, flex: 1, fontFamily: T.fontMono, textTransform: 'uppercase', fontWeight: 700 }}>{label}</span>
+       <span style={{ fontSize: '0.62rem', fontFamily: T.fontMono, color: state === 'wait' ? T.text3 : st.col, fontWeight: 700 }}>{res}</span>
     </div>
   );
 }

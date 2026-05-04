@@ -1,18 +1,17 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=DM+Mono:ital,wght@0,400;0,500;1,400&family=DM+Sans:wght@300;400;500&family=Syne:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700;1,900&family=DM+Mono:ital,wght@0,400;0,500;1,400&display=swap');
 @import "tailwindcss";
 
 @layer base {
   :root {
-    --bg: #fcfcfd;
+    --bg: #fdfcfb;
     --surface: #ffffff;
-    --surface2: #f1f5f9;
-    --accent: #0ea5e9;
-    --accent2: #6366f1;
-    --accent3: #f97316;
-    --text: #0f172a;
-    --muted: #64748b;
-    --border: #e2e8f0;
-    --glow: 0 4px 20px rgba(0, 0, 0, 0.04);
+    --surface2: #f8f6f2;
+    --accent: #1a1a1a;
+    --text: #1a1a1a;
+    --text2: #4a4a4a;
+    --muted: #8c8c8c;
+    --border: #e8e6e1;
+    --border-dark: #d8d6d1;
   }
 
   * {
@@ -32,152 +31,16 @@
     font-style: normal;
     overflow-x: hidden;
   }
-
-  h1,
-  h2,
-  h3,
-  h4,
-  h5,
-  h6,
-  p,
-  span,
-  div,
-  a {
-    font-style: normal;
-  }
 }
 
-
 /* Font utilities */
-.font-syne {
-  font-family: 'Syne', sans-serif !important;
-  font-style: normal !important;
+.font-editorial {
+  font-family: 'Playfair Display', serif !important;
 }
 
 .font-dm-mono {
   font-family: 'DM Mono', monospace !important;
   font-style: normal !important;
-}
-
-.font-dm-sans {
-  font-family: 'DM Sans', sans-serif !important;
-  font-style: normal !important;
-}
-
-/* Color utilities */
-.text-accent {
-  color: var(--accent) !important;
-}
-
-.text-muted-custom {
-  color: var(--muted);
-}
-
-.bg-surface {
-  background: var(--surface);
-}
-
-.bg-surface2 {
-  background: var(--surface2);
-}
-
-/* Gradient text */
-.gradient-text {
-  background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-/* Hero background effects */
-.hero-bg-gradient {
-  background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(99, 102, 241, 0.05) 0%, transparent 70%),
-    radial-gradient(ellipse 50% 50% at 80% 50%, rgba(14, 165, 233, 0.04) 0%, transparent 60%);
-}
-
-.hero-grid-pattern {
-  background-image: linear-gradient(var(--border) 1px, transparent 1px),
-    linear-gradient(90deg, var(--border) 1px, transparent 1px);
-  background-size: 60px 60px;
-  mask-image: radial-gradient(ellipse 80% 60% at 50% 20%, black 10%, transparent 80%);
-  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 20%, black 10%, transparent 80%);
-}
-
-/* Glow button */
-.btn-glow {
-  box-shadow: 0 0 30px rgba(0, 229, 255, 0.3);
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.btn-glow:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 0 50px rgba(0, 229, 255, 0.45);
-}
-
-/* Demo box shadow */
-.demo-shadow {
-  box-shadow: 0 40px 80px rgba(0, 0, 0, 0.08), var(--glow);
-}
-
-/* SQL syntax colors */
-.sql-kw {
-  color: var(--accent);
-}
-
-.sql-tbl {
-  color: #ffb347;
-}
-
-.sql-str {
-  color: #b5ead7;
-}
-
-/* Charts section radial glow */
-.charts-glow::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 600px;
-  height: 300px;
-  background: radial-gradient(ellipse, rgba(124, 58, 255, 0.12) 0%, transparent 70%);
-  pointer-events: none;
-}
-
-/* CTA section glow */
-.cta-glow::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(ellipse 70% 80% at 50% 50%, rgba(124, 58, 255, 0.15) 0%, transparent 65%);
-}
-
-/* Steps connector line */
-.steps-connector::before {
-  content: '';
-  position: absolute;
-  top: 28px;
-  left: 60px;
-  right: 60px;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--accent2), var(--accent), transparent);
-  opacity: 0.4;
-}
-
-/* Tool card hover */
-.tool-card-hover:hover {
-  border-color: var(--tool-color, var(--accent)) !important;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--tool-color, var(--accent));
-}
-
-/* SVG charts */
-.bar-anim {
-  transition: opacity 0.2s;
-}
-
-.bar-anim:hover {
-  opacity: 0.8;
 }
 
 /* Scroll reveal animations */
@@ -192,114 +55,10 @@
   transform: translateY(0);
 }
 
-.reveal-delay-1 {
-  transition-delay: 0.1s;
-}
-
-.reveal-delay-2 {
-  transition-delay: 0.2s;
-}
-
-.reveal-delay-3 {
-  transition-delay: 0.3s;
-}
-
-/* Keyframes */
-@keyframes fadeDown {
-  from {
-    opacity: 0;
-    transform: translateY(-16px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes fadeUp {
-  from {
-    opacity: 0;
-    transform: translateY(24px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes pulse-dot {
-
-  0%,
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-
-  50% {
-    opacity: 0.4;
-    transform: scale(0.8);
-  }
-}
-
-.animate-fade-down {
-  animation: fadeDown 0.8s ease both;
-}
-
-.animate-fade-down-1 {
-  animation: fadeDown 0.8s 0.1s ease both;
-}
-
-.animate-fade-down-2 {
-  animation: fadeDown 0.8s 0.2s ease both;
-}
-
-.animate-fade-down-3 {
-  animation: fadeDown 0.8s 0.3s ease both;
-}
-
-.animate-fade-up {
-  animation: fadeUp 0.8s 0.5s ease both;
-}
-
-.animate-pulse-dot {
-  animation: pulse-dot 2s infinite;
-}
-
-/* ============================================================
-   DASHBOARD DESIGN SYSTEM
-   ============================================================ */
-
 /* Stagger reveal for dashboard sections */
 @keyframes dashReveal {
   from { opacity: 0; transform: translateY(18px); }
   to   { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes dashFadeIn {
-  from { opacity: 0; transform: scale(0.97); }
-  to   { opacity: 1; transform: scale(1); }
-}
-
-@keyframes shimmerGlow {
-  0%   { background-position: -200% center; }
-  100% { background-position: 200% center; }
-}
-
-@keyframes borderPulse {
-  0%, 100% { border-color: rgba(0, 229, 255, 0.15); }
-  50%      { border-color: rgba(0, 229, 255, 0.35); }
-}
-
-@keyframes floatUp {
-  0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(-6px); }
-}
-
-@keyframes spinSlow {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
 }
 
 .dash-section {
@@ -309,298 +68,122 @@
 .dash-section-d1 { animation-delay: 0.04s; }
 .dash-section-d2 { animation-delay: 0.1s; }
 .dash-section-d3 { animation-delay: 0.16s; }
-.dash-section-d4 { animation-delay: 0.22s; }
-.dash-section-d5 { animation-delay: 0.28s; }
 
-/* Widget card system */
+/* Widget card system - Editorial Reset */
 .widget-card {
-  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
-              box-shadow 0.3s ease,
-              border-color 0.25s ease;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   position: relative;
 }
-.widget-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(0, 229, 255, 0.08);
-}
-.widget-card::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, #00e5ff, #7c3aff, #22d3a5);
-  border-radius: 16px 16px 0 0;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-.widget-card:hover::before {
-  opacity: 1;
-}
 
-/* Glassmorphism */
-.glass-surface {
-  backdrop-filter: blur(20px) saturate(1.8);
-  -webkit-backdrop-filter: blur(20px) saturate(1.8);
-  background: rgba(255, 255, 255, 0.75);
-  border: 1px solid rgba(255, 255, 255, 0.5);
-}
-
-.glass-topbar {
-  backdrop-filter: blur(24px) saturate(1.8);
-  -webkit-backdrop-filter: blur(24px) saturate(1.8);
-  background: rgba(255, 255, 255, 0.82);
-  border-bottom: 1px solid var(--border);
-}
-
-/* Dashboard Rail */
+/* Dashboard Rail - Editorial Reset */
 .dash-rail-item {
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.2s ease;
   position: relative;
 }
 .dash-rail-item:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(0, 0, 0, 0.02);
 }
 .dash-rail-item--active {
-  background: rgba(0, 229, 255, 0.06) !important;
+  background: rgba(0, 0, 0, 0.04) !important;
 }
 .dash-rail-item--active::before {
   content: '';
   position: absolute;
   left: 0; top: 50%;
   transform: translateY(-50%);
-  width: 3px;
-  height: 60%;
-  border-radius: 0 4px 4px 0;
-  background: linear-gradient(180deg, #00e5ff, #7c3aff);
+  width: 2px;
+  height: 50%;
+  background: var(--text);
 }
 
-/* Action buttons */
+/* Action buttons - Minimalist */
 .dash-action-btn {
   display: flex;
   align-items: center;
   justify-content: center;
   border: 1px solid rgba(0, 0, 0, 0.05);
-  background: transparent;
+  background: #fff;
   color: var(--muted);
   cursor: pointer;
   transition: all 0.18s ease;
-  border-radius: 8px;
+  border-radius: 4px;
 }
 .dash-action-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: rgba(0, 229, 255, 0.04);
-}
-.dash-action-btn--danger:hover {
-  border-color: rgba(248, 113, 113, 0.3);
-  color: #f87171;
-  background: rgba(248, 113, 113, 0.08);
-}
-
-/* Date range pills */
-.date-pill {
-  padding: 6px 14px;
-  border: none;
-  cursor: pointer;
-  font-family: 'DM Mono', monospace;
-  font-size: 0.72rem;
-  transition: all 0.18s ease;
-  position: relative;
-  background: transparent;
-  color: var(--muted);
-}
-.date-pill--active {
-  color: var(--accent);
-  background: rgba(14, 165, 233, 0.08);
-}
-.date-pill--active::after {
-  content: '';
-  position: absolute;
-  bottom: 0; left: 50%;
-  transform: translateX(-50%);
-  width: 60%;
-  height: 2px;
-  background: var(--accent);
-  border-radius: 2px;
-}
-
-/* Empty state animation */
-@keyframes emptyFloat {
-  0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(-12px); }
-}
-.empty-illustration {
-  animation: emptyFloat 4s ease-in-out infinite;
-}
-
-@keyframes emptyGlow {
-  0%, 100% { opacity: 0.4; }
-  50%      { opacity: 0.8; }
-}
-.empty-glow {
-  animation: emptyGlow 3s ease-in-out infinite;
-}
-
-/* Scrollbar styling for dashboard */
-.dash-scroll::-webkit-scrollbar {
-  width: 5px;
-}
-.dash-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-.dash-scroll::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-}
-.dash-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.15);
-}
-
-/* Badge styles */
-.viz-badge {
-  font-size: 0.6rem;
-  font-family: 'DM Mono', monospace;
-  letter-spacing: 0.5px;
-  padding: 3px 9px;
-  border-radius: 6px;
-  font-weight: 600;
-  text-transform: uppercase;
+  border-color: rgba(0, 0, 0, 0.15);
+  color: var(--text);
+  background: #fdfcfb;
 }
 
 /* Hide scrollbar but keep functionality */
 .hide-scrollbar::-webkit-scrollbar {
   display: none !important;
 }
-
-@keyframes toast-in {
-  from {
-    transform: translateX(100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-.toast-container {
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.toast-container:hover {
-  transform: scale(1.02) translateY(-2px);
-  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.7);
-  border-color: rgba(0, 229, 255, 0.4);
-}
 .hide-scrollbar {
-  -ms-overflow-style: none; /* IE and Edge */
-  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 /* Refresh spin */
+@keyframes spinSlow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
 .refresh-spin {
-  animation: spinSlow 1s linear infinite;
+  animation: spinSlow 1.5s linear infinite;
 }
 
-/* New dashboard CTA pulse */
-@keyframes ctaGlow {
-  0%, 100% { box-shadow: 0 0 12px rgba(0, 229, 255, 0.15); }
-  50%      { box-shadow: 0 0 24px rgba(0, 229, 255, 0.3); }
-}
-.new-dash-cta {
-  animation: ctaGlow 2.5s ease-in-out infinite;
-  transition: all 0.2s ease;
-}
-.new-dash-cta:hover {
-  transform: translateY(-1px);
-  animation: none;
-  box-shadow: 0 0 30px rgba(0, 229, 255, 0.35);
-}
-
-/* Responsive */
-@media (max-width: 900px) {
-  .steps-connector::before {
-    display: none;
-  }
-}
-
-/* ============================================================
-   GRID RESIZE HANDLES
-   ============================================================ */
-
-/* ============================================================
-   GRID RESIZE HANDLES (CORE + CUSTOM)
-   ============================================================ */
-
-/* Core RGL positioning in case library CSS fails */
+/* Grid Resizable Handles - Minimalist */
 .react-resizable-handle {
   position: absolute !important;
-  width: 32px !important;
-  height: 32px !important;
+  width: 24px !important;
+  height: 24px !important;
   bottom: 0px !important;
   right: 0px !important;
   cursor: nwse-resize !important;
   z-index: 1000 !important;
 }
 
-/* Custom UI styling */
 .react-resizable-handle::after {
   content: '';
   position: absolute;
-  right: 8px;
-  bottom: 8px;
-  width: 14px;
-  height: 14px;
-  border-right: 3px solid var(--accent);
-  border-bottom: 3px solid var(--accent);
-  border-radius: 0 0 4px 0;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 2px 2px 8px rgba(0,0,0,0.2), inset -2px -2px 0 rgba(255,255,255,0.2);
-  pointer-events: none;
-}
-
-/* Second line for that 'drag' feel */
-.react-resizable-handle::before {
-  content: '';
-  position: absolute;
-  right: 14px;
-  bottom: 14px;
-  width: 6px;
-  height: 60%;
-  border-right: 2px solid rgba(0, 229, 255, 0.4);
-  border-bottom: 2px solid rgba(0, 229, 255, 0.4);
-  border-radius: 0 0 2px 0;
-  pointer-events: none;
-  opacity: 0.6;
+  right: 6px;
+  bottom: 6px;
+  width: 8px;
+  height: 8px;
+  border-right: 1.5px solid rgba(0,0,0,0.2);
+  border-bottom: 1.5px solid rgba(0,0,0,0.2);
+  transition: all 0.2s ease;
 }
 
 .react-grid-item:hover .react-resizable-handle::after {
-  border-color: #00e5ff;
-  width: 18px;
-  height: 18px;
-  filter: drop-shadow(0 0 8px rgba(0, 229, 255, 0.6));
+  border-color: rgba(0,0,0,0.4);
+  width: 10px;
+  height: 10px;
 }
 
-.react-resizable-handle:active::after {
-  transform: scale(0.8) translate(-2px, -2px);
-  border-color: #fff;
-}
-
-/* Ensure handles aren't hidden by widget card overflow */
 .react-grid-item {
   overflow: visible !important;
 }
 
-/* Hide handles on mobile */
-@media (max-width: 650px) {
-  .react-resizable-handle {
-    display: none !important;
-  }
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #fdfcfb;
+}
+::-webkit-scrollbar-thumb {
+  background: #e8e6e1;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #d8d6d1;
 }
 
-/* Hide handles on small screens where dragging is hard */
-@media (max-width: 600px) {
-  .react-resizable-handle {
-    display: none !important;
-  }
+@keyframes live-indicator-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}
+.live-indicator-pulse {
+  animation: live-indicator-pulse 2s ease-in-out infinite;
 }

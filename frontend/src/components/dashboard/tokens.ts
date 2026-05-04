@@ -3,12 +3,12 @@ export const T = {
   // ============ COLORS ============
 
   // BACKGROUNDS (8 depth layers)
-  bg: '#f4f7fb',        // Main background (Midnight Ice)
-  s1: '#ffffff',        // Surface layer 1 (Solid White)
-  s2: '#fbfcfd',        // Surface layer 2 (Sliver)
-  s3: '#f0f4f8',        // Surface layer 3 (Slate-100)
-  s4: '#e6ebf1',        // Surface layer 4 (Slate-200)
-  s5: '#dce3ec',        // Surface layer 5 (Slate-300)
+  bg: '#fcfaf7',        // Editorial Background (Warm Cream)
+  s1: '#ffffff',        // Surface layer 1
+  s2: '#f6f3ed',        // Surface layer 2
+  s3: '#ece8e0',        // Surface layer 3
+  s4: '#e0dbd0',        // Surface layer 4
+  s5: '#d4cec0',        // Surface layer 5
 
   // ACCENT COLORS (Primary palette)
   accent: '#0ea5e9',    // Sky Blue
@@ -24,10 +24,10 @@ export const T = {
   orange: '#f97316',    // Orange
   orangeDim: 'rgba(249, 115, 22, 0.08)',
 
-  // TEXT COLORS (Hierarchy)
-  text: '#0f172a',      // Primary text (Slate-900)
-  text2: '#334155',     // Secondary text (Slate-700)
-  text3: '#64748b',     // Tertiary text (Slate-500)
+  // TEXT COLORS (Editorial Hierarchy)
+  text: '#1a1a1a',      // Primary text (Ink/Coal)
+  text2: '#4a4a4a',     // Secondary text (Slate)
+  text3: '#8a8a8a',     // Tertiary text (Muted)
 
   // BORDERS
   border: '#e2e8f0',    // Subtle border
@@ -40,9 +40,9 @@ export const T = {
   statusWarning: '#f59e0b',   // Warning
 
   // ============ TYPOGRAPHY ============
-  fontHead: "'Inter', sans-serif",      // Display font
-  fontMono: "'DM Mono', monospace",    // Code font
-  fontBody: "'Inter', sans-serif",   // Body font
+  fontHead: "'Playfair Display', serif",    // Editorial Serif
+  fontMono: "'DM Mono', monospace",         // Technical Mono
+  fontBody: "'Inter', sans-serif",          // Clean Sans
 
   // ============ SPACING (8px base unit) ============
   space: {
