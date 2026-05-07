@@ -1,5 +1,6 @@
 """Billing and subscription workflows."""
 
+from app.core.errors import ServiceUnavailableError
 from app.db.models.settings import UserSubscription
 from app.db.repositories import settings_repository
 
@@ -10,7 +11,10 @@ PRO_PLAN_AI_LIMIT = 500
 
 
 def get_user_subscription(user_id: str) -> UserSubscription:
-    return settings_repository.get_user_subscription(user_id)
+    try:
+        return settings_repository.get_user_subscription(user_id)
+    except RuntimeError as exc:
+        raise ServiceUnavailableError("Billing information is temporarily unavailable.") from exc
 
 
 def increment_usage(user_id: str, limit_type: str) -> bool:
@@ -25,15 +29,24 @@ def increment_usage(user_id: str, limit_type: str) -> bool:
     else:
         raise ValueError(f"Unknown limit type: {limit_type}")
 
-    return settings_repository.increment_usage(user_id, limit_type)
+    try:
+        return settings_repository.increment_usage(user_id, limit_type)
+    except RuntimeError as exc:
+        raise ServiceUnavailableError("Usage enforcement is temporarily unavailable.") from exc
 
 
 def upgrade_to_pro(user_id: str) -> UserSubscription:
-    return settings_repository.upgrade_to_pro(user_id)
+    try:
+        return settings_repository.upgrade_to_pro(user_id)
+    except RuntimeError as exc:
+        raise ServiceUnavailableError("Unable to update subscription at the moment.") from exc
 
 
 def onboard_user(user_id: str) -> bool:
-    return settings_repository.onboard_user(user_id)
+    try:
+        return settings_repository.onboard_user(user_id)
+    except RuntimeError as exc:
+        raise ServiceUnavailableError("Unable to initialize user records.") from exc
 
 
 __all__ = [

@@ -6,8 +6,6 @@ from app.integrations.supabase_db import supabase
 
 logger = logging.getLogger(__name__)
 
-_MOCK_SUBSCRIPTION_DB: dict[str, dict] = {}
-
 
 def get_user_settings(user_id: str) -> UserSettings:
     """Fetch user settings, falling back to defaults if the row is missing."""
@@ -16,7 +14,8 @@ def get_user_settings(user_id: str) -> UserSettings:
         if response.data:
             return UserSettings(**response.data[0])
     except Exception as exc:
-        logger.warning("Falling back to default settings for %s: %s", user_id, exc)
+        logger.error("Failed to fetch settings for %s", user_id, exc_info=True)
+        raise RuntimeError("Settings storage is unavailable.") from exc
 
     fallback = UserSettingsBase().model_dump()
     fallback["owner_id"] = user_id
@@ -41,7 +40,7 @@ def update_user_settings(user_id: str, updates: dict) -> UserSettings:
 
 
 def get_user_subscription(user_id: str) -> UserSubscription:
-    """Fetch user subscription, generating a mock default if not present."""
+    """Fetch user subscription, creating a default row if not present."""
     defaults = {
         "owner_id": user_id,
         "plan_type": "free",
@@ -51,9 +50,6 @@ def get_user_subscription(user_id: str) -> UserSubscription:
         "ai_limit": 30,
         "next_reset_date": "soon",
     }
-
-    if user_id in _MOCK_SUBSCRIPTION_DB:
-        return UserSubscription(**_MOCK_SUBSCRIPTION_DB[user_id])
 
     try:
         response = supabase.table("user_subscriptions").select("*").eq("owner_id", user_id).execute()
@@ -66,12 +62,8 @@ def get_user_subscription(user_id: str) -> UserSubscription:
             return UserSubscription(**defaults)
         return UserSubscription(**response.data[0])
     except Exception as exc:
-        logger.warning(
-            "Failed to fetch/insert subscription for %s (likely mock user). Falling back to memory: %s",
-            user_id,
-            exc,
-        )
-        return UserSubscription(**defaults)
+        logger.error("Failed to fetch or create subscription for %s", user_id, exc_info=True)
+        raise RuntimeError("Billing state is unavailable.") from exc
 
 
 def increment_usage(user_id: str, type: str) -> bool:
@@ -81,26 +73,30 @@ def increment_usage(user_id: str, type: str) -> bool:
         if type == "query":
             if subscription.queries_used >= subscription.queries_limit:
                 return False
-            supabase.table("user_subscriptions").update(
+            response = supabase.table("user_subscriptions").update(
                 {"queries_used": subscription.queries_used + 1}
             ).eq("owner_id", user_id).execute()
+            if not response.data:
+                raise RuntimeError("Failed to update query usage.")
             return True
 
         if type == "ai":
             if subscription.ai_used >= subscription.ai_limit:
                 return False
-            supabase.table("user_subscriptions").update(
+            response = supabase.table("user_subscriptions").update(
                 {"ai_used": subscription.ai_used + 1}
             ).eq("owner_id", user_id).execute()
+            if not response.data:
+                raise RuntimeError("Failed to update AI usage.")
             return True
     except Exception as exc:
-        logger.warning("Ignoring usage update error for %s: %s", user_id, exc)
-        return True
+        logger.error("Usage update failed for %s", user_id, exc_info=True)
+        raise RuntimeError("Billing state is unavailable.") from exc
     return False
 
 
 def upgrade_to_pro(user_id: str) -> UserSubscription:
-    """Upgrade the user to pro, with an in-memory fallback for mock/dev mode."""
+    """Upgrade the user to pro."""
     data = {
         "plan_type": "pro",
         "queries_limit": 5000,
@@ -111,14 +107,10 @@ def upgrade_to_pro(user_id: str) -> UserSubscription:
         response = supabase.table("user_subscriptions").update(data).eq("owner_id", user_id).execute()
         if response.data:
             return UserSubscription(**response.data[0])
-    except Exception:
-        logger.warning("Failed to formally upgrade %s. Using in-memory fallback.", user_id)
-
-    memory_state = get_user_subscription(user_id).model_dump()
-    memory_state.update(data)
-    memory_state["next_reset_date"] = "soon"
-    _MOCK_SUBSCRIPTION_DB[user_id] = memory_state
-    return UserSubscription(**memory_state)
+        raise RuntimeError("No subscription record was updated.")
+    except Exception as exc:
+        logger.error("Failed to upgrade %s to pro", user_id, exc_info=True)
+        raise RuntimeError("Billing update failed.") from exc
 
 
 def onboard_user(user_id: str) -> bool:
@@ -156,12 +148,8 @@ def onboard_user(user_id: str) -> bool:
             
         return True
     except Exception as exc:
-        is_mock = user_id == "00000000-0000-0000-0000-000000000000"
-        if is_mock:
-            logger.info("Gracefully skipping DB persistence for mock user %s", user_id)
-            return True
-        logger.error("Error onboarding user %s: %s", user_id, exc)
-        return False
+        logger.error("Error onboarding user %s", user_id, exc_info=True)
+        raise RuntimeError("Failed to initialize user records.") from exc
 
 
 __all__ = [

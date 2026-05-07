@@ -6,7 +6,11 @@ from typing import Optional
 import anyio
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine, URL, make_url
-from sshtunnel import SSHTunnelForwarder
+
+try:
+    from sshtunnel import SSHTunnelForwarder
+except ModuleNotFoundError:  # pragma: no cover - environment-dependent optional import
+    SSHTunnelForwarder = None
 
 from app.db.models.connection import ConnectionRequest, TableInfo
 import app.query_engine.schema_inspector as schema_inspector
@@ -64,6 +68,9 @@ def build_connection_url(
 def start_ssh_tunnel(config: ConnectionRequest) -> tuple[Optional[SSHTunnelForwarder], str, int]:
     if not config.use_ssh:
         return None, config.host or "localhost", config.port or 0
+
+    if SSHTunnelForwarder is None:
+        raise RuntimeError("SSH tunneling support is not installed on the server.")
 
     ssh_pkey = io.StringIO(config.ssh_private_key) if config.ssh_private_key else None
     tunnel = SSHTunnelForwarder(

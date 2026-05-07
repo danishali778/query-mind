@@ -2,6 +2,7 @@ import logging
 from fastapi import APIRouter, Header, HTTPException, Request
 
 from app.api.v1.schemas.webhooks import WebhookStatusResponse
+from app.core.errors import BadRequestError, ServiceUnavailableError
 from app.integrations.lemon_squeezy import (
     get_event_name,
     get_user_id,
@@ -42,13 +43,17 @@ async def lemonsqueezy_webhook(request: Request, x_signature: str | None = Heade
             user_id = get_user_id(data)
             if not user_id:
                 logger.error("Received subscription but no custom user_id attached.")
-                raise HTTPException(status_code=400, detail="No user_id found in custom_data")
+                raise BadRequestError("No user_id found in webhook custom_data.")
 
             upgrade_to_pro(user_id)
             logger.info("Upgraded user %s to PRO via Lemon Squeezy.", user_id)
 
         return {"status": "success"}
 
-    except Exception as e:
-        logger.error("Webhook processing error: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Error processing webhook payload")
+    except HTTPException:
+        raise
+    except BadRequestError:
+        raise
+    except Exception as exc:
+        logger.error("Webhook processing error", exc_info=True)
+        raise ServiceUnavailableError("Error processing webhook payload.") from exc

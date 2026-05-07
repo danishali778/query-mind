@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import CurrentUserDep, RateLimitChecker
@@ -11,10 +13,12 @@ from app.api.v1.schemas.chat import (
     UpdateSessionRequest,
 )
 from app.api.v1.schemas.common import MessageResponse
+from app.core.errors import BadRequestError, NotFoundError, ServiceUnavailableError
 from app.services import chat_service
 
 
 router = APIRouter(prefix="/api/chat", tags=["Chat"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("", response_model=ChatResponse)
@@ -33,10 +37,12 @@ async def send_chat_message(
         return ChatResponse.model_validate(result)
     except ValueError as exc:
         detail = str(exc)
-        status_code = 404 if "not found" in detail.lower() else 400
-        raise HTTPException(status_code=status_code, detail=detail) from exc
+        if "not found" in detail.lower():
+            raise NotFoundError(detail) from exc
+        raise BadRequestError(detail) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"AI processing failed: {str(exc)}") from exc
+        logger.error("Chat request failed for user %s", current_user.id, exc_info=True)
+        raise ServiceUnavailableError("AI processing failed for this request.") from exc
 
 
 @router.get("/sessions", response_model=list[SessionSummary])
@@ -49,7 +55,7 @@ async def create_session(current_user: CurrentUserDep, connection_id: str | None
     try:
         return await chat_service.create_session_summary(current_user.id, connection_id)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise NotFoundError(str(exc)) from exc
 
 
 @router.patch("/sessions/{session_id}", response_model=SessionSummary)
@@ -57,7 +63,7 @@ async def update_session(session_id: str, request: UpdateSessionRequest, current
     try:
         return await chat_service.update_session_summary(current_user.id, session_id, request.title)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise NotFoundError(str(exc)) from exc
 
 
 @router.delete("/sessions/{session_id}", response_model=MessageResponse)
@@ -73,7 +79,7 @@ async def get_session_messages(session_id: str, current_user: CurrentUserDep):
     try:
         return await chat_service.get_session_messages_response(current_user.id, session_id)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise NotFoundError(str(exc)) from exc
 
 
 @router.post("/{session_id}/message/{message_id}/edit-sql", response_model=ChatMessage)
@@ -92,9 +98,9 @@ async def edit_chat_sql(
             request.connection_id,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise NotFoundError(str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Query execution failed: {str(exc)}") from exc
+        raise ServiceUnavailableError("Unable to re-run the edited SQL at the moment.") from exc
 
 
 @router.post("/{session_id}/message/{message_id}/pin", response_model=MessageResponse)

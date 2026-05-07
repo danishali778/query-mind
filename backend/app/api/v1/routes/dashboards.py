@@ -15,6 +15,7 @@ from app.api.v1.schemas.dashboards import (
     UpdateWidgetRequest,
     WidgetInsightResponse,
 )
+from app.core.errors import ServiceUnavailableError
 from app.db.models.dashboard import (
     AddWidgetInput,
     CreateDashboardInput,
@@ -108,7 +109,7 @@ async def refresh_widget(widget_id: str, current_user: CurrentUserDep):
         status_code = 400 if "Invalid widget" in detail else 404
         raise HTTPException(status_code=status_code, detail=detail) from exc
     except RuntimeError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise ServiceUnavailableError("Widget refresh failed.") from exc
 
 
 @router.post("/widgets/{widget_id}/insight", response_model=WidgetInsightResponse)

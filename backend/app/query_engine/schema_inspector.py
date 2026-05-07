@@ -29,17 +29,18 @@ def _is_enum_like(col_name: str, col_type: str) -> bool:
     return is_text and has_keyword
 
 
-def _get_distinct_values(engine: Engine, table_name: str, col_name: str, max_values: int = 15) -> list[str]:
+def _get_distinct_values(engine: Engine, qualified_table_name: str, col_name: str, max_values: int = 15) -> list[str]:
     try:
         with engine.connect() as conn:
-            count_result = conn.execute(text(f'SELECT COUNT(DISTINCT "{col_name}") FROM "{table_name}"'))
+            quoted_column = _quote_identifier(col_name)
+            count_result = conn.execute(text(f"SELECT COUNT(DISTINCT {quoted_column}) FROM {qualified_table_name}"))
             count = count_result.scalar()
             if count is None or count > max_values:
                 return []
             rows = conn.execute(
                 text(
-                    f'SELECT DISTINCT "{col_name}" FROM "{table_name}" '
-                    f'WHERE "{col_name}" IS NOT NULL ORDER BY "{col_name}"'
+                    f"SELECT DISTINCT {quoted_column} FROM {qualified_table_name} "
+                    f"WHERE {quoted_column} IS NOT NULL ORDER BY {quoted_column}"
                 )
             ).fetchall()
             return [str(row[0]) for row in rows]
@@ -47,9 +48,41 @@ def _get_distinct_values(engine: Engine, table_name: str, col_name: str, max_val
         return []
 
 
+def _quote_identifier(identifier: str) -> str:
+    return f'"{identifier.replace(chr(34), chr(34) * 2)}"'
+
+
+def _qualify_table_name(schema_name: str | None, table_name: str) -> str:
+    table = _quote_identifier(table_name)
+    if not schema_name:
+        return table
+    return f"{_quote_identifier(schema_name)}.{table}"
+
+
+def _display_table_name(schema_name: str | None, table_name: str) -> str:
+    if not schema_name or schema_name in {"public", "main"}:
+        return table_name
+    return f"{schema_name}.{table_name}"
+
+
+def _get_user_schema_names(inspector) -> list[str | None]:
+    try:
+        schema_names = inspector.get_schema_names()
+    except Exception:
+        return [None]
+
+    excluded = {"information_schema", "pg_catalog"}
+    user_schemas = [schema for schema in schema_names if schema not in excluded and not schema.startswith("pg_toast")]
+    return user_schemas or [None]
+
+
 def get_table_names(engine: Engine) -> list[str]:
     inspector = inspect(engine)
-    return inspector.get_table_names()
+    table_names: list[str] = []
+    for schema_name in _get_user_schema_names(inspector):
+        for table_name in inspector.get_table_names(schema=schema_name):
+            table_names.append(_display_table_name(schema_name, table_name))
+    return table_names
 
 
 def get_schema(engine: Engine) -> list[TableInfo]:
@@ -57,62 +90,69 @@ def get_schema(engine: Engine) -> list[TableInfo]:
     inspector = inspect(engine)
     tables: list[TableInfo] = []
 
-    for table_name in inspector.get_table_names():
-        pk_columns: set[str] = set()
-        try:
-            pk = inspector.get_pk_constraint(table_name)
-            pk_columns = set(pk.get("constrained_columns", []))
-        except Exception:
-            pass
+    for schema_name in _get_user_schema_names(inspector):
+        for table_name in inspector.get_table_names(schema=schema_name):
+            display_name = _display_table_name(schema_name, table_name)
+            pk_columns: set[str] = set()
+            try:
+                pk = inspector.get_pk_constraint(table_name, schema=schema_name)
+                pk_columns = set(pk.get("constrained_columns", []))
+            except Exception:
+                pass
 
-        columns: list[ColumnInfo] = []
-        for col in inspector.get_columns(table_name):
-            col_name = col["name"]
-            col_type = str(col["type"])
-            sample_values = _get_distinct_values(engine, table_name, col_name) if _is_enum_like(col_name, col_type) else []
-            columns.append(
-                ColumnInfo(
-                    name=col_name,
-                    type=col_type,
-                    nullable=col.get("nullable", True),
-                    primary_key=col_name in pk_columns,
-                    sample_values=sample_values,
+            columns: list[ColumnInfo] = []
+            qualified_table = _qualify_table_name(schema_name, table_name)
+            for col in inspector.get_columns(table_name, schema=schema_name):
+                col_name = col["name"]
+                col_type = str(col["type"])
+                sample_values = (
+                    _get_distinct_values(engine, qualified_table, col_name) if _is_enum_like(col_name, col_type) else []
+                )
+                columns.append(
+                    ColumnInfo(
+                        name=col_name,
+                        type=col_type,
+                        nullable=col.get("nullable", True),
+                        primary_key=col_name in pk_columns,
+                        sample_values=sample_values,
+                    )
+                )
+
+            foreign_keys: list[ForeignKeyInfo] = []
+            try:
+                for fk in inspector.get_foreign_keys(table_name, schema=schema_name):
+                    referred_table = fk.get("referred_table", "")
+                    referred_schema = fk.get("referred_schema")
+                    display_referred_table = _display_table_name(referred_schema, referred_table) if referred_table else ""
+                    constrained_cols = fk.get("constrained_columns", [])
+                    referred_cols = fk.get("referred_columns", [])
+                    for local_col, remote_col in zip(constrained_cols, referred_cols):
+                        foreign_keys.append(
+                            ForeignKeyInfo(
+                                column=local_col,
+                                referred_table=display_referred_table,
+                                referred_column=remote_col,
+                            )
+                        )
+            except Exception:
+                pass
+
+            row_count = None
+            try:
+                with engine.connect() as conn:
+                    result = conn.execute(text(f"SELECT COUNT(*) FROM {qualified_table}"))
+                    row_count = result.scalar()
+            except Exception:
+                pass
+
+            tables.append(
+                TableInfo(
+                    name=display_name,
+                    columns=columns,
+                    foreign_keys=foreign_keys,
+                    row_count=row_count,
                 )
             )
-
-        foreign_keys: list[ForeignKeyInfo] = []
-        try:
-            for fk in inspector.get_foreign_keys(table_name):
-                referred_table = fk.get("referred_table", "")
-                constrained_cols = fk.get("constrained_columns", [])
-                referred_cols = fk.get("referred_columns", [])
-                for local_col, remote_col in zip(constrained_cols, referred_cols):
-                    foreign_keys.append(
-                        ForeignKeyInfo(
-                            column=local_col,
-                            referred_table=referred_table,
-                            referred_column=remote_col,
-                        )
-                    )
-        except Exception:
-            pass
-
-        row_count = None
-        try:
-            with engine.connect() as conn:
-                result = conn.execute(text(f'SELECT COUNT(*) FROM "{table_name}"'))
-                row_count = result.scalar()
-        except Exception:
-            pass
-
-        tables.append(
-            TableInfo(
-                name=table_name,
-                columns=columns,
-                foreign_keys=foreign_keys,
-                row_count=row_count,
-            )
-        )
 
     return tables
 

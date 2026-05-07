@@ -2,13 +2,51 @@
 
 import logging
 import uuid
+from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 
 logger = logging.getLogger(__name__)
+
+
+class AppError(Exception):
+    """Application-level error with a stable API-facing shape."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str,
+        status_code: int,
+        details: list[dict[str, Any]] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.message = message
+        self.code = code
+        self.status_code = status_code
+        self.details = details
+
+
+class NotFoundError(AppError):
+    def __init__(self, message: str = "Resource not found.") -> None:
+        super().__init__(message, code="not_found", status_code=status.HTTP_404_NOT_FOUND)
+
+
+class BadRequestError(AppError):
+    def __init__(self, message: str = "Invalid request.") -> None:
+        super().__init__(message, code="bad_request", status_code=status.HTTP_400_BAD_REQUEST)
+
+
+class ServiceUnavailableError(AppError):
+    def __init__(self, message: str = "Service temporarily unavailable.") -> None:
+        super().__init__(
+            message,
+            code="service_unavailable",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
 
 def _normalize_http_detail(detail: object) -> tuple[str, list[dict] | None]:
@@ -24,6 +62,19 @@ def _normalize_http_detail(detail: object) -> tuple[str, list[dict] | None]:
 
 
 def register_exception_handlers(app: FastAPI) -> None:
+    @app.exception_handler(AppError)
+    async def app_exception_handler(_: Request, exc: AppError):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": {
+                    "code": exc.code,
+                    "message": exc.message,
+                    "details": exc.details,
+                }
+            },
+        )
+
     @app.exception_handler(HTTPException)
     async def http_exception_handler(_: Request, exc: HTTPException):
         message, details = _normalize_http_detail(exc.detail)
@@ -74,4 +125,10 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
 
 
-__all__ = ["register_exception_handlers"]
+__all__ = [
+    "AppError",
+    "BadRequestError",
+    "NotFoundError",
+    "ServiceUnavailableError",
+    "register_exception_handlers",
+]

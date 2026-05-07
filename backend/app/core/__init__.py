@@ -4,7 +4,6 @@ from app.core.config import Settings, get_settings, settings
 from app.core.errors import register_exception_handlers
 from app.core.middleware import configure_cors
 from app.core.secrets import (
-    DEV_ENCRYPTION_KEY,
     get_encryption_key,
     require_groq_api_key,
     require_lemon_squeezy_webhook_secret,
@@ -20,7 +19,6 @@ __all__ = [
     "get_settings",
     "register_exception_handlers",
     "configure_cors",
-    "DEV_ENCRYPTION_KEY",
     "get_encryption_key",
     "require_groq_api_key",
     "require_lemon_squeezy_webhook_secret",

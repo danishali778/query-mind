@@ -31,6 +31,11 @@ def _strip_literals(sql: str) -> str:
     return _STRING_LITERAL_PATTERN.sub("''", sql)
 
 
+def _contains_multiple_statements(sql: str) -> bool:
+    stripped = sql.strip().rstrip(";")
+    return ";" in stripped
+
+
 def validate_query(sql: str) -> tuple[bool, str]:
     cleaned = re.sub(r"--.*$", "", sql, flags=re.MULTILINE)
     cleaned = re.sub(r"/\*.*?\*/", "", cleaned, flags=re.DOTALL)
@@ -40,6 +45,9 @@ def validate_query(sql: str) -> tuple[bool, str]:
         return False, "Empty query"
 
     cleaned_for_scan = _strip_literals(cleaned)
+    if _contains_multiple_statements(cleaned_for_scan):
+        return False, "Multiple SQL statements are not allowed."
+
     match = _BLOCKED_PATTERN.search(cleaned_for_scan)
     if match:
         keyword = match.group().upper()

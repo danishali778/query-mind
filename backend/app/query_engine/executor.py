@@ -12,6 +12,11 @@ from app.query_engine.safety import sanitize_row_limit, validate_query
 QUERY_TIMEOUT = 30
 
 
+def _apply_readonly_guards(conn, dialect_name: str) -> None:
+    if dialect_name in {"postgresql", "mysql", "mariadb"}:
+        conn.execute(text("SET TRANSACTION READ ONLY"))
+
+
 def execute_query(
     user_id: str,
     engine: Engine,
@@ -30,10 +35,26 @@ def execute_query(
 
     try:
         with engine.connect() as conn:
+            transaction = conn.begin()
             try:
                 conn.execute(text(f"SET statement_timeout = '{QUERY_TIMEOUT * 1000}'"))
             except Exception:
                 pass
+
+            if readonly:
+                try:
+                    _apply_readonly_guards(conn, engine.dialect.name)
+                except Exception:
+                    transaction.rollback()
+                    return _log_and_return(
+                        QueryExecutionResult(
+                            success=False,
+                            error="Unable to enforce read-only execution for this database connection.",
+                        ),
+                        user_id,
+                        connection_id,
+                        sql,
+                    )
 
             result = conn.execute(text(safe_sql))
             columns = list(result.keys())
@@ -41,6 +62,7 @@ def execute_query(
             rows = serialize_data(raw_rows)
             elapsed = (time.time() - start_time) * 1000
             truncated = len(rows) >= row_limit
+            transaction.rollback()
 
             return _log_and_return(
                 QueryExecutionResult(
@@ -59,13 +81,20 @@ def execute_query(
         elapsed = (time.time() - start_time) * 1000
         error_text = str(exc)
 
-        if "does not exist" in error_text or "doesn't exist" in error_text:
+        lowered = error_text.lower()
+
+        if (
+            "does not exist" in error_text
+            or "doesn't exist" in error_text
+            or "no such table" in lowered
+            or "no such column" in lowered
+        ):
             friendly = f"Table or column not found. {error_text.split(chr(10))[0]}"
-        elif "syntax error" in error_text.lower():
+        elif "syntax error" in lowered:
             friendly = f"SQL syntax error. {error_text.split(chr(10))[0]}"
-        elif "timeout" in error_text.lower() or "cancel" in error_text.lower():
+        elif "timeout" in lowered or "cancel" in lowered:
             friendly = f"Query timed out after {QUERY_TIMEOUT} seconds. Try a simpler query or add filters."
-        elif "permission" in error_text.lower() or "denied" in error_text.lower():
+        elif "permission" in lowered or "denied" in lowered:
             friendly = "Permission denied. Your database user may not have access to this table."
         else:
             friendly = error_text.split("\n")[0]

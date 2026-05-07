@@ -1,10 +1,7 @@
 """External service integrations."""
 
 from app.integrations.supabase_auth import (
-    BACKEND_DEV_MODE,
     JWTError,
-    MOCK_USER,
-    SUPABASE_JWT_SECRET,
     User,
     decode_supabase_jwt,
     get_current_user,
@@ -32,11 +29,8 @@ __all__ = [
     "SUPABASE_SERVICE_KEY",
     "supabase",
     "async_supabase",
-    "SUPABASE_JWT_SECRET",
-    "BACKEND_DEV_MODE",
     "JWTError",
     "User",
-    "MOCK_USER",
     "decode_supabase_jwt",
     "get_current_user",
     "get_user_no_check",

@@ -11,6 +11,7 @@ from app.container import (
     get_query_library_service,
     get_settings_service,
 )
+from app.core.errors import AppError, ServiceUnavailableError
 from app.integrations.supabase_auth import User, get_current_user, get_user_no_check
 from app.services.billing_service import increment_usage
 
@@ -24,7 +25,12 @@ class RateLimitChecker:
         self.limit_type = limit_type
 
     def __call__(self, current_user: CurrentUserDep):
-        success = increment_usage(current_user.id, self.limit_type)
+        try:
+            success = increment_usage(current_user.id, self.limit_type)
+        except AppError:
+            raise
+        except Exception as exc:
+            raise ServiceUnavailableError("Usage enforcement is temporarily unavailable.") from exc
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,

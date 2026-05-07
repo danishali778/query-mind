@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import CurrentUserDep, RateLimitChecker
 from app.api.v1.schemas.query import QueryRequest, QueryResult
+from app.core.errors import BadRequestError, NotFoundError
 from app.services.query_execution_service import execute_for_connection
 
 
@@ -25,4 +26,7 @@ async def execute_sql_query(
         )
         return QueryResult.model_validate(result.model_dump())
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        detail = str(exc)
+        if "not found" in detail.lower():
+            raise NotFoundError(detail) from exc
+        raise BadRequestError(detail) from exc

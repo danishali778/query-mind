@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ConnectionResponse(BaseModel):
@@ -62,6 +62,8 @@ class ActiveConnection(BaseModel):
 class ColumnInfo(BaseModel):
     """API-facing column payload."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     name: str
     type: str
     nullable: bool
@@ -72,6 +74,8 @@ class ColumnInfo(BaseModel):
 class ForeignKeyInfo(BaseModel):
     """API-facing foreign-key payload."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     column: str
     referred_table: str
     referred_column: str
@@ -79,6 +83,8 @@ class ForeignKeyInfo(BaseModel):
 
 class TableInfo(BaseModel):
     """API-facing table payload."""
+
+    model_config = ConfigDict(from_attributes=True)
 
     name: str
     columns: list[ColumnInfo]
@@ -139,6 +145,8 @@ class MermaidErdResponse(BaseModel):
 class ErdJsonColumn(BaseModel):
     """Column payload inside JSON ERD output."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     name: str
     type: str
     primary_key: bool
@@ -149,6 +157,8 @@ class ErdJsonColumn(BaseModel):
 class ErdJsonTable(BaseModel):
     """Table payload inside JSON ERD output."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     name: str
     row_count: Optional[int] = None
     columns: list[ErdJsonColumn] = Field(default_factory=list)
@@ -156,6 +166,8 @@ class ErdJsonTable(BaseModel):
 
 class ErdJsonRelationship(BaseModel):
     """Relationship payload inside JSON ERD output."""
+
+    model_config = ConfigDict(from_attributes=True)
 
     from_table: str
     from_column: str

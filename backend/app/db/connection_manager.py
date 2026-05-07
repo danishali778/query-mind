@@ -4,7 +4,6 @@ from sqlalchemy.engine import Engine, make_url
 
 from app.db.models.connection import ActiveConnection, ConnectionRequest, TableInfo
 from app.db.repositories import connection_repository
-from app.integrations.supabase_auth import MOCK_USER
 from app.query_engine.schema_inspector import generate_erd_json, generate_erd_mermaid
 import app.query_engine.connection_pool as connection_pool
 
@@ -108,7 +107,8 @@ async def seed_dev_connection() -> str | None:
     try:
         parsed = make_url(url)
         name = f"Dev - {parsed.database}"
-        existing_id = await connection_repository.find_dev_connection(MOCK_USER.id, name)
+        owner_id = settings.dev_user_id
+        existing_id = await connection_repository.find_dev_connection(owner_id, name)
         if existing_id:
             return existing_id
 
@@ -122,7 +122,7 @@ async def seed_dev_connection() -> str | None:
             name=name,
             readonly=False,
         )
-        connection_id, _ = await connect(MOCK_USER.id, config)
+        connection_id, _ = await connect(owner_id, config)
         return connection_id
     except Exception:
         return None
