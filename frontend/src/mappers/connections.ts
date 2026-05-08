@@ -19,6 +19,7 @@ export function mapConnectionRecord(apiConn: ConnectionApiRecord): ConnectionLis
     type: apiConn.db_type,
     status: apiConn.status === 'connected' ? 'live' : 'offline',
     queries: 0,
+    latency: 0,
     icon: iconInfo.icon,
     color: iconInfo.color,
     host: apiConn.host ?? undefined,

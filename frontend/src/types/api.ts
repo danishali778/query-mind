@@ -69,7 +69,7 @@ export interface TestConnectionRequest {
   port?: number;
   database: string;
   username: string;
-  password: string;
+  password?: string;
   ssl_mode?: string;
   // SSH Tunnel
   use_ssh?: boolean;

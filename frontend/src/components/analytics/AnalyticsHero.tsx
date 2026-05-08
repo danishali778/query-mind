@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Activity, Clock, Terminal, Fingerprint } from 'lucide-react';
+import { Activity, Terminal, Fingerprint } from 'lucide-react';
 import { T } from '../dashboard/tokens';
 
 export function AnalyticsHero() {

@@ -417,7 +417,7 @@ function EmptyState() {
             transition: 'all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)',
           }}
         >
-          <HeaderIcons.Plus size={14} /> CREATE_DASHBOARD
+          <HeaderIcons.Plus width={14} height={14} /> CREATE_DASHBOARD
         </button>
       </div>
 
@@ -784,7 +784,7 @@ export function DashboardPage() {
   const handleCreateDashboard = async () => {
     if (!newDashName.trim()) return;
     try {
-      const newDash = await createNewDashboard(newDashName);
+      const newDash = await createNewDashboard({ name: newDashName });
       setNewDashName('');
       setShowCreateForm(false);
       setActiveDashId(newDash.id);
@@ -862,7 +862,7 @@ export function DashboardPage() {
               e.currentTarget.style.borderColor = T.border;
             }}
           >
-            <HeaderIcons.Download size={14} /> EXPORT_PNG
+            <HeaderIcons.Download width={14} height={14} /> EXPORT_PNG
           </button>
           
           <button style={{
@@ -876,7 +876,7 @@ export function DashboardPage() {
           }}
             onClick={() => setShowCreateForm(true)}
           >
-            <HeaderIcons.Plus size={14} /> NEW_DASHBOARD
+            <HeaderIcons.Plus width={14} height={14} /> NEW_DASHBOARD
           </button>
         </>
       }

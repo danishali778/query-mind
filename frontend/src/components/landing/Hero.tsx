@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { T } from '../dashboard/tokens';
-import { ChevronRight, Database, Terminal, Shield, Activity } from 'lucide-react';
+import { Terminal, Activity } from 'lucide-react';
 
 const QUERY_TEXT = "SELECT total_revenue FROM regional_sales WHERE quarter = 'Q3_2025';";
 

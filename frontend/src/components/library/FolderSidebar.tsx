@@ -8,7 +8,6 @@ import {
   Search, 
   Plus,
   Hash,
-  Tag
 } from 'lucide-react';
 import { T } from '../dashboard/tokens';
 import { createLibraryFolder } from '../../services/api';

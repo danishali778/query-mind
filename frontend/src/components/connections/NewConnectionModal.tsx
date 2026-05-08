@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { T } from '../dashboard/tokens';
 import { connectDatabase, testConnection } from '../../services/api';
-import { Database, Shield, Activity, X, ChevronRight, ChevronLeft, Check, Lock, Globe, Server, FileText } from 'lucide-react';
+import { Database, X, ChevronRight, ChevronLeft, Check, Lock, Globe, Server, FileText } from 'lucide-react';
 
 export function NewConnectionModal({ isOpen, onClose, onSaved }: { isOpen: boolean, onClose: () => void, onSaved?: () => void }) {
   const [step, setStep] = useState(1);
@@ -272,7 +272,7 @@ function WizardStep({ num, label, active, done }: { num: number, label: string, 
   );
 }
 
-function WizardLine({ done }: { done: boolean }) {
+function WizardLine({ done: _done }: { done: boolean }) {
   return <div style={{ flex: 1, height: 1, background: T.border, margin: '0 20px', opacity: 0.3 }} />
 }
 

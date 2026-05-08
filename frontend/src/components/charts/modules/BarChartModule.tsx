@@ -56,7 +56,7 @@ export function BarChartModule({
   const barsPerGroup = viewMode === 'grouped' ? yColumns.length : 1;
   const effectiveBarCount = data.length * barsPerGroup;
   const needsScroll = viewMode !== 'multi' && effectiveBarCount > SCROLL_THRESHOLD;
-  const fixedWidth = Math.max(600, data.length * Math.max(48, barsPerGroup * 22));
+  const fixedWidth = Math.max(600, data.length * Math.max(32, barsPerGroup * 20));
 
   const isColCurrency = (colName: string) => column_metadata?.[colName] === 'currency';
 
@@ -267,8 +267,8 @@ export function BarChartModule({
               <YAxis yAxisId="left" width={AXIS_W} tickFormatter={yAxisFmtSingle} tick={{ fontSize: 11, fill: T.text3, fontFamily: T.fontMono }} label={yAxisLabelSingle} />
             )}
             <Tooltip content={<CustomTooltip normalizedColMaxes={normalized ? colMaxes : null} tooltipColumns={tooltipColumns} />} cursor={{ fill: 'rgba(255,255,255,0.05)' }} />
-            {viewMode === 'grouped' 
-              ? yColumns.map((c, i) => <Bar key={c} dataKey={c} yAxisId={getAxisId(c)} fill={COLORS[i % COLORS.length]} radius={[4, 4, 0, 0]} barSize={needsDualAxis ? 12 : 20} />) 
+            {viewMode === 'grouped'
+              ? yColumns.map((c, i) => <Bar key={c} dataKey={c} yAxisId={getAxisId(c)} fill={COLORS[i % COLORS.length]} radius={[4, 4, 0, 0]} barSize={needsDualAxis ? 12 : 20} />)
               : <Bar dataKey={col} yAxisId="left" fill={useCategoryColors ? "" : color} radius={[4, 4, 0, 0]} barSize={30}>{useCategoryColors && data.map((_, i) => <Cell key={`cell-${i}`} fill={COLORS[i % COLORS.length]} />)}</Bar>
             }
           </BarChart>

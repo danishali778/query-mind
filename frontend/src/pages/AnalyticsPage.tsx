@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar } from 'recharts';
-import { BarChart3, Database, Layers, Layout, Clock, Activity } from 'lucide-react';
+import { BarChart3, Database, Layers, Layout, Activity } from 'lucide-react';
 import { MainShell } from '../components/common/MainShell';
 import { AnalyticsHero } from '../components/analytics/AnalyticsHero';
 import { AnalyticsSectionCard } from '../components/analytics/AnalyticsSectionCard';

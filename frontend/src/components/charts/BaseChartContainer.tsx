@@ -79,7 +79,7 @@ export function BaseChartContainer({ recommendation, rows, column_metadata }: Ch
   };
 
   return (
-    <div style={{ borderBottom: `1px solid ${T.border}` }}>
+    <div style={{ borderBottom: `1px solid ${T.border}`, width: '100%', minWidth: 0, overflowX: 'auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', background: T.s2 }}>
         <span style={{ fontSize: '0.65rem', fontFamily: T.fontMono, fontWeight: 600, letterSpacing: 1, color: T.purple, background: T.purpleDim, border: '1px solid rgba(124,58,255,0.25)', padding: '2px 8px', borderRadius: 4 }}>
           CHART
