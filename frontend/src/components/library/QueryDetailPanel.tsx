@@ -1,6 +1,6 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 import { useState, useEffect } from 'react';
-import { X, Play, Trash2, Calendar, Clock, Database, Tag, Info, FileText, ChevronRight, Activity, Terminal } from 'lucide-react';
+import { X, Play, Trash2, Clock, Database, FileText, Activity, Terminal } from 'lucide-react';
 import { T } from '../dashboard/tokens';
 import { runSavedQuery, getQueryRunHistory, setQuerySchedule, removeQuerySchedule, updateSavedQuery, listLibraryFolders } from '../../services/api';
 import { highlightSqlInline, extractTablesFromSql } from '../../utils/sqlHighlight';
@@ -8,7 +8,6 @@ import type { LibraryQuery, LibraryRunResult } from '../../types/library';
 import type { FolderSummary, QueryRunHistoryRecord, ScheduleConfig } from '../../types/api';
 
 const DAYS_OF_WEEK = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'] as const;
-const DAY_LABELS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 const COMMON_TIMEZONES = [
   'UTC','America/New_York','America/Chicago','America/Denver','America/Los_Angeles',
   'Europe/London','Europe/Berlin','Asia/Karachi','Asia/Kolkata','Asia/Tokyo','Australia/Sydney',
@@ -46,7 +45,7 @@ export function QueryDetailPanel({ query, onClose, onDelete, onRefresh, initialT
 
   useEffect(() => {
     if (!query) return;
-    setFolderDraft(query.folder_name);
+    setFolderDraft(query.folder_name ?? 'Uncategorized');
     setNewFolderMode(false);
     setNewFolderName('');
     listLibraryFolders().then(setFolders).catch(() => {});
@@ -187,7 +186,7 @@ export function QueryDetailPanel({ query, onClose, onDelete, onRefresh, initialT
                   {!newFolderMode ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <select
-                        value={folderDraft}
+                        value={folderDraft ?? 'Uncategorized'}
                         onChange={e => {
                           if (e.target.value === '__new__') { setNewFolderMode(true); }
                           else { setFolderDraft(e.target.value); }
@@ -372,7 +371,7 @@ export function QueryDetailPanel({ query, onClose, onDelete, onRefresh, initialT
                     {schedDraft.frequency === 'weekly' && (
                       <SettingsRow label="Window">
                         <select 
-                          value={schedDraft.day_of_week} 
+                          value={schedDraft.day_of_week ?? 'monday'} 
                           onChange={e => setSchedDraft({ ...schedDraft, day_of_week: e.target.value as any })}
                           style={selectStyle}
                         >

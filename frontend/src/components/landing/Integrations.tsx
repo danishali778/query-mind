@@ -30,7 +30,7 @@ export function Integrations() {
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 1, background: T.border, border: `1px solid ${T.border}` }}>
-                    {tools.map((t, i) => (
+                    {tools.map((t) => (
                         <div
                             key={t.name}
                             style={{

@@ -9,13 +9,13 @@ import { useSmartSave } from '../../hooks/useSmartSave';
 import { Pin, Plus, RotateCcw, ThumbsUp, ThumbsDown } from 'lucide-react';
 import type { ChatMessageView } from '../../types/chat';
 
-export function MessageBubble({ 
-  message, 
+export function MessageBubble({
+  message,
   connectionId,
   onSqlSave,
   onTogglePin
-}: { 
-  message: ChatMessageView, 
+}: {
+  message: ChatMessageView,
   connectionId?: string,
   onSqlSave?: (messageId: string, newSql: string) => Promise<void>,
   onTogglePin?: (messageId: string, isPinned: boolean) => Promise<void>
@@ -25,7 +25,7 @@ export function MessageBubble({
   const [saveLabel, setSaveLabel] = useState<string | null>(null);
   const [isSavingSql, setIsSavingSql] = useState(false);
   const [isPinning, setIsPinning] = useState(false);
-  
+
   const { smartAddToDashboard, smartSaveToLibrary, isSaving: isSmartSaving } = useSmartSave();
 
   const handleSaved = (created: boolean) => {
@@ -66,20 +66,20 @@ export function MessageBubble({
       </div>
     );
   }
-// Assistant
+  // Assistant
   return (
-    <div id={message.id ? `msg-${message.id}` : undefined} style={{ padding: '24px 0', display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
+    <div id={message.id ? `msg-${message.id}` : undefined} style={{ padding: '24px 0', display: 'flex', flexDirection: 'column', alignItems: 'stretch', width: '100%', minWidth: 0, maxWidth: '100%' }}>
       {/* AI Header & Content */}
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', padding: '0 0 24px' }}>
-        <div style={{ 
-          display: 'flex', alignItems: 'center', justifyContent: 'center', 
-          width: 24, height: 24, background: '#1a1a1a', borderRadius: 4, 
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          width: 24, height: 24, background: '#1a1a1a', borderRadius: 4,
           color: '#fff', fontSize: '0.8rem', fontWeight: 900, fontStyle: 'italic',
           flexShrink: 0, marginTop: 4
         }}>
           Q
         </div>
-        
+
         <div style={{ fontSize: '1rem', lineHeight: 1.6, color: T.text, fontWeight: 450, flex: 1 }}>
           {message.error ? (
             <div style={{ color: T.red, background: 'rgba(239, 68, 68, 0.05)', padding: '12px 16px', borderRadius: 12, border: `1px solid ${T.red}20` }}>
@@ -95,18 +95,18 @@ export function MessageBubble({
       {/* Technical Result Box (SQL, Table, Charts) */}
       {(message.sql || message.rows) && !message.error && (
         <div style={{
-          marginLeft: 0, 
-          background: '#fff', 
+          width: '100%', minWidth: 0, marginLeft: 0,
+          background: '#fff',
           border: `1px solid rgba(0,0,0,0.08)`,
-          borderRadius: 0, 
+          borderRadius: 0,
           overflow: 'hidden',
           boxShadow: 'none',
           marginBottom: 12
         }}>
           {/* Metadata Header */}
-          <div style={{ 
-            padding: '12px 20px', 
-            background: 'rgba(0,0,0,0.02)', 
+          <div style={{
+            padding: '12px 20px',
+            background: 'rgba(0,0,0,0.02)',
             borderBottom: `1px solid rgba(0,0,0,0.05)`,
             display: 'flex',
             justifyContent: 'space-between',
@@ -116,7 +116,7 @@ export function MessageBubble({
               <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#1a1a1a' }} />
               {message.sql ? `SQL GENERATED — ${message.sql.length} CHARS` : 'DATA OBSERVATIONS'}
             </div>
-            <button 
+            <button
               onClick={() => message.sql && navigator.clipboard.writeText(message.sql)}
               style={{ background: 'none', border: 'none', color: T.text, fontSize: '0.65rem', fontWeight: 800, cursor: 'pointer', fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '0.05em' }}
             >
@@ -139,12 +139,14 @@ export function MessageBubble({
 
           {/* Results Table */}
           {message.columns && message.rows && message.rows.length > 0 && (
-            <ResultsTable
-              columns={message.columns}
-              rows={message.rows}
-              rowCount={message.row_count}
-              executionTime={message.execution_time_ms}
-            />
+            <div style={{ width: '100%', minWidth: 0, overflowX: 'auto' }}>
+              <ResultsTable
+                columns={message.columns}
+                rows={message.rows}
+                rowCount={message.row_count}
+                executionTime={message.execution_time_ms}
+              />
+            </div>
           )}
 
           {/* Chart Section */}
@@ -177,7 +179,7 @@ export function MessageBubble({
               disabled={isSmartSaving}
               style={{
                 padding: '8px 16px', borderRadius: 0, border: `1.5px solid #1a1a1a`,
-                background: isSmartSaving ? 'rgba(0,0,0,0.05)' : '#fff', 
+                background: isSmartSaving ? 'rgba(0,0,0,0.05)' : '#fff',
                 color: '#1a1a1a',
                 fontSize: '0.7rem', fontWeight: 900, cursor: isSmartSaving ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 8,
                 transition: 'all 0.2s', fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '0.05em'
@@ -201,7 +203,7 @@ export function MessageBubble({
                 }}
                 disabled={isPinning}
                 style={{
-                  padding: '8px 16px', borderRadius: 0, 
+                  padding: '8px 16px', borderRadius: 0,
                   border: `1.5px solid #1a1a1a`,
                   background: message.is_pinned ? '#1a1a1a' : '#fff',
                   color: message.is_pinned ? '#fff' : '#1a1a1a',
@@ -230,7 +232,7 @@ export function MessageBubble({
             </button>
 
             <div style={{ flex: 1 }} />
-            
+
             <div style={{ display: 'flex', gap: 14, color: T.text3 }}>
               <ThumbsUp size={16} strokeWidth={2} style={{ cursor: 'pointer', opacity: 0.5 }} />
               <ThumbsDown size={16} strokeWidth={2} style={{ cursor: 'pointer', opacity: 0.5 }} />
@@ -238,7 +240,7 @@ export function MessageBubble({
           </div>
         </div>
       )}
-      
+
       <SaveQueryModal
         isOpen={saveModalOpen}
         onClose={() => setSaveModalOpen(false)}

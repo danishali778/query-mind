@@ -1,10 +1,9 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   User, Shield, Zap, Bell, Key, CreditCard, 
-  LogOut, Upload, Trash2, Check, AlertTriangle,
-  Monitor, Smartphone, Globe, ChevronRight,
-  Database, Terminal, Settings as SettingsIcon
+  LogOut, AlertTriangle,
+  Monitor, Smartphone, ChevronRight
 } from 'lucide-react';
 import { MainShell } from '../components/common/MainShell';
 import { T } from '../components/dashboard/tokens';

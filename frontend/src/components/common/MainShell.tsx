@@ -50,8 +50,10 @@ export function MainShell({
       <main
         style={{
           flex: 1,
+          minWidth: 0,
           display: 'flex',
           flexDirection: 'column',
+          overflow: 'hidden',
           transition: 'padding-left 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
         }}
       >
@@ -69,6 +71,7 @@ export function MainShell({
         {/* Page Content */}
         <main style={{
           flex: 1,
+          minWidth: 0,
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',

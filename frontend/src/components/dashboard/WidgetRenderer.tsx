@@ -41,24 +41,6 @@ function IconClose() {
   );
 }
 
-function IconArrowUp() {
-  return (
-    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="12" y1="19" x2="12" y2="5" />
-      <polyline points="5 12 12 5 19 12" />
-    </svg>
-  );
-}
-
-function IconArrowDown() {
-  return (
-    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="12" y1="5" x2="12" y2="19" />
-      <polyline points="19 12 12 19 5 12" />
-    </svg>
-  );
-}
-
 function IconZap({ style }: { style?: React.CSSProperties }) {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={style}>
@@ -93,14 +75,6 @@ function widgetBadge(vizType: string) {
     table:   { bg: '#fdfcfb',   color: '#1a1a1a',  label: 'TABLE',   borderColor: 'rgba(0,0,0,0.1)' },
   };
   return map[vizType] || map.table;
-}
-
-function inferChangePercent(rows: Array<Record<string, unknown>>, key?: string) {
-  if (!rows.length || !key) return null;
-  const first = Number(rows[0][key] ?? 0);
-  const last = Number(rows[rows.length - 1][key] ?? 0);
-  if (!Number.isFinite(first) || !Number.isFinite(last) || first === 0) return null;
-  return ((last - first) / Math.abs(first)) * 100;
 }
 
 
@@ -397,11 +371,8 @@ function KpiCard({ widget, onDelete }: {
   const [isHovered, setIsHovered] = useState(false);
   const metricCol = (widget.chart_config?.y_columns || []).find(Boolean)
     || widget.columns.find((c) => widget.rows.some((r) => typeof r[c] === 'number'));
-  const labelCol = widget.chart_config?.x_column || widget.columns.find((c) => c !== metricCol);
   const primaryRow = widget.rows[widget.rows.length - 1] || widget.rows[0] || {};
   const metric = metricCol ? primaryRow[metricCol] : undefined;
-  const label = labelCol ? String(primaryRow[labelCol] ?? '') : '';
-  const change = inferChangePercent(widget.rows, metricCol);
 
   return (
     <motion.div 

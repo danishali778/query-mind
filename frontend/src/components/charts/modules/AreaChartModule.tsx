@@ -34,7 +34,7 @@ export function AreaChartModule({
   const SCROLL_THRESHOLD = 20;
   const effectivePointCount = data.length * Math.max(1, yColumns.length);
   const needsScroll = effectivePointCount > SCROLL_THRESHOLD;
-  const fixedWidth = Math.max(600, data.length * Math.max(48, yColumns.length * 22));
+  const fixedWidth = Math.max(600, data.length * Math.max(32, yColumns.length * 20));
 
   const xLabelInterval = needsScroll ? 0 : (data.length > 20 ? Math.ceil(data.length / 12) - 1 : 0);
   const chartMargin = { top: 10, right: 20, left: 50, bottom: 45 };
@@ -136,7 +136,7 @@ export function AreaChartModule({
 
     return (
       <AreaChart {...dims} {...cp}>
-        <CartesianGrid strokeDasharray="3 3" stroke={chartStyles.gridStroke}/>
+        <CartesianGrid strokeDasharray="3 3" stroke={chartStyles.gridStroke} />
         <XAxis {...xAxisProps} />
         {needsDualAxis ? (
           <>{yLeft}{yRight}</>

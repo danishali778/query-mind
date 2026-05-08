@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { RefreshCw, Edit3, Share2, Trash2, Database, Shield, Activity, List, Layout, Terminal, ExternalLink, ChevronRight, CheckCircle2, AlertCircle, Clock, Server, Lock, Globe, Code } from 'lucide-react';
+import { RefreshCw, Edit3, Share2, Trash2, Database, Shield, Activity, Layout, Terminal } from 'lucide-react';
 import { T } from '../dashboard/tokens';
 import type { ConnectionListItem, ConnectionDetailProps, ConnectionDetailTab } from '../../types/connections';
 import type { QueryRecord, SchemaResponse, SchemaTable, SchemaColumn } from '../../types/api';
@@ -91,9 +91,9 @@ export function ConnectionDetail({ connection, schema, queryHistory, onDelete, o
       {/* Body */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '32px' }} className="cd-body">
         
-        {activeTab === 'overview' && <OverviewTab connection={connection} schema={schema} queryHistory={queryHistory || []} onTabSwitch={setActiveTab} />}
+        {activeTab === 'overview' && <OverviewTab connection={connection} schema={schema ?? null} queryHistory={queryHistory || []} onTabSwitch={setActiveTab} />}
         {activeTab === 'credentials' && <CredentialsTab connection={connection} />}
-        {activeTab === 'schema' && <SchemaTab schema={schema ?? undefined} onRefresh={onRefreshSchema} />}
+        {activeTab === 'schema' && <SchemaTab schema={schema ?? null} onRefresh={onRefreshSchema} />}
         {activeTab === 'security' && <SecurityTab />}
         {activeTab === 'activity' && <ActivityTab queryHistory={queryHistory || []} />}
 
@@ -235,7 +235,7 @@ function CredentialsTab({ connection }: { connection: ConnectionListItem }) {
         port: connection.port || 5432,
         database: connection.database || '',
         username: connection.username || '',
-        password: '',
+        password: undefined,
       });
       setTestResult(result);
     } catch (err: unknown) {
@@ -308,7 +308,7 @@ function CredentialsTab({ connection }: { connection: ConnectionListItem }) {
   );
 }
 
-function SchemaTab({ schema, onRefresh }: { schema?: SchemaResponse, onRefresh?: () => void }) {
+function SchemaTab({ schema, onRefresh }: { schema?: SchemaResponse | null, onRefresh?: () => void }) {
   const tables = schema?.tables || [];
   const [viewMode, setViewMode] = useState<'table' | 'erd'>('table');
 
@@ -463,23 +463,6 @@ function ActivityRow({ ok, err, query, dur, time }: { ok?: boolean, err?: boolea
       <span style={{ fontSize: '0.62rem', fontFamily: T.fontMono, color: T.text3, flexShrink: 0 }}>{time}</span>
     </div>
   );
-}
-
-function FormGroup({ label, req, value, full, select }: { label: string, req?: boolean, value?: string, full?: boolean, select?: boolean }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, gridColumn: full ? 'span 2' : 'auto' }}>
-      <label style={{ fontSize: '0.62rem', color: T.text3, fontWeight: 700, fontFamily: T.fontMono, display: 'flex', alignItems: 'center', gap: 6, textTransform: 'uppercase', letterSpacing: '1px' }}>
-        {label} {req && <span style={{ color: T.red }}>*</span>}
-      </label>
-      {select ? (
-        <select style={{ background: T.s2, border: `1px solid ${T.border}`, borderRadius: 0, padding: '12px 16px', color: T.text2, fontFamily: T.fontMono, fontSize: '0.72rem', outline: 'none', width: '100%', appearance: 'none', cursor: 'pointer' }}>
-          <option>{value}</option>
-        </select>
-      ) : (
-        <input defaultValue={value} type={full && label === 'Password' ? 'password' : 'text'} style={{ background: T.s2, border: `1px solid ${T.border}`, borderRadius: 0, padding: '12px 16px', color: T.text, fontFamily: T.fontMono, fontSize: '0.72rem', outline: 'none', width: '100%', letterSpacing: '0.5px' }} />
-      )}
-    </div>
-  )
 }
 
 function TestStep({ label, res, state }: { label: string, res: string, state: 'wait'|'load'|'ok'|'err' }) {

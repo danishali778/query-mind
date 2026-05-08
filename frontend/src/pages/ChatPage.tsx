@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Pin, Send, Plus, Search, Layers, Database, Sparkles, MessageSquare } from 'lucide-react';
+import { Pin } from 'lucide-react';
 import { MainShell } from '../components/common/MainShell';
 import { Sidebar as ChatSidebar } from '../components/chat/Sidebar';
 import { ChatInput } from '../components/chat/ChatInput';
@@ -68,7 +68,7 @@ export function ChatPage() {
         sql: newSql,
         connection_id: activeConnectionId
       });
-      
+
       setMessages(prev => prev.map(m => m.id === messageId ? {
         ...m,
         sql: (updatedMsg as any).sql || undefined,
@@ -77,7 +77,7 @@ export function ChatPage() {
         chart_recommendation: (updatedMsg as any).chart_recommendation || undefined,
         execution_time_ms: (updatedMsg as any).execution_time_ms || (updatedMsg as any).results?.execution_time_ms || undefined,
         error: (updatedMsg as any).error || undefined,
-        content: (updatedMsg as any).content || m.content, 
+        content: (updatedMsg as any).content || m.content,
         is_pinned: (updatedMsg as any).is_pinned ?? m.is_pinned,
       } : m));
     } catch (err) {
@@ -118,13 +118,12 @@ export function ChatPage() {
         parent_id: userMsg.id, // Direct link
         prev_query_id: r.prev_query_id || undefined,
       };
-      
       setMessages(prev => {
         const updated = [...prev];
         // The last message in 'prev' is the user message we just added
         if (updated.length > 0 && updated[updated.length - 1].role === 'user') {
-          updated[updated.length - 1] = { 
-            ...updated[updated.length - 1], 
+          updated[updated.length - 1] = {
+            ...updated[updated.length - 1],
             id: r.user_message_id,
             prev_query_id: r.prev_query_id || undefined
           };
@@ -182,7 +181,7 @@ export function ChatPage() {
       } : undefined}
       headerActions={
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button 
+          <button
             onClick={() => setSchemaOpen(!schemaOpen)}
             style={{
               display: 'flex', alignItems: 'center', gap: 6,
@@ -211,131 +210,133 @@ export function ChatPage() {
           connections={connections} activeConnectionId={activeConnectionId}
         />
 
-        <div style={{ 
-          flex: 1, 
-          minWidth: 0, 
-          display: 'flex', 
-          flexDirection: 'column', 
-          overflow: 'hidden', 
+        <div style={{
+          flex: 1,
+          minWidth: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
           background: 'transparent',
           position: 'relative'
         }}>
           {/* Main Stage (Messages + Centering Logic) */}
           <div style={{ flex: 1, display: 'flex', justifyContent: 'center', minWidth: 0, overflow: 'hidden' }}>
-            <div 
+            <div
               id="chat-messages-scroll"
-              style={{ 
-                width: '100%', 
-                maxWidth: 1200, 
-                display: 'flex', 
+              style={{
+                width: '100%',
+                minWidth: 0,
+                maxWidth: 1200,
+                display: 'flex',
                 flexDirection: 'column',
-                overflowY: 'auto', 
+                overflowY: 'auto',
+                overflowX: 'hidden',
                 padding: '0 80px 40px', // Increased padding for editorial feel
-                scrollBehavior: 'smooth' 
+                scrollBehavior: 'smooth'
               }}
             >
-              <div style={{ width: '100%', paddingTop: 24 }}>
-              {/* Pinned Messages Bar - Editorial Style */}
-              {messages.filter(m => m.is_pinned).length > 0 && (
-                <div style={{ padding: '0 0 24px', borderBottom: `1px solid rgba(0,0,0,0.05)`, marginBottom: 32 }}>
-                  <div style={{ fontSize: '0.62rem', fontWeight: 700, color: T.text3, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8, fontFamily: T.fontMono }}>
-                    <Pin size={10} strokeWidth={3} /> PINNED OBSERVATIONS
-                  </div>
-                  <div style={{ display: 'flex', gap: 16, overflowX: 'auto', paddingBottom: 8, scrollbarWidth: 'none' }}>
-                    {messages.filter(m => m.is_pinned).map(m => (
-                      <div 
-                        key={m.id} 
-                        onClick={() => {
-                          const el = document.getElementById(`msg-${m.id}`);
-                          el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        }}
-                        style={{
-                          minWidth: 200, maxWidth: 260, background: '#fff', border: `1px solid rgba(0,0,0,0.08)`,
-                          borderRadius: 0, padding: '12px 16px', cursor: 'pointer', transition: 'all 0.2s',
-                          display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0,
-                        }}
-                      >
-                        <div style={{ fontSize: '0.9rem', fontWeight: 800, color: T.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: T.fontHead, fontStyle: 'italic' }}>
-                          {m.content.length > 30 ? m.content.substring(0, 30) + '...' : m.content}
+              <div style={{ width: '100%', minWidth: 0, paddingTop: 24 }}>
+                {/* Pinned Messages Bar - Editorial Style */}
+                {messages.filter(m => m.is_pinned).length > 0 && (
+                  <div style={{ padding: '0 0 24px', borderBottom: `1px solid rgba(0,0,0,0.05)`, marginBottom: 32 }}>
+                    <div style={{ fontSize: '0.62rem', fontWeight: 700, color: T.text3, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8, fontFamily: T.fontMono }}>
+                      <Pin size={10} strokeWidth={3} /> PINNED OBSERVATIONS
+                    </div>
+                    <div style={{ display: 'flex', gap: 16, overflowX: 'auto', paddingBottom: 8, scrollbarWidth: 'none' }}>
+                      {messages.filter(m => m.is_pinned).map(m => (
+                        <div
+                          key={m.id}
+                          onClick={() => {
+                            const el = document.getElementById(`msg-${m.id}`);
+                            el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                          }}
+                          style={{
+                            minWidth: 200, maxWidth: 260, background: '#fff', border: `1px solid rgba(0,0,0,0.08)`,
+                            borderRadius: 0, padding: '12px 16px', cursor: 'pointer', transition: 'all 0.2s',
+                            display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0,
+                          }}
+                        >
+                          <div style={{ fontSize: '0.9rem', fontWeight: 800, color: T.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: T.fontHead, fontStyle: 'italic' }}>
+                            {m.content.length > 30 ? m.content.substring(0, 30) + '...' : m.content}
+                          </div>
+                          <div style={{ fontSize: '0.6rem', color: T.text3, fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            {m.rows?.length || 0} ROWS • {m.columns?.length || 0} COLS
+                          </div>
                         </div>
-                        <div style={{ fontSize: '0.6rem', color: T.text3, fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                          {m.rows?.length || 0} ROWS • {m.columns?.length || 0} COLS
-                        </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {messages.length === 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '65vh', gap: 20 }}>
-                  <div style={{ 
-                    width: 64, height: 64, borderRadius: 0, background: '#1a1a1a', 
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', 
-                    fontSize: '1.8rem', fontWeight: 900, color: '#fff', 
-                    marginBottom: 12, fontFamily: T.fontHead, fontStyle: 'italic' 
-                  }}>Q</div>
-                  <div style={{ 
-                    fontFamily: T.fontHead, fontWeight: 900, fontSize: '2.8rem', 
-                    color: T.text, letterSpacing: -1.2, fontStyle: 'italic',
-                    textAlign: 'center', lineHeight: 1
-                  }}>
-                    What would you <br/>like to know?
+                {messages.length === 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '65vh', gap: 20 }}>
+                    <div style={{
+                      width: 64, height: 64, borderRadius: 0, background: '#1a1a1a',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '1.8rem', fontWeight: 900, color: '#fff',
+                      marginBottom: 12, fontFamily: T.fontHead, fontStyle: 'italic'
+                    }}>Q</div>
+                    <div style={{
+                      fontFamily: T.fontHead, fontWeight: 900, fontSize: '2.8rem',
+                      color: T.text, letterSpacing: -1.2, fontStyle: 'italic',
+                      textAlign: 'center', lineHeight: 1
+                    }}>
+                      What would you <br />like to know?
+                    </div>
+                    <div style={{ fontSize: '1rem', color: T.text2, maxWidth: 460, textAlign: 'center', lineHeight: 1.6, fontWeight: 400, opacity: 0.7 }}>
+                      QueryMind translates your plain English questions into optimized SQL, executing them against your database in real-time.
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 16, justifyContent: 'center' }}>
+                      {['Show me all tables', 'Describe the database', 'Who are the top customers?'].map(s => (
+                        <button key={s} onClick={() => handleSend(s)} disabled={!activeConnectionId || loading} style={{
+                          padding: '10px 20px', borderRadius: 0, border: `1px solid rgba(0,0,0,0.1)`, background: '#fff',
+                          color: T.text, fontSize: '0.8rem', cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap',
+                          fontWeight: 700, fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '0.05em'
+                        }}
+                          onMouseEnter={e => { e.currentTarget.style.borderColor = '#1a1a1a'; e.currentTarget.style.background = '#fdfcfb'; }}
+                          onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(0,0,0,0.1)'; e.currentTarget.style.background = '#fff'; }}
+                        >{s}</button>
+                      ))}
+                    </div>
                   </div>
-                  <div style={{ fontSize: '1rem', color: T.text2, maxWidth: 460, textAlign: 'center', lineHeight: 1.6, fontWeight: 400, opacity: 0.7 }}>
-                    QueryMind translates your plain English questions into optimized SQL, executing them against your database in real-time.
-                  </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 16, justifyContent: 'center' }}>
-                    {['Show me all tables', 'Describe the database', 'Who are the top customers?'].map(s => (
-                      <button key={s} onClick={() => handleSend(s)} disabled={!activeConnectionId || loading} style={{
-                        padding: '10px 20px', borderRadius: 0, border: `1px solid rgba(0,0,0,0.1)`, background: '#fff',
-                        color: T.text, fontSize: '0.8rem', cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap',
-                        fontWeight: 700, fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '0.05em'
-                      }}
-                        onMouseEnter={e => { e.currentTarget.style.borderColor = '#1a1a1a'; e.currentTarget.style.background = '#fdfcfb'; }}
-                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(0,0,0,0.1)'; e.currentTarget.style.background = '#fff'; }}
-                      >{s}</button>
-                    ))}
-                  </div>
-                </div>
-              )}
+                )}
 
-              {messages.map((msg, i) => (
-                <MessageBubble 
-                  key={msg.id || i} 
-                  message={msg} 
-                  connectionId={activeConnectionId}
-                  onSqlSave={handleSqlSave}
-                  onTogglePin={handleTogglePin}
-                />
-              ))}
+                {messages.map((msg, i) => (
+                  <MessageBubble
+                    key={msg.id || i}
+                    message={msg}
+                    connectionId={activeConnectionId}
+                    onSqlSave={handleSqlSave}
+                    onTogglePin={handleTogglePin}
+                  />
+                ))}
 
-              {loading && (
-                <div style={{ padding: '24px 12px', display: 'flex', gap: 14 }}>
-                  <div style={{ width: 20, height: 20, borderRadius: 0, background: '#1a1a1a', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '0.7rem', fontWeight: 900, fontStyle: 'italic' }}>Q</div>
-                  <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                    <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#1a1a1a', animation: 'thinkbounce 1.2s 0s infinite' }} />
-                    <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#1a1a1a', animation: 'thinkbounce 1.2s 0.2s infinite' }} />
-                    <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#1a1a1a', animation: 'thinkbounce 1.2s 0.4s infinite' }} />
+                {loading && (
+                  <div style={{ padding: '24px 12px', display: 'flex', gap: 14 }}>
+                    <div style={{ width: 20, height: 20, borderRadius: 0, background: '#1a1a1a', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '0.7rem', fontWeight: 900, fontStyle: 'italic' }}>Q</div>
+                    <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                      <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#1a1a1a', animation: 'thinkbounce 1.2s 0s infinite' }} />
+                      <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#1a1a1a', animation: 'thinkbounce 1.2s 0.2s infinite' }} />
+                      <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#1a1a1a', animation: 'thinkbounce 1.2s 0.4s infinite' }} />
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              <div ref={messagesEndRef} />
+                <div ref={messagesEndRef} />
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'center', background: 'transparent', flexShrink: 0, paddingBottom: 24 }}>
+            <div style={{ width: '100%', maxWidth: 1200, padding: '0 80px' }}>
+              <ChatInput
+                connections={connections} activeConnectionId={activeConnectionId}
+                onConnectionChange={setActiveConnectionId} onSend={handleSend} loading={loading}
+              />
             </div>
           </div>
         </div>
-
-        <div style={{ display: 'flex', justifyContent: 'center', background: 'transparent', flexShrink: 0, paddingBottom: 24 }}>
-          <div style={{ width: '100%', maxWidth: 1200, padding: '0 80px' }}>
-            <ChatInput
-              connections={connections} activeConnectionId={activeConnectionId}
-              onConnectionChange={setActiveConnectionId} onSend={handleSend} loading={loading}
-            />
-          </div>
-        </div>
       </div>
-    </div>
 
       <ConnectionModal isOpen={showConnectModal} onClose={() => setShowConnectModal(false)} onConnected={handleRefreshConnections} />
 
@@ -357,7 +358,7 @@ export function ChatPage() {
             <p style={{ fontSize: '0.95rem', color: T.text3, lineHeight: 1.6, margin: '0 0 32px 0' }}>
               You have hit your free tier limit for AI requests. Upgrade to Pro for unlimited AI analytics, background sync, and more.
             </p>
-            <button 
+            <button
               onClick={() => { window.location.href = '/upgrade'; }}
               style={{
                 width: '100%', padding: '14px 0', borderRadius: 12, border: 'none', cursor: 'pointer',

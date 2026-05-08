@@ -5,7 +5,6 @@ import {
   Library, 
   BarChart3, 
   Database, 
-  Bell, 
   Settings,
   ShieldCheck,
   ChevronRight
@@ -117,7 +116,6 @@ export function NavSection({ onDashboardHover }: { onDashboardHover?: (hovering:
 
       <div style={{ ...sectionLabel, paddingTop: 32 }}>Infrastructure</div>
       <NavItem icon={<Database size={16} />} label="Connections" path="/connections" active={p === '/connections'} />
-      <NavItem icon={<Bell size={16} />} label="Alerts" />
       <NavItem icon={<Settings size={16} />} label="Settings" path="/settings" active={p === '/settings'} />
     </div>
   );

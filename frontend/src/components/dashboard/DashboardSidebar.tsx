@@ -1,6 +1,6 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { T } from './tokens';
-import { Activity, Terminal, Shield, Zap, Database, Settings, Bell, LayoutGrid, MessageSquare, Library } from 'lucide-react';
+import { Activity, Database, Settings, Bell, LayoutGrid, MessageSquare, Library } from 'lucide-react';
 
 type SidebarItem = {
   icon: React.ReactNode;
@@ -138,8 +138,8 @@ export function DashboardSidebar() {
 
       {/* Nav Groups */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '24px 0' }}>
-        <div style={{ 
-          fontSize: '0.55rem', fontWeight: 950, letterSpacing: '3px', color: T.accent, 
+        <div style={{
+          fontSize: '0.55rem', fontWeight: 950, letterSpacing: '3px', color: T.accent,
           textTransform: 'uppercase', padding: '0 24px 16px', fontFamily: T.fontMono,
           display: 'flex', alignItems: 'center', gap: 8
         }}>
@@ -148,8 +148,8 @@ export function DashboardSidebar() {
         </div>
         {NAV_ITEMS.map(renderItem)}
 
-        <div style={{ 
-          fontSize: '0.55rem', fontWeight: 950, letterSpacing: '3px', color: T.accent, 
+        <div style={{
+          fontSize: '0.55rem', fontWeight: 950, letterSpacing: '3px', color: T.accent,
           textTransform: 'uppercase', padding: '32px 24px 16px', fontFamily: T.fontMono,
           display: 'flex', alignItems: 'center', gap: 8
         }}>

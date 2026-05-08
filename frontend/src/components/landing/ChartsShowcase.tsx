@@ -48,7 +48,7 @@ export function ChartsShowcase() {
                                 { x: 168, y: 70, h: 30, label: 'AF' },
                             ].map(b => (
                                 <g key={b.label}>
-                                    <rect x={b.x} y={b.y} width="24" height={b.h} fill={T.s2} border={`1px solid ${T.border}`} />
+                                    <rect x={b.x} y={b.y} width="24" height={b.h} fill={T.s2} stroke={T.border} />
                                     <rect x={b.x} y={b.y} width="24" height={b.h} fill={T.accent} opacity={0.2} />
                                     <text x={b.x + 12} y="115" fill={T.text3} fontSize="8" fontFamily={T.fontMono} fontWeight={950} textAnchor="middle">{b.label}</text>
                                 </g>

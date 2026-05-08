@@ -92,7 +92,7 @@ export function ConnectionsPage() {
             e.currentTarget.style.borderColor = T.accent;
           }}
         >
-          <HeaderIcons.Plus size={14} strokeWidth={3} /> New Connection
+          <HeaderIcons.Plus width={14} height={14} strokeWidth={3} /> New Connection
         </button>
       }
     >
@@ -109,7 +109,7 @@ export function ConnectionsPage() {
           queryHistory={queryHistory}
           onDelete={handleDelete}
           onRefreshSchema={() => {
-            if (activeId) getSchema(activeId).then(setSchema).catch(() => {});
+            if (activeId) getSchema(activeId).then(setSchema).catch(() => setSchema(null));
           }}
         />
       </div>

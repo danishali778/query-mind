@@ -37,7 +37,7 @@ export function LineChartModule({
   const SCROLL_THRESHOLD = 20;
   const effectivePointCount = data.length * Math.max(1, yColumns.length);
   const needsScroll = !isMulti && effectivePointCount > SCROLL_THRESHOLD;
-  const fixedWidth = Math.max(600, data.length * Math.max(48, yColumns.length * 22));
+  const fixedWidth = Math.max(600, data.length * Math.max(32, yColumns.length * 20));
 
   const xLabelInterval = needsScroll ? 0 : (data.length > 20 ? Math.ceil(data.length / 12) - 1 : 0);
   const chartMargin = { top: 12, right: 12, bottom: 45, left: 12 };
@@ -127,10 +127,10 @@ export function LineChartModule({
       return `${prefix}${Math.round(v).toLocaleString()}`;
     };
     const xTick = { fontSize: 9, fill: T.text3, fontFamily: T.fontMono };
-    const tipStyle = { 
-      background: 'rgba(255, 255, 255, 0.96)', 
-      border: `1px solid ${T.border}`, 
-      borderRadius: 6, 
+    const tipStyle = {
+      background: 'rgba(255, 255, 255, 0.96)',
+      border: `1px solid ${T.border}`,
+      borderRadius: 6,
       fontSize: '0.72rem',
       boxShadow: '0 4px 12px rgba(0,0,0,0.05)'
     };
@@ -151,7 +151,7 @@ export function LineChartModule({
           const tooltipFmt = (v: any) => [
             typeof v === 'number' ? (isColCurrency(col) ? `$${v.toLocaleString()}` : v.toLocaleString()) : v,
             formatColLabel(col),
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
           ] as any;
 
           return (
@@ -213,7 +213,7 @@ export function LineChartModule({
 
     return (
       <LineChart {...dims} {...cp}>
-        <CartesianGrid strokeDasharray="3 3" stroke={chartStyles.gridStroke}/>
+        <CartesianGrid strokeDasharray="3 3" stroke={chartStyles.gridStroke} />
         <XAxis {...xAxisProps} />
         {needsDualAxis ? (
           <>{yLeft}{yRight}</>

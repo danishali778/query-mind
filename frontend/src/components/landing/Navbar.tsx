@@ -1,9 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Menu, X, Activity, Shield, Terminal } from 'lucide-react';
 import { T } from '../dashboard/tokens';
 
 export function Navbar() {
-  const [isOpen, setIsOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [uptime, setUptime] = useState('99.982%');
 

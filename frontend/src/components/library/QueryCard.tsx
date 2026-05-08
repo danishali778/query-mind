@@ -160,7 +160,7 @@ export function QueryCard({ data, isSelected, onClick, onScheduleClick, index = 
             color: T.text, background: '#fff', fontWeight: 800,
             border: '1px solid rgba(0,0,0,0.15)', borderRadius: 0, padding: '2px 8px', whiteSpace: 'nowrap',
           }}>
-            <Calendar size={10} /> {data.schedule_label.toUpperCase()}
+            <Calendar size={10} /> {data.schedule_label?.toUpperCase()}
           </div>
         )}
         <span style={{ fontSize: '0.62rem', color: T.text3, fontFamily: T.fontMono, marginLeft: 'auto', fontWeight: 600 }}>

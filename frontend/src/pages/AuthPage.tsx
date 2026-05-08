@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { T } from '../components/dashboard/tokens';
 import { useAuth } from '../context/AuthContext';
-import { Shield, Lock, Mail, ChevronRight, Activity, Terminal, Globe, LockKeyhole } from 'lucide-react';
+import { Mail, ChevronRight, Activity, Globe, LockKeyhole } from 'lucide-react';
 import { LandingOverlay } from '../components/landing/LandingOverlay';
 
 export function AuthPage() {
