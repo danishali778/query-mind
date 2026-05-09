@@ -3,10 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { T } from '../components/dashboard/tokens';
 import { upgradePlan } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../components/common/ToastProvider';
 
 export function UpgradePage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { addToast } = useToast();
   const [loading, setLoading] = useState(false);
 
   const handleConfirmUpgrade = async () => {
@@ -29,9 +31,12 @@ export function UpgradePage() {
     try {
       console.warn("No VITE_LEMON_SQUEEZY_CHECKOUT_URL found. Simulating payment.");
       await upgradePlan();
+      addToast('Upgraded to Pro. Limits and counters reset.', 'success');
       navigate('/settings');
     } catch (err) {
       console.error(err);
+      const msg = err instanceof Error ? err.message : 'Upgrade failed. Please try again.';
+      addToast(msg, 'error');
     } finally {
       setLoading(false);
     }

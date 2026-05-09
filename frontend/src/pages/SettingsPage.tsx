@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  User, Shield, Zap, Bell, Key, CreditCard, 
+  User, Zap, CreditCard, 
   LogOut, AlertTriangle,
   Monitor, Smartphone, ChevronRight
 } from 'lucide-react';
@@ -10,14 +10,10 @@ import { T } from '../components/dashboard/tokens';
 import { useSettingsStore } from '../store/settingsStore';
 import { useAuth } from '../context/AuthContext';
 
-type Section = 'profile' | 'security' | 'ai' | 'notifications' | 'apikeys' | 'billing';
+type Section = 'profile' | 'billing';
 
 const NAV: { id: Section; label: string; icon: any; badge?: string }[] = [
   { id: 'profile',       label: 'PROFILE',       icon: User },
-  { id: 'security',      label: 'SECURITY',      icon: Shield },
-  { id: 'ai',            label: 'AI ENGINE',     icon: Zap },
-  { id: 'notifications', label: 'ALERTS',        icon: Bell },
-  { id: 'apikeys',       label: 'API KEYS',      icon: Key },
   { id: 'billing',       label: 'BILLING',       icon: CreditCard, badge: 'PRO' },
 ];
 
@@ -103,10 +99,6 @@ export function SettingsPage() {
         <main style={{ flex: 1, overflowY: 'auto', padding: '64px 80px', position: 'relative', zIndex: 1 }} className="settings-scroll">
           <div style={{ maxWidth: 900, animation: 'fadeInScale 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards' }}>
             {section === 'profile'       && <ProfileSection />}
-            {section === 'security'      && <SecuritySection />}
-            {section === 'ai'            && <AISection />}
-            {section === 'notifications' && <NotificationsSection />}
-            {section === 'apikeys'       && <ApiKeysSection />}
             {section === 'billing'       && <BillingSection />}
           </div>
         </main>
@@ -356,7 +348,7 @@ function ProfileSection() {
 }
 // ── Security (Mocked) ──────────────────────────────────────
 
-function SecuritySection() {
+export function SecuritySection() {
   const [twoFa, setTwoFa] = useState(false);
   const [sessions] = useState([
     { device: 'CHROME_ON_WINDOWS', location: 'KARACHI, PK', last: 'ACTIVE_NOW', current: true, icon: Monitor },
@@ -398,7 +390,7 @@ function SecuritySection() {
 
 // ── AI Engine & Queries ───────────────────────────────────
 
-function AISection() {
+export function AISection() {
   const { settings, updateSetting } = useSettingsStore();
   const [prompt, setPrompt] = useState(settings?.system_prompt || '');
   const [saving, setSaving] = useState(false);
@@ -474,7 +466,7 @@ function AISection() {
 
 // ── Notifications (Alerts) ────────────────────────────────
 
-function NotificationsSection() {
+export function NotificationsSection() {
   const { settings, updateSetting } = useSettingsStore();
   const [webhook, setWebhook] = useState(settings?.slack_webhook || '');
   const [channel, setChannel] = useState(settings?.slack_channel || '');
@@ -530,7 +522,7 @@ function NotificationsSection() {
 
 // ── API Access ────────────────────────────────────────────
 
-function ApiKeysSection() {
+export function ApiKeysSection() {
   const [keys] = useState([
     { name: 'PRODUCTION_DASHBOARD', prefix: 'QM_LIVE_4XK9', created: 'JAN_12_2026', last: '2_HOURS_AGO', scopes: ['READ', 'EXECUTE'] },
   ]);
