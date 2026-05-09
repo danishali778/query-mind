@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 
 from app.db.models.settings import UserSettings, UserSettingsBase, UserSubscription
 from app.integrations.supabase_db import supabase
@@ -96,15 +97,25 @@ def increment_usage(user_id: str, type: str) -> bool:
 
 
 def upgrade_to_pro(user_id: str) -> UserSubscription:
-    """Upgrade the user to pro."""
+    """Upgrade the user to pro and reset their usage counters."""
+    # Ensure a row exists for this user (e.g., new accounts that have never run a query).
+    get_user_subscription(user_id)
+
     data = {
         "plan_type": "pro",
         "queries_limit": 5000,
         "ai_limit": 500,
-        "updated_at": "now()",
+        "queries_used": 0,
+        "ai_used": 0,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     try:
-        response = supabase.table("user_subscriptions").update(data).eq("owner_id", user_id).execute()
+        response = (
+            supabase.table("user_subscriptions")
+            .update(data)
+            .eq("owner_id", user_id)
+            .execute()
+        )
         if response.data:
             return UserSubscription(**response.data[0])
         raise RuntimeError("No subscription record was updated.")
