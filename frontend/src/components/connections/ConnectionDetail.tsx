@@ -208,6 +208,7 @@ function CredentialsTab({ connection }: { connection: ConnectionListItem }) {
   const [testResult, setTestResult] = useState<{ success: boolean; message: string; tables_found?: number | null } | null>(null);
   const [sslMode, setSslMode] = useState(connection.ssl_mode ?? 'disable');
   const [readonly, setReadonly] = useState(connection.readonly ?? true);
+  const [password, setPassword] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
 
@@ -226,6 +227,14 @@ function CredentialsTab({ connection }: { connection: ConnectionListItem }) {
   };
 
   const runTest = async () => {
+    if (!password.trim()) {
+      setTestResult({
+        success: false,
+        message: 'Re-enter the database password to validate the saved connection credentials.',
+      });
+      return;
+    }
+
     setTesting(true);
     setTestResult(null);
     try {
@@ -235,7 +244,7 @@ function CredentialsTab({ connection }: { connection: ConnectionListItem }) {
         port: connection.port || 5432,
         database: connection.database || '',
         username: connection.username || '',
-        password: undefined,
+        password,
       });
       setTestResult(result);
     } catch (err: unknown) {
@@ -273,6 +282,32 @@ function CredentialsTab({ connection }: { connection: ConnectionListItem }) {
             </button>
             <span style={{ fontSize: '0.72rem', color: readonly ? T.text : T.text3, fontFamily: T.fontMono, fontWeight: 700 }}>{readonly ? 'READ-ONLY' : 'READ / WRITE'}</span>
           </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+        <label style={{ fontSize: '0.62rem', color: T.text3, fontWeight: 700, fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '1px' }}>RE-ENTER PASSWORD FOR TEST</label>
+        <input
+          type="password"
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+          placeholder="••••••••"
+          style={{
+            background: T.s2,
+            border: `1px solid ${T.border}`,
+            borderRadius: 0,
+            padding: '12px 16px',
+            color: T.text,
+            fontFamily: T.fontMono,
+            fontSize: '0.72rem',
+            outline: 'none',
+            width: '100%',
+            transition: 'all 0.15s',
+            letterSpacing: '0.5px'
+          }}
+        />
+        <div style={{ fontSize: '0.62rem', color: T.text3, fontFamily: T.fontMono, lineHeight: 1.6 }}>
+          This is used only for validation. It is not saved from this screen.
         </div>
       </div>
 
