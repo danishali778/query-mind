@@ -1,6 +1,6 @@
-# InsightAI
+# QueryMind
 
-InsightAI is an AI-powered business intelligence application built primarily around a Python backend and a React frontend. It lets a user connect a database, ask questions in plain English, generate SQL, inspect results, save useful queries, and build interactive dashboards from those results.
+QueryMind is an AI-powered business intelligence application built primarily around a Python backend and a React frontend. It lets a user connect a database, ask questions in plain English, generate SQL, inspect results, save useful queries, and build interactive dashboards from those results.
 
 ## What problem it solves
 
@@ -16,7 +16,7 @@ In a typical workflow, a user has to:
 
 That creates a gap between business users and the underlying data. Even technical users lose time switching between schema exploration, SQL writing, debugging, chart selection, and report preparation.
 
-InsightAI reduces that gap by turning a plain-language question into an end-to-end analytics workflow:
+QueryMind reduces that gap by turning a plain-language question into an end-to-end analytics workflow:
 - it inspects schema context
 - generates SQL
 - executes it safely
@@ -204,7 +204,6 @@ LEMON_SQUEEZY_API_KEY=your-api-key
 
 BACKEND_DEV_MODE=false
 DEV_USER_ID=00000000-0000-0000-0000-000000000000
-DEV_USER_EMAIL=dev@insightai.com
 ```
 
 ### Frontend: `frontend/.env`
