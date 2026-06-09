@@ -136,7 +136,7 @@ backend/
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/danishali778/InsightAI.git
+git clone https://github.com/danishali778/query-mind.git
 cd InsightAI
 ```
 
