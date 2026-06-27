@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     )
 
     database_url: str | None = None
+    app_database_url: str | None = None
 
     encryption_key: str | None = None
 
@@ -72,6 +73,7 @@ class Settings(BaseSettings):
             "allowed_origins": self.allowed_origins,
             "backend_dev_mode": self.backend_dev_mode,
             "has_database_url": bool(self.database_url),
+            "has_app_database_url": bool(self.app_database_url),
             "has_encryption_key": bool(self.encryption_key),
             "has_supabase_url": bool(self.supabase_url),
             "has_supabase_anon_key": bool(self.supabase_anon_key),

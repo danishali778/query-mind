@@ -1,4 +1,4 @@
-# QueryMind Backend Dependencies
+# query-mind Backend Dependencies
 # All versions pinned to tested, stable releases.
 # To upgrade: test against the new version in a dev branch first.
 
@@ -11,6 +11,7 @@ pydantic-settings==2.6.1
 
 # Database Drivers
 sqlalchemy==2.0.36
+alembic>=1.14,<2.0
 psycopg2-binary==2.9.10
 pymysql==1.1.1
 
@@ -23,8 +24,7 @@ langchain-core==0.3.19
 langchain-groq==0.2.1
 langgraph==0.2.48
 
-# Supabase & Auth
-supabase==2.10.0
+# Auth
 python-jose[cryptography]==3.3.0
 pyjwt>=2.10.1
 
