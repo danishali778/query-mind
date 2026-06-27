@@ -1,67 +1,137 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from typing import TypeVar
 
 from app.db.models.settings import UserSettings, UserSettingsBase, UserSubscription
-from app.integrations.supabase_db import supabase
+from app.db.orm_models import UserSettingsORM, UserSubscriptionORM
+from app.db.session import session_scope
 
 
 logger = logging.getLogger(__name__)
+T = TypeVar("T")
+
+
+def _as_iso(value: datetime | str | None) -> str:
+    if value is None:
+        return "soon"
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
+def _coalesce(value: T | None, default: T) -> T:
+    return default if value is None else value
+
+
+def _settings_to_domain(row: UserSettingsORM) -> UserSettings:
+    defaults = UserSettingsBase().model_dump()
+    return UserSettings(
+        owner_id=row.owner_id,
+        full_name=row.full_name,
+        job_title=row.job_title,
+        timezone=_coalesce(row.timezone, defaults["timezone"]),
+        theme=_coalesce(row.theme, defaults["theme"]),
+        accent_color=_coalesce(row.accent_color, defaults["accent_color"]),
+        density=_coalesce(row.density, defaults["density"]),
+        show_run_counts=_coalesce(row.show_run_counts, defaults["show_run_counts"]),
+        animate_charts=_coalesce(row.animate_charts, defaults["animate_charts"]),
+        syntax_highlighting=_coalesce(row.syntax_highlighting, defaults["syntax_highlighting"]),
+        ai_model=_coalesce(row.ai_model, defaults["ai_model"]),
+        stream_responses=_coalesce(row.stream_responses, defaults["stream_responses"]),
+        default_row_limit=_coalesce(row.default_row_limit, defaults["default_row_limit"]),
+        auto_save_queries=_coalesce(row.auto_save_queries, defaults["auto_save_queries"]),
+        system_prompt=_coalesce(row.system_prompt, defaults["system_prompt"]),
+        email_scheduled=_coalesce(row.email_scheduled, defaults["email_scheduled"]),
+        email_failed=_coalesce(row.email_failed, defaults["email_failed"]),
+        email_alerts=_coalesce(row.email_alerts, defaults["email_alerts"]),
+        delivery_format=_coalesce(row.delivery_format, defaults["delivery_format"]),
+        slack_enabled=_coalesce(row.slack_enabled, defaults["slack_enabled"]),
+        slack_webhook=row.slack_webhook,
+        slack_channel=row.slack_channel,
+    )
+
+
+def _subscription_to_domain(row: UserSubscriptionORM) -> UserSubscription:
+    return UserSubscription(
+        owner_id=row.owner_id,
+        plan_type=_coalesce(row.plan_type, "free"),
+        queries_used=_coalesce(row.queries_used, 0),
+        queries_limit=_coalesce(row.queries_limit, 100),
+        ai_used=_coalesce(row.ai_used, 0),
+        ai_limit=_coalesce(row.ai_limit, 30),
+        next_reset_date=_as_iso(row.next_reset_date),
+    )
+
+
+def _default_settings(owner_id: str) -> UserSettings:
+    fallback = UserSettingsBase().model_dump()
+    fallback["owner_id"] = owner_id
+    return UserSettings(**fallback)
+
+
+def _new_settings_row(owner_id: str) -> UserSettingsORM:
+    defaults = UserSettingsBase().model_dump()
+    return UserSettingsORM(owner_id=owner_id, **defaults)
+
+
+def _new_subscription_row(owner_id: str) -> UserSubscriptionORM:
+    return UserSubscriptionORM(
+        owner_id=owner_id,
+        plan_type="free",
+        queries_used=0,
+        queries_limit=100,
+        ai_used=0,
+        ai_limit=30,
+        next_reset_date=datetime.now(timezone.utc) + timedelta(days=30),
+    )
 
 
 def get_user_settings(user_id: str) -> UserSettings:
     """Fetch user settings, falling back to defaults if the row is missing."""
     try:
-        response = supabase.table("user_settings").select("*").eq("owner_id", user_id).execute()
-        if response.data:
-            return UserSettings(**response.data[0])
+        with session_scope() as session:
+            row = session.get(UserSettingsORM, user_id)
+            if row:
+                return _settings_to_domain(row)
     except Exception as exc:
         logger.error("Failed to fetch settings for %s", user_id, exc_info=True)
         raise RuntimeError("Settings storage is unavailable.") from exc
 
-    fallback = UserSettingsBase().model_dump()
-    fallback["owner_id"] = user_id
-    return UserSettings(**fallback)
+    return _default_settings(user_id)
 
 
 def update_user_settings(user_id: str, updates: dict) -> UserSettings:
     """Partially update user settings."""
     try:
-        data = dict(updates)
-        if not data:
-            return get_user_settings(user_id)
+        with session_scope() as session:
+            row = session.get(UserSettingsORM, user_id)
+            if not row:
+                row = _new_settings_row(user_id)
+                session.add(row)
 
-        data["updated_at"] = "now()"
-        response = supabase.table("user_settings").update(data).eq("owner_id", user_id).execute()
-        if response.data:
-            return UserSettings(**response.data[0])
-        return get_user_settings(user_id)
+            if updates:
+                for key, value in updates.items():
+                    if hasattr(row, key):
+                        setattr(row, key, value)
+                row.updated_at = datetime.now(timezone.utc)
+
+            session.flush()
+            return _settings_to_domain(row)
     except Exception as exc:
         logger.error("Error updating settings for %s: %s", user_id, exc, exc_info=True)
-        raise
+        raise RuntimeError("Settings storage is unavailable.") from exc
 
 
 def get_user_subscription(user_id: str) -> UserSubscription:
     """Fetch user subscription, creating a default row if not present."""
-    defaults = {
-        "owner_id": user_id,
-        "plan_type": "free",
-        "queries_used": 0,
-        "queries_limit": 100,
-        "ai_used": 0,
-        "ai_limit": 30,
-        "next_reset_date": "soon",
-    }
-
     try:
-        response = supabase.table("user_subscriptions").select("*").eq("owner_id", user_id).execute()
-        if not response.data:
-            insert_defaults = defaults.copy()
-            del insert_defaults["next_reset_date"]
-            insert_resp = supabase.table("user_subscriptions").insert(insert_defaults).execute()
-            if insert_resp.data:
-                return UserSubscription(**insert_resp.data[0])
-            return UserSubscription(**defaults)
-        return UserSubscription(**response.data[0])
+        with session_scope() as session:
+            row = session.get(UserSubscriptionORM, user_id)
+            if not row:
+                row = _new_subscription_row(user_id)
+                session.add(row)
+                session.flush()
+            return _subscription_to_domain(row)
     except Exception as exc:
         logger.error("Failed to fetch or create subscription for %s", user_id, exc_info=True)
         raise RuntimeError("Billing state is unavailable.") from exc
@@ -69,56 +139,56 @@ def get_user_subscription(user_id: str) -> UserSubscription:
 
 def increment_usage(user_id: str, type: str) -> bool:
     """Increment either query or AI usage. Returns False when the limit is exceeded."""
-    subscription = get_user_subscription(user_id)
     try:
-        if type == "query":
-            if subscription.queries_used >= subscription.queries_limit:
-                return False
-            response = supabase.table("user_subscriptions").update(
-                {"queries_used": subscription.queries_used + 1}
-            ).eq("owner_id", user_id).execute()
-            if not response.data:
-                raise RuntimeError("Failed to update query usage.")
-            return True
+        with session_scope() as session:
+            row = session.get(UserSubscriptionORM, user_id)
+            if not row:
+                row = _new_subscription_row(user_id)
+                session.add(row)
+                session.flush()
 
-        if type == "ai":
-            if subscription.ai_used >= subscription.ai_limit:
-                return False
-            response = supabase.table("user_subscriptions").update(
-                {"ai_used": subscription.ai_used + 1}
-            ).eq("owner_id", user_id).execute()
-            if not response.data:
-                raise RuntimeError("Failed to update AI usage.")
+            queries_used = _coalesce(row.queries_used, 0)
+            queries_limit = _coalesce(row.queries_limit, 100)
+            ai_used = _coalesce(row.ai_used, 0)
+            ai_limit = _coalesce(row.ai_limit, 30)
+
+            if type == "query":
+                if queries_used >= queries_limit:
+                    return False
+                row.queries_used = queries_used + 1
+            elif type == "ai":
+                if ai_used >= ai_limit:
+                    return False
+                row.ai_used = ai_used + 1
+            else:
+                raise ValueError(f"Unknown limit type: {type}")
+
+            row.updated_at = datetime.now(timezone.utc)
             return True
+    except ValueError:
+        raise
     except Exception as exc:
         logger.error("Usage update failed for %s", user_id, exc_info=True)
         raise RuntimeError("Billing state is unavailable.") from exc
-    return False
 
 
 def upgrade_to_pro(user_id: str) -> UserSubscription:
     """Upgrade the user to pro and reset their usage counters."""
-    # Ensure a row exists for this user (e.g., new accounts that have never run a query).
-    get_user_subscription(user_id)
-
-    data = {
-        "plan_type": "pro",
-        "queries_limit": 5000,
-        "ai_limit": 500,
-        "queries_used": 0,
-        "ai_used": 0,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-    }
     try:
-        response = (
-            supabase.table("user_subscriptions")
-            .update(data)
-            .eq("owner_id", user_id)
-            .execute()
-        )
-        if response.data:
-            return UserSubscription(**response.data[0])
-        raise RuntimeError("No subscription record was updated.")
+        with session_scope() as session:
+            row = session.get(UserSubscriptionORM, user_id)
+            if not row:
+                row = _new_subscription_row(user_id)
+                session.add(row)
+
+            row.plan_type = "pro"
+            row.queries_limit = 5000
+            row.ai_limit = 500
+            row.queries_used = 0
+            row.ai_used = 0
+            row.updated_at = datetime.now(timezone.utc)
+            session.flush()
+            return _subscription_to_domain(row)
     except Exception as exc:
         logger.error("Failed to upgrade %s to pro", user_id, exc_info=True)
         raise RuntimeError("Billing update failed.") from exc
@@ -127,36 +197,15 @@ def upgrade_to_pro(user_id: str) -> UserSubscription:
 def onboard_user(user_id: str) -> bool:
     """Ensure default settings and subscription rows exist for a user."""
     try:
-        logger.debug("Checking settings for user %s", user_id)
-        existing_settings = supabase.table("user_settings").select("owner_id").eq("owner_id", user_id).execute()
-        logger.debug("Settings check response: %s", existing_settings.data)
-        
-        if not existing_settings.data:
-            logger.info("Initializing settings for new user %s", user_id)
-            defaults = UserSettingsBase().model_dump()
-            defaults["owner_id"] = user_id
-            supabase.table("user_settings").insert(defaults).execute()
-            logger.debug("Settings initialized")
+        with session_scope() as session:
+            if not session.get(UserSettingsORM, user_id):
+                logger.info("Initializing settings for new user %s", user_id)
+                session.add(_new_settings_row(user_id))
 
-        logger.debug("Checking subscription for user %s", user_id)
-        existing_subscription = (
-            supabase.table("user_subscriptions").select("owner_id").eq("owner_id", user_id).execute()
-        )
-        logger.debug("Subscription check response: %s", existing_subscription.data)
-        
-        if not existing_subscription.data:
-            logger.info("Initializing subscription for new user %s", user_id)
-            sub_defaults = {
-                "owner_id": user_id,
-                "plan_type": "free",
-                "queries_used": 0,
-                "queries_limit": 100,
-                "ai_used": 0,
-                "ai_limit": 30,
-            }
-            supabase.table("user_subscriptions").insert(sub_defaults).execute()
-            logger.debug("Subscription initialized")
-            
+            if not session.get(UserSubscriptionORM, user_id):
+                logger.info("Initializing subscription for new user %s", user_id)
+                session.add(_new_subscription_row(user_id))
+
         return True
     except Exception as exc:
         logger.error("Error onboarding user %s", user_id, exc_info=True)

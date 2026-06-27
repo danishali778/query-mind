@@ -6,9 +6,9 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 from app.core.errors import ServiceUnavailableError
-from app.db.retry import async_supabase_retry
+from app.db.orm_models import UserSettingsORM
+from app.db.session import session_scope
 from app.integrations.supabase_auth.jwt import JWTError, decode_supabase_jwt, get_jwt_key
-from app.integrations.supabase_db import async_supabase
 
 
 logger = logging.getLogger(__name__)
@@ -21,17 +21,17 @@ class User(BaseModel):
 
 
 async def assert_user_exists(user_id: str) -> None:
-    @async_supabase_retry
-    async def check_user():
-        return (
-            await async_supabase.table("user_settings")
-            .select("owner_id")
-            .eq("owner_id", user_id)
-            .execute()
-        )
+    try:
+        with session_scope() as session:
+            exists = session.get(UserSettingsORM, user_id) is not None
+    except Exception as exc:
+        logger.error("Authentication database error: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Auth system infrastructure error. Please try again later.",
+        ) from exc
 
-    user_check = await check_user()
-    if not user_check.data:
+    if not exists:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User account has been deactivated or deleted.",
@@ -63,16 +63,7 @@ async def authenticate_credentials(
             )
 
         if verify_existence:
-            try:
-                await assert_user_exists(user_id)
-            except HTTPException:
-                raise
-            except Exception as db_err:
-                logger.error("Authentication database error: %s", db_err, exc_info=True)
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Auth system infrastructure error. Please try again later.",
-                ) from db_err
+            await assert_user_exists(user_id)
 
         return User(id=user_id, email=email)
     except JWTError as exc:
