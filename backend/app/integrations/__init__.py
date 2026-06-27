@@ -17,18 +17,8 @@ from app.integrations.lemon_squeezy import (
     verify_webhook_signature,
 )
 from app.integrations.slack import send_slack_message
-from app.integrations.supabase_db import (
-    SUPABASE_SERVICE_KEY,
-    SUPABASE_URL,
-    async_supabase,
-    supabase,
-)
 
 __all__ = [
-    "SUPABASE_URL",
-    "SUPABASE_SERVICE_KEY",
-    "supabase",
-    "async_supabase",
     "JWTError",
     "User",
     "decode_supabase_jwt",

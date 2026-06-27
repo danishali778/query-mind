@@ -16,23 +16,20 @@ def require_lemon_squeezy_webhook_secret() -> str:
     return settings.require("lemon_squeezy_webhook_secret")
 
 
-def require_supabase_url() -> str:
-    return settings.require("supabase_url")
-
-
-def require_supabase_service_role_key() -> str:
-    return settings.require("supabase_service_role_key")
+def require_app_database_url() -> str:
+    return settings.require("app_database_url")
 
 
 def validate_core_credentials() -> None:
     """Fail fast when required core runtime credentials are missing."""
     required = [
         "encryption_key",
-        "supabase_url",
-        "supabase_service_role_key",
-        "supabase_jwt_secret",
+        "app_database_url",
         "groq_api_key",
     ]
+    if not settings.mock_auth_enabled:
+        required.append("supabase_jwt_secret")
+
     missing = [name for name in required if not getattr(settings, name)]
     if missing:
         raise RuntimeError(f"Missing required configuration values: {', '.join(missing)}")
@@ -42,7 +39,6 @@ __all__ = [
     "get_encryption_key",
     "require_groq_api_key",
     "require_lemon_squeezy_webhook_secret",
-    "require_supabase_url",
-    "require_supabase_service_role_key",
+    "require_app_database_url",
     "validate_core_credentials",
 ]
