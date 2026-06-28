@@ -1,10 +1,7 @@
 import json
 import re
-import threading
-import traceback
 import uuid
 from dataclasses import dataclass
-from typing import Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -42,82 +39,30 @@ class DynamicTemplate:
     sql: str
     category: str
     category_color: str
-    tags: list
+    tags: list[str]
     icon: str
     icon_bg: str
     difficulty: str
 
 
-_cache: dict[str, list[DynamicTemplate]] = {}
-_by_id: dict[str, DynamicTemplate] = {}
-_status: dict[str, str] = {}
-_lock = threading.Lock()
-
-
-def get_status(connection_id: str) -> str:
-    return _status.get(connection_id, "not_started")
-
-
-def get_templates(connection_id: str) -> list[DynamicTemplate]:
-    return _cache.get(connection_id, [])
-
-
-def get_template_by_id(template_id: str) -> Optional[DynamicTemplate]:
-    return _by_id.get(template_id)
-
-
-def clear_connection(connection_id: str) -> None:
-    with _lock:
-        old = _cache.pop(connection_id, [])
-        for template in old:
-            _by_id.pop(template.id, None)
-        _status.pop(connection_id, None)
-
-
-def generate_in_background(connection_id: str, schema_text: str, db_type: str) -> None:
-    with _lock:
-        _status[connection_id] = "generating"
-
-    thread = threading.Thread(
-        target=_run_generation,
-        args=(connection_id, schema_text, db_type),
-        daemon=True,
+def generate_templates(connection_id: str, schema_text: str, db_type: str) -> list[DynamicTemplate]:
+    response = get_llm().invoke(
+        [
+            SystemMessage(
+                content=(
+                    "You are a SQL expert. Output only raw JSON arrays with no "
+                    "surrounding text or markdown."
+                )
+            ),
+            HumanMessage(
+                content=build_template_recommender_prompt(
+                    schema_text=schema_text,
+                    db_type=db_type,
+                )
+            ),
+        ]
     )
-    thread.start()
-
-
-def _run_generation(connection_id: str, schema_text: str, db_type: str) -> None:
-    try:
-        response = get_llm().invoke(
-            [
-                SystemMessage(
-                    content=(
-                        "You are a SQL expert. Output only raw JSON arrays with no "
-                        "surrounding text or markdown."
-                    )
-                ),
-                HumanMessage(
-                    content=build_template_recommender_prompt(
-                        schema_text=schema_text,
-                        db_type=db_type,
-                    )
-                ),
-            ]
-        )
-
-        templates = _parse_response(connection_id, response.content.strip())
-        with _lock:
-            old = _cache.get(connection_id, [])
-            for template in old:
-                _by_id.pop(template.id, None)
-            _cache[connection_id] = templates
-            for template in templates:
-                _by_id[template.id] = template
-            _status[connection_id] = "ready"
-    except Exception:
-        traceback.print_exc()
-        with _lock:
-            _status[connection_id] = "error"
+    return _parse_response(connection_id, response.content.strip())
 
 
 def _parse_response(connection_id: str, raw: str) -> list[DynamicTemplate]:
@@ -156,7 +101,7 @@ def _parse_response(connection_id: str, raw: str) -> list[DynamicTemplate]:
 
         templates.append(
             DynamicTemplate(
-                id=f"{connection_id}_{str(uuid.uuid4())[:6]}",
+                id=str(uuid.uuid4()),
                 connection_id=connection_id,
                 title=str(item.get("title", "Query"))[:60],
                 description=str(item.get("description", ""))[:200],

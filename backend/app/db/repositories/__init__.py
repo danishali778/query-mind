@@ -7,4 +7,5 @@ __all__ = [
     "query_history_repository",
     "query_library_repository",
     "settings_repository",
+    "template_repository",
 ]

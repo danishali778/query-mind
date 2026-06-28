@@ -29,6 +29,7 @@ from app.db.models.query_library import (
     UpdateQueryInput,
 )
 from app.db.models.settings import UserSettings, UserSettingsBase, UserSettingsUpdate, UserSubscription
+from app.db.models.templates import GeneratedQueryTemplate, TemplateGenerationState
 
 __all__ = [
     "ChatMessage",
@@ -59,4 +60,6 @@ __all__ = [
     "UserSettings",
     "UserSettingsUpdate",
     "UserSubscription",
+    "GeneratedQueryTemplate",
+    "TemplateGenerationState",
 ]

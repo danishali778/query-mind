@@ -4,9 +4,8 @@ from typing import Optional
 
 from app.db.models.query_library import SaveQueryInput, ScheduleConfig, UpdateQueryInput
 from app.db.repositories import query_library_repository
-from app.services import connection_service
+from app.services import connection_service, query_template_service, scheduling_service
 from app.services.query_execution_service import execute_for_connection
-from app.services import query_template_service
 
 
 async def list_queries(
@@ -32,9 +31,10 @@ async def get_query(user_id: str, query_id: str):
 async def save_query(user_id: str, req: SaveQueryInput):
     query, created = await query_library_repository.save_query(user_id, req)
     if created and query.schedule and query.schedule.enabled:
-        from app.workers.jobs import run_saved_query as scheduler
-
-        scheduler.register_job(query.id, query.schedule, user_id=user_id)
+        await scheduling_service.sync_saved_query_runtime(user_id, query.id, query.schedule)
+        refreshed = await query_library_repository.get_query(user_id, query.id)
+        if refreshed:
+            query = refreshed
     return query, created
 
 
@@ -44,19 +44,17 @@ async def update_query(user_id: str, query_id: str, req: UpdateQueryInput):
         return None
 
     if "schedule" in req.model_dump(exclude_unset=True):
-        from app.workers.jobs import run_saved_query as scheduler
-
         if query.schedule and query.schedule.enabled:
-            scheduler.register_job(query.id, query.schedule, user_id=user_id)
+            await scheduling_service.sync_saved_query_runtime(user_id, query.id, query.schedule)
         else:
-            scheduler.remove_job(query.id)
+            await scheduling_service.clear_saved_query_runtime(user_id, query.id)
+        refreshed = await query_library_repository.get_query(user_id, query.id)
+        if refreshed:
+            query = refreshed
     return query
 
 
 async def delete_query(user_id: str, query_id: str) -> bool:
-    from app.workers.jobs import run_saved_query as scheduler
-
-    scheduler.remove_job(query_id)
     return await query_library_repository.delete_query(user_id, query_id)
 
 
@@ -125,17 +123,17 @@ async def set_schedule(user_id: str, query_id: str, config: ScheduleConfig) -> d
         raise ValueError("Cannot schedule a query without a database connection.")
 
     updated = await query_library_repository.update_schedule(user_id, query_id, config)
-    from app.workers.jobs import run_saved_query as scheduler
-
     if config.enabled:
-        scheduler.register_job(query_id, config, user_id=user_id)
+        await scheduling_service.sync_saved_query_runtime(user_id, query_id, config)
     else:
-        scheduler.remove_job(query_id)
+        await scheduling_service.clear_saved_query_runtime(user_id, query_id)
 
+    refreshed = await query_library_repository.get_query(user_id, query_id)
+    final_query = refreshed or updated
     return {
         "query_id": query_id,
-        "schedule": updated.schedule if updated else None,
-        "schedule_label": updated.schedule_label if updated else None,
+        "schedule": final_query.schedule if final_query else None,
+        "schedule_label": final_query.schedule_label if final_query else None,
         "message": "Schedule updated." if config.enabled else "Schedule disabled.",
     }
 
@@ -146,9 +144,7 @@ async def remove_schedule(user_id: str, query_id: str) -> dict:
         raise ValueError("Query not found.")
 
     await query_library_repository.update_schedule(user_id, query_id, None)
-    from app.workers.jobs import run_saved_query as scheduler
-
-    scheduler.remove_job(query_id)
+    await scheduling_service.clear_saved_query_runtime(user_id, query_id)
     return {
         "query_id": query_id,
         "schedule": None,
@@ -164,27 +160,12 @@ async def get_public_templates(user_id: str, connection_id: Optional[str]) -> di
     if not await connection_service.get_engine(user_id, connection_id):
         raise ValueError("Connection not found.")
 
-    status = query_template_service.get_generation_status(connection_id)
-    templates = query_template_service.list_templates(connection_id)
+    status = query_template_service.get_generation_status(user_id, connection_id)
+    templates = query_template_service.list_templates(user_id, connection_id)
     return {
         "status": status,
         "connection_id": connection_id,
-        "templates": [
-            {
-                "id": template.id,
-                "connection_id": template.connection_id,
-                "title": template.title,
-                "description": template.description,
-                "sql": template.sql,
-                "category": template.category,
-                "category_color": template.category_color,
-                "tags": template.tags,
-                "icon": template.icon,
-                "icon_bg": template.icon_bg,
-                "difficulty": template.difficulty,
-            }
-            for template in templates
-        ],
+        "templates": [template.model_dump() for template in templates],
     }
 
 
@@ -195,7 +176,7 @@ async def trigger_template_generation(user_id: str, connection_id: str) -> dict:
 
     all_connections = await connection_service.get_all_connections(user_id)
     db_type = next((conn.db_type for conn in all_connections if conn.id == connection_id), "postgresql")
-    query_template_service.start_template_generation(connection_id, schema_text, db_type)
+    query_template_service.start_template_generation(user_id, connection_id, schema_text, db_type)
     return {"message": "Template generation started.", "connection_id": connection_id}
 
 
@@ -204,7 +185,7 @@ async def clone_public_template(
     template_id: str,
     connection_id: Optional[str] = None,
 ):
-    template = query_template_service.get_template(template_id)
+    template = query_template_service.get_template(user_id, template_id)
     if not template:
         raise ValueError("Template not found.")
 

@@ -1,59 +1,58 @@
-"""Background template-generation jobs."""
+from __future__ import annotations
 
-import logging
-from typing import Optional
+from datetime import datetime, timezone
 
-from app.agents.nl_to_sql.template_recommender import (
-    DynamicTemplate,
-    clear_connection as _clear_connection,
-    generate_in_background as _generate_in_background,
-    get_status as _get_status,
-    get_template_by_id as _get_template_by_id,
-    get_templates as _get_templates,
+from app.agents.nl_to_sql.template_recommender import generate_templates
+from app.core.config import settings
+from app.db.models.templates import GeneratedQueryTemplate
+from app.db.repositories import template_repository
+from app.workers.celery_app import celery_app
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+@celery_app.task(
+    bind=True,
+    name="app.workers.jobs.generate_library_templates.generate_templates_task",
+    queue=settings.celery_templates_queue,
+    retry_backoff=True,
+    retry_kwargs={"max_retries": 3},
 )
+def generate_templates_task(self, connection_id: str, owner_id: str, schema_text: str, db_type: str) -> None:
+    template_repository.mark_generation_started(owner_id, connection_id)
+    try:
+        templates = generate_templates(connection_id, schema_text, db_type)
+        persisted_templates = [
+            GeneratedQueryTemplate(
+                id=template.id,
+                owner_id=owner_id,
+                connection_id=connection_id,
+                title=template.title,
+                description=template.description,
+                sql=template.sql,
+                category=template.category,
+                category_color=template.category_color,
+                tags=template.tags,
+                icon=template.icon,
+                icon_bg=template.icon_bg,
+                difficulty=template.difficulty,
+                created_at=_utcnow(),
+            )
+            for template in templates
+        ]
+        template_repository.mark_generation_ready(owner_id, connection_id, persisted_templates)
+    except (ConnectionError, TimeoutError, OSError) as exc:
+        template_repository.mark_generation_error(owner_id, connection_id, str(exc))
+        raise self.retry(exc=exc, countdown=30)
+    except Exception as exc:
+        template_repository.mark_generation_error(owner_id, connection_id, str(exc))
 
 
-logger = logging.getLogger("app.workers.template_generation")
-
-
-def trigger_generation(connection_id: str, schema_text: str, db_type: str) -> None:
-    """Start in-memory background template generation for a connection."""
-    logger.info("Triggering template generation for connection %s", connection_id)
-    _generate_in_background(connection_id, schema_text, db_type)
-
-
-def get_generation_status(connection_id: str) -> str:
-    return _get_status(connection_id)
-
-
-def list_generated_templates(connection_id: str) -> list[DynamicTemplate]:
-    return _get_templates(connection_id)
-
-
-def get_generated_template(template_id: str) -> Optional[DynamicTemplate]:
-    return _get_template_by_id(template_id)
-
-
-def clear_generated_templates(connection_id: str) -> None:
-    logger.info("Clearing template cache for connection %s", connection_id)
-    _clear_connection(connection_id)
-
-
-async def restore_jobs() -> int:
-    """Restore durable worker jobs for this domain.
-
-    Template generation is currently in-memory and on-demand, so there is no
-    persisted queue to rebuild after process restart.
-    """
-    logger.info("Template generation uses on-demand in-memory jobs; nothing to restore.")
-    return 0
-
-
-__all__ = [
-    "trigger_generation",
-    "get_generation_status",
-    "list_generated_templates",
-    "get_generated_template",
-    "clear_generated_templates",
-    "restore_jobs",
-]
+def enqueue_template_generation(connection_id: str, owner_id: str, schema_text: str, db_type: str) -> None:
+    template_repository.mark_generation_started(owner_id, connection_id)
+    generate_templates_task.apply_async(
+        args=[connection_id, owner_id, schema_text, db_type],
+        queue=settings.celery_templates_queue,
+    )

@@ -28,12 +28,24 @@ def _parse_dt(value) -> datetime | None:
     return datetime.fromisoformat(str(value))
 
 
+def _schedule_payload(config: ScheduleConfig | dict | None) -> dict:
+    if not config:
+        return {}
+    payload = dict(config) if isinstance(config, dict) else config.model_dump()
+    payload.pop("next_run_at", None)
+    return payload
+
+
 def _map_to_saved_query(row: SavedQueryORM) -> SavedQuery:
     metadata = row.metadata_ or {}
-    schedule_data = row.schedule or {}
+    schedule_data = dict(row.schedule or {})
     created_at = _parse_dt(row.created_at) or datetime.now(timezone.utc)
     last_run_at = _parse_dt(row.last_run_at)
     updated_at = last_run_at or created_at
+    schedule = None
+    if schedule_data and schedule_data.get("frequency"):
+        schedule_data["next_run_at"] = _parse_dt(row.next_run_at)
+        schedule = ScheduleConfig(**schedule_data)
     return SavedQuery(
         id=row.id,
         title=row.title,
@@ -44,7 +56,7 @@ def _map_to_saved_query(row: SavedQueryORM) -> SavedQuery:
         icon=metadata.get("icon", "\U0001f4c4"),
         icon_bg=metadata.get("icon_bg", "rgba(0,229,255,0.1)"),
         tags=metadata.get("tags", []),
-        schedule=ScheduleConfig(**schedule_data) if schedule_data and schedule_data.get("frequency") else None,
+        schedule=schedule,
         owner_id=row.owner_id,
         created_at=created_at,
         updated_at=updated_at,
@@ -94,7 +106,6 @@ async def save_query(user_id: str, req: SaveQueryInput) -> tuple[SavedQuery, boo
         "icon_bg": req.icon_bg,
         "tags": req.tags,
     }
-    schedule = req.schedule.model_dump() if req.schedule else {}
 
     with session_scope() as session:
         row = SavedQueryORM(
@@ -104,7 +115,8 @@ async def save_query(user_id: str, req: SaveQueryInput) -> tuple[SavedQuery, boo
             description=req.description,
             connection_id=req.connection_id,
             metadata_=metadata,
-            schedule=schedule,
+            schedule=_schedule_payload(req.schedule),
+            next_run_at=_parse_dt(req.schedule.next_run_at) if req.schedule else None,
             run_count=0,
         )
         session.add(row)
@@ -180,8 +192,7 @@ async def update_query(user_id: str, query_id: str, req: UpdateQueryInput) -> Op
             row.metadata_ = metadata
 
         if "schedule" in update_data:
-            row.schedule = update_data["schedule"].model_dump() if update_data["schedule"] else {}
-
+            row.schedule = _schedule_payload(update_data["schedule"])
 
         session.flush()
         return _map_to_saved_query(row)
@@ -255,7 +266,22 @@ async def get_scheduled_queries(user_id: Optional[str] = None) -> list[SavedQuer
         query = session.query(SavedQueryORM)
         if user_id:
             query = query.filter(SavedQueryORM.owner_id == user_id)
-        result = [_map_to_saved_query(row) for row in query.all()]
+        rows = query.all()
+    result = [_map_to_saved_query(row) for row in rows]
+    return [q for q in result if q.schedule and q.schedule.enabled]
+
+
+async def get_due_scheduled_queries(now: Optional[datetime] = None, limit: int = 100) -> list[SavedQuery]:
+    due_at = now or datetime.now(timezone.utc)
+    with session_scope() as session:
+        rows = (
+            session.query(SavedQueryORM)
+            .filter(SavedQueryORM.next_run_at.is_not(None), SavedQueryORM.next_run_at <= due_at)
+            .order_by(SavedQueryORM.next_run_at.asc())
+            .limit(limit)
+            .all()
+        )
+    result = [_map_to_saved_query(row) for row in rows]
     return [q for q in result if q.schedule and q.schedule.enabled]
 
 
@@ -268,8 +294,64 @@ async def update_schedule(user_id: str, query_id: str, config: Optional[Schedule
         )
         if not row:
             return None
-        row.schedule = config.model_dump() if config else {}
+        row.schedule = _schedule_payload(config)
+        row.next_run_at = _parse_dt(config.next_run_at) if config else None
+        if not config:
+            row.last_run_status = None
+            row.last_error = None
 
+        session.flush()
+        return _map_to_saved_query(row)
+
+
+async def set_schedule_runtime_state(
+    user_id: str,
+    query_id: str,
+    *,
+    next_run_at: datetime | None = None,
+    last_run_at: datetime | None = None,
+    last_run_status: str | None = None,
+    last_error: str | None = None,
+) -> Optional[SavedQuery]:
+    with session_scope() as session:
+        row = (
+            session.query(SavedQueryORM)
+            .filter(SavedQueryORM.id == query_id, SavedQueryORM.owner_id == user_id)
+            .one_or_none()
+        )
+        if not row:
+            return None
+        row.next_run_at = next_run_at
+        if last_run_at is not None:
+            row.last_run_at = last_run_at
+        row.last_run_status = last_run_status
+        row.last_error = last_error
+        session.flush()
+        return _map_to_saved_query(row)
+
+
+async def finalize_scheduled_run(
+    user_id: str,
+    query_id: str,
+    *,
+    next_run_at: datetime | None,
+    success: bool,
+    error: str | None = None,
+) -> Optional[SavedQuery]:
+    with session_scope() as session:
+        row = (
+            session.query(SavedQueryORM)
+            .filter(SavedQueryORM.id == query_id, SavedQueryORM.owner_id == user_id)
+            .one_or_none()
+        )
+        if not row:
+            return None
+        now = datetime.now(timezone.utc)
+        row.run_count = (row.run_count or 0) + 1
+        row.last_run_at = now
+        row.next_run_at = next_run_at
+        row.last_run_status = "success" if success else "error"
+        row.last_error = error
         session.flush()
         return _map_to_saved_query(row)
 
@@ -324,8 +406,52 @@ def sync_get_scheduled_queries(user_id: Optional[str] = None) -> list[SavedQuery
     return asyncio.run(get_scheduled_queries(user_id))
 
 
+def sync_get_due_scheduled_queries(limit: int = 100) -> list[SavedQuery]:
+    return asyncio.run(get_due_scheduled_queries(limit=limit))
+
+
 def sync_increment_run_count(user_id: str, query_id: str) -> Optional[SavedQuery]:
     return asyncio.run(increment_run_count(user_id, query_id))
+
+
+def sync_set_schedule_runtime_state(
+    user_id: str,
+    query_id: str,
+    *,
+    next_run_at: datetime | None = None,
+    last_run_at: datetime | None = None,
+    last_run_status: str | None = None,
+    last_error: str | None = None,
+) -> Optional[SavedQuery]:
+    return asyncio.run(
+        set_schedule_runtime_state(
+            user_id,
+            query_id,
+            next_run_at=next_run_at,
+            last_run_at=last_run_at,
+            last_run_status=last_run_status,
+            last_error=last_error,
+        )
+    )
+
+
+def sync_finalize_scheduled_run(
+    user_id: str,
+    query_id: str,
+    *,
+    next_run_at: datetime | None,
+    success: bool,
+    error: str | None = None,
+) -> Optional[SavedQuery]:
+    return asyncio.run(
+        finalize_scheduled_run(
+            user_id,
+            query_id,
+            next_run_at=next_run_at,
+            success=success,
+            error=error,
+        )
+    )
 
 
 def sync_log_run(

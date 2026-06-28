@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     database_url: str | None = None
     app_database_url: str | None = None
 
+    redis_url: str | None = None
+    celery_broker_url: str | None = None
+    celery_default_queue: str = "default"
+    celery_scheduled_queue: str = "scheduled"
+    celery_templates_queue: str = "templates"
+    celery_dispatch_lock_seconds: int = 900
+    celery_worker_concurrency: int = 4
+
     encryption_key: str | None = None
 
     supabase_url: str | None = None
@@ -58,6 +66,14 @@ class Settings(BaseSettings):
     def mock_auth_enabled(self) -> bool:
         return self.backend_dev_mode and not self.supabase_jwt_secret
 
+    @property
+    def resolved_redis_url(self) -> str | None:
+        return self.redis_url or self.celery_broker_url
+
+    @property
+    def resolved_celery_broker_url(self) -> str | None:
+        return self.celery_broker_url or self.redis_url
+
     def require(self, field_name: str) -> str:
         value = getattr(self, field_name)
         if not value:
@@ -74,6 +90,11 @@ class Settings(BaseSettings):
             "backend_dev_mode": self.backend_dev_mode,
             "has_database_url": bool(self.database_url),
             "has_app_database_url": bool(self.app_database_url),
+            "has_redis_url": bool(self.redis_url),
+            "has_celery_broker_url": bool(self.celery_broker_url),
+            "celery_default_queue": self.celery_default_queue,
+            "celery_scheduled_queue": self.celery_scheduled_queue,
+            "celery_templates_queue": self.celery_templates_queue,
             "has_encryption_key": bool(self.encryption_key),
             "has_supabase_url": bool(self.supabase_url),
             "has_supabase_anon_key": bool(self.supabase_anon_key),

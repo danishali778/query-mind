@@ -1,8 +1,8 @@
 from app.agents.base import AgentDefinition
 from app.agents.insights.generator import generate_widget_insight
 from app.agents.nl_to_sql.graph import run_chat
+from app.agents.nl_to_sql.template_recommender import generate_templates
 from app.agents.visualization.generator import generate_visualization_blueprint
-from app.workers.jobs.generate_library_templates import trigger_generation
 
 
 class AgentRegistry:
@@ -21,7 +21,7 @@ class AgentRegistry:
             ),
             "template_generator": AgentDefinition(
                 "template_generator",
-                trigger_generation,
+                generate_templates,
                 "Schema-aware template generator",
             ),
         }
