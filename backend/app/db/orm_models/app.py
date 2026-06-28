@@ -85,6 +85,10 @@ class DashboardWidgetORM(Base):
     chart_config: Mapped[dict | None] = mapped_column(JsonType, default=dict, nullable=True)
     layout_params: Mapped[dict | None] = mapped_column(JsonType, default=dict, nullable=True)
     cadence: Mapped[str | None] = mapped_column(Text, default="Manual only", nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_run_status: Mapped[str | None] = mapped_column(Text)
+    last_error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_utcnow, server_default=func.now(), nullable=True)
     rows: Mapped[list | None] = mapped_column(
         JsonType,
@@ -106,6 +110,7 @@ class DashboardWidgetORM(Base):
         Index("idx_dashboard_widgets_dashboard_id_order_index", "dashboard_id", "order_index"),
         Index("idx_dashboard_widgets_owner_id", "owner_id"),
         Index("idx_dashboard_widgets_connection_id", "connection_id"),
+        Index("idx_dashboard_widgets_next_run_at", "next_run_at"),
     )
 
 
@@ -120,6 +125,9 @@ class SavedQueryORM(Base):
     description: Mapped[str | None] = mapped_column(Text)
     metadata_: Mapped[dict | None] = mapped_column("metadata", JsonType, default=dict, nullable=True)
     schedule: Mapped[dict | None] = mapped_column(JsonType, default=dict, nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_run_status: Mapped[str | None] = mapped_column(Text)
+    last_error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_utcnow, server_default=func.now(), nullable=True)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     run_count: Mapped[int | None] = mapped_column(BigInteger, default=0, nullable=True)
@@ -127,6 +135,7 @@ class SavedQueryORM(Base):
     __table_args__ = (
         Index("idx_saved_queries_owner_id_created_at", "owner_id", desc("created_at")),
         Index("idx_saved_queries_connection_id", "connection_id"),
+        Index("idx_saved_queries_next_run_at", "next_run_at"),
     )
 
 
@@ -149,6 +158,56 @@ class QueryExecutionORM(Base):
         Index("idx_query_executions_owner_id_ran_at", "owner_id", desc("ran_at")),
         Index("idx_query_executions_connection_id", "connection_id"),
         Index("idx_query_executions_query_id", "query_id"),
+    )
+
+
+class TemplateGenerationORM(Base):
+    __tablename__ = "template_generations"
+
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    owner_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    connection_id: Mapped[str] = mapped_column(GUID(), ForeignKey("database_connections.id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="not_started")
+    error: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_utcnow, server_default=func.now(), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, server_default=func.now(), nullable=True)
+
+    templates: Mapped[list["GeneratedTemplateORM"]] = relationship(
+        back_populates="generation",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        Index("idx_template_generations_owner_connection", "owner_id", "connection_id", unique=True),
+        Index("idx_template_generations_status", "status"),
+    )
+
+
+class GeneratedTemplateORM(Base):
+    __tablename__ = "generated_templates"
+
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    generation_id: Mapped[str] = mapped_column(GUID(), ForeignKey("template_generations.id", ondelete="CASCADE"), nullable=False)
+    owner_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    connection_id: Mapped[str] = mapped_column(GUID(), ForeignKey("database_connections.id", ondelete="CASCADE"), nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    sql: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(Text, nullable=False)
+    category_color: Mapped[str] = mapped_column(Text, nullable=False)
+    tags: Mapped[list[str] | None] = mapped_column(StringArray, default=list, nullable=True)
+    icon: Mapped[str] = mapped_column(Text, nullable=False)
+    icon_bg: Mapped[str] = mapped_column(Text, nullable=False)
+    difficulty: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_utcnow, server_default=func.now(), nullable=True)
+
+    generation: Mapped[TemplateGenerationORM] = relationship(back_populates="templates")
+
+    __table_args__ = (
+        Index("idx_generated_templates_owner_connection", "owner_id", "connection_id"),
+        Index("idx_generated_templates_generation_id", "generation_id"),
     )
 
 
@@ -265,6 +324,8 @@ __all__ = [
     "DashboardWidgetORM",
     "SavedQueryORM",
     "QueryExecutionORM",
+    "TemplateGenerationORM",
+    "GeneratedTemplateORM",
     "ChatSessionORM",
     "ChatMessageORM",
     "UserSettingsORM",
