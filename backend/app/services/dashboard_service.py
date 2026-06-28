@@ -12,6 +12,7 @@ from app.db.models.dashboard import (
     UpdateWidgetInput,
 )
 from app.db.repositories import dashboard_repository
+from app.services import scheduling_service
 from app.services.query_execution_service import execute_for_connection
 
 
@@ -93,7 +94,10 @@ async def add_widget(user_id: str, req: AddWidgetInput) -> DashboardWidget:
     dashboard = await get_dashboard(user_id, req.dashboard_id)
     if not dashboard:
         raise ValueError("Dashboard not found.")
-    return await dashboard_repository.add_widget(user_id, req)
+    widget = await dashboard_repository.add_widget(user_id, req)
+    await scheduling_service.sync_widget_runtime(user_id, widget.id, widget.cadence)
+    refreshed = await dashboard_repository.get_widget(user_id, widget.id)
+    return refreshed or widget
 
 
 async def update_widget(
@@ -101,7 +105,15 @@ async def update_widget(
     widget_id: str,
     req: UpdateWidgetInput,
 ) -> Optional[DashboardWidget]:
-    return await dashboard_repository.update_widget(user_id, widget_id, req)
+    widget = await dashboard_repository.update_widget(user_id, widget_id, req)
+    if not widget:
+        return None
+    if req.cadence is not None:
+        await scheduling_service.sync_widget_runtime(user_id, widget.id, widget.cadence)
+        refreshed = await dashboard_repository.get_widget(user_id, widget.id)
+        if refreshed:
+            widget = refreshed
+    return widget
 
 
 async def delete_widget(user_id: str, widget_id: str) -> bool:

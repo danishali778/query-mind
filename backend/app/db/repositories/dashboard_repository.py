@@ -17,16 +17,8 @@ from app.db.orm_models import DashboardORM, DashboardWidgetORM
 from app.db.session import session_scope
 
 
-async def _register_widget_job(widget_id: str, cadence: str, user_id: str) -> None:
-    from app.workers.jobs import refresh_dashboard_widget as scheduler
-
-    await scheduler.register_widget_job(widget_id, cadence, user_id)
-
-
-async def _remove_widget_job(widget_id: str) -> None:
-    from app.workers.jobs import refresh_dashboard_widget as scheduler
-
-    await scheduler.remove_widget_job(widget_id)
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def _map_dashboard(row: DashboardORM) -> Dashboard:
@@ -234,12 +226,7 @@ async def add_widget(user_id: str, req: AddWidgetInput) -> DashboardWidget:
         )
         session.add(row)
         session.flush()
-        mapped_widget = _map_widget(row)
-
-    if req.cadence and req.cadence != "Manual only":
-        await _register_widget_job(mapped_widget.id, req.cadence, user_id)
-
-    return mapped_widget
+        return _map_widget(row)
 
 
 async def list_widgets(user_id: str, dashboard_id: Optional[str] = None) -> list[DashboardWidget]:
@@ -271,7 +258,6 @@ async def delete_widget(user_id: str, widget_id: str) -> bool:
         if not row:
             return False
         session.delete(row)
-    await _remove_widget_job(widget_id)
     return True
 
 
@@ -280,8 +266,6 @@ async def update_widget(
     widget_id: str,
     req: UpdateWidgetInput,
 ) -> Optional[DashboardWidget]:
-    cadence_changed = req.cadence is not None
-    mapped_widget: DashboardWidget | None = None
     with session_scope() as session:
         row = (
             session.query(DashboardWidgetORM)
@@ -311,12 +295,74 @@ async def update_widget(
                 layout_params[field] = value
         row.layout_params = layout_params
         session.flush()
-        mapped_widget = _map_widget(row)
+        return _map_widget(row)
 
-    if cadence_changed and mapped_widget:
-        await _register_widget_job(widget_id, mapped_widget.cadence, user_id)
 
-    return mapped_widget
+async def set_widget_schedule_runtime_state(
+    user_id: str,
+    widget_id: str,
+    *,
+    next_run_at: datetime | None = None,
+    last_run_at: datetime | None = None,
+    last_run_status: str | None = None,
+    last_error: str | None = None,
+) -> Optional[DashboardWidget]:
+    with session_scope() as session:
+        row = (
+            session.query(DashboardWidgetORM)
+            .filter(DashboardWidgetORM.id == widget_id, DashboardWidgetORM.owner_id == user_id)
+            .one_or_none()
+        )
+        if not row:
+            return None
+        row.next_run_at = next_run_at
+        if last_run_at is not None:
+            row.last_run_at = last_run_at
+        row.last_run_status = last_run_status
+        row.last_error = last_error
+        session.flush()
+        return _map_widget(row)
+
+
+async def finalize_widget_run(
+    user_id: str,
+    widget_id: str,
+    *,
+    next_run_at: datetime | None,
+    success: bool,
+    error: str | None = None,
+) -> Optional[DashboardWidget]:
+    with session_scope() as session:
+        row = (
+            session.query(DashboardWidgetORM)
+            .filter(DashboardWidgetORM.id == widget_id, DashboardWidgetORM.owner_id == user_id)
+            .one_or_none()
+        )
+        if not row:
+            return None
+        row.next_run_at = next_run_at
+        row.last_run_at = _utcnow()
+        row.last_run_status = "success" if success else "error"
+        row.last_error = error
+        session.flush()
+        return _map_widget(row)
+
+
+async def get_due_scheduled_widgets(now: Optional[datetime] = None, limit: int = 100) -> list[DashboardWidget]:
+    due_at = now or _utcnow()
+    with session_scope() as session:
+        rows = (
+            session.query(DashboardWidgetORM)
+            .filter(
+                DashboardWidgetORM.next_run_at.is_not(None),
+                DashboardWidgetORM.next_run_at <= due_at,
+                DashboardWidgetORM.cadence != "Manual only",
+            )
+            .order_by(DashboardWidgetORM.next_run_at.asc())
+            .limit(limit)
+            .all()
+        )
+        return [_map_widget(row) for row in rows]
 
 
 async def get_stats(user_id: str, dashboard_id: Optional[str] = None) -> dict:
