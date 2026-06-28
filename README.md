@@ -1,6 +1,6 @@
-# QueryMind
+# query-mind
 
-QueryMind is an AI-powered business intelligence application built primarily around a Python backend and a React frontend. It lets a user connect a database, ask questions in plain English, generate SQL, inspect results, save useful queries, and build interactive dashboards from those results.
+query-mind is an AI-powered business intelligence application built primarily around a Python backend and a React frontend. It lets a user connect a database, ask questions in plain English, generate SQL, inspect results, save useful queries, and build interactive dashboards from those results.
 
 ## What problem it solves
 
@@ -16,7 +16,7 @@ In a typical workflow, a user has to:
 
 That creates a gap between business users and the underlying data. Even technical users lose time switching between schema exploration, SQL writing, debugging, chart selection, and report preparation.
 
-QueryMind reduces that gap by turning a plain-language question into an end-to-end analytics workflow:
+query-mind reduces that gap by turning a plain-language question into an end-to-end analytics workflow:
 - it inspects schema context
 - generates SQL
 - executes it safely
@@ -137,7 +137,7 @@ backend/
 
 ```bash
 git clone https://github.com/danishali778/query-mind.git
-cd InsightAI
+cd query-mind
 ```
 
 ### 2. Backend setup
@@ -188,7 +188,7 @@ APP_HOST=0.0.0.0
 APP_PORT=8000
 ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
 
-DATABASE_URL=postgresql://user:password@localhost:5432/querymind_demo
+DATABASE_URL=postgresql://user:password@localhost:5432/query_mind_demo
 ENCRYPTION_KEY=your_fernet_key
 
 SUPABASE_URL=https://your-project-id.supabase.co
@@ -204,6 +204,7 @@ LEMON_SQUEEZY_API_KEY=your-api-key
 
 BACKEND_DEV_MODE=false
 DEV_USER_ID=00000000-0000-0000-0000-000000000000
+DEV_USER_EMAIL=dev@query-mind.com
 ```
 
 ### Frontend: `frontend/.env`

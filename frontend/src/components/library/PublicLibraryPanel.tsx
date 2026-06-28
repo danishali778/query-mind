@@ -151,7 +151,7 @@ export function PublicLibraryPanel({ onCloned }: Props) {
           <EmptyState
             icon="🔌"
             title="No database connected"
-            subtitle="Connect a database first — QueryMind will automatically analyze its schema and generate relevant query templates for you."
+            subtitle="Connect a database first — query-mind will automatically analyze its schema and generate relevant query templates for you."
           />
         )}
 

@@ -36,7 +36,7 @@ class Settings(BaseSettings):
 
     backend_dev_mode: bool = False
     dev_user_id: str = "00000000-0000-0000-0000-000000000000"
-    dev_user_email: str = "dev@insightai.com"
+    dev_user_email: str = "dev@query-mind.com"
 
     model_config = SettingsConfigDict(
         env_file=str(BACKEND_DIR / ".env"),

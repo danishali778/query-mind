@@ -64,7 +64,7 @@ export function Sidebar({ sessions, activeSessionId, onSelectSession, onNewChat,
             Q
           </div>
           <div style={{ fontStyle: 'italic' }}>
-            QueryMind
+            query-mind
           </div>
         </div>
 
