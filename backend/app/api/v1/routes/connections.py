@@ -67,7 +67,7 @@ async def connect_database(config: ConnectionRequest, current_user: CurrentUserD
         # Trigger background AI template generation
         schema_text = await connection_service.get_schema_for_ai(current_user.id, connection_id)
         if schema_text:
-            query_template_service.start_template_generation(connection_id, schema_text, domain_request.db_type)
+            query_template_service.start_template_generation(current_user.id, connection_id, schema_text, domain_request.db_type)
 
         return ConnectionResponse(
             id=connection_id,
@@ -114,7 +114,6 @@ async def disconnect_database(connection_id: str, current_user: CurrentUserDep):
     success = await connection_service.disconnect(current_user.id, connection_id)
     if not success:
         raise HTTPException(status_code=404, detail="Connection not found")
-    query_template_service.clear_templates_for_connection(connection_id)
     return {"message": f"Disconnected {connection_id}", "status": "disconnected"}
 
 
