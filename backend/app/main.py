@@ -17,7 +17,7 @@ validate_core_credentials()
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="QueryMind API",
+    title="query-mind API",
     description="Chat with your data - Text-to-SQL powered by AI",
     version="2.0.0",
     lifespan=lifespan,
@@ -32,7 +32,7 @@ app.include_router(api_router)
 
 @app.get("/api/health", response_model=HealthResponse)
 def health_check():
-    return {"status": "ok", "service": "QueryMind API", "version": "2.0.0"}
+    return {"status": "ok", "service": "query-mind API", "version": "2.0.0"}
 
 
 __all__ = ["app", "health_check", "lifespan"]

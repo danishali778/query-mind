@@ -54,7 +54,7 @@ export function UpgradePage() {
       {/* Header */}
       <div style={{ textAlign: 'center', maxWidth: 600, marginBottom: 50 }}>
         <h1 style={{ fontFamily: T.fontHead, fontWeight: 800, fontSize: '2.4rem', color: T.text, margin: '0 0 16px 0', letterSpacing: '-0.03em' }}>
-          Upgrade to <span style={{ background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`, WebkitBackgroundClip: 'text', color: 'transparent' }}>QueryMind Pro</span>
+          Upgrade to <span style={{ background: `linear-gradient(135deg, ${T.accent}, ${T.purple})`, WebkitBackgroundClip: 'text', color: 'transparent' }}>query-mind Pro</span>
         </h1>
         <p style={{ fontSize: '1.05rem', color: T.text2, lineHeight: 1.6, margin: 0 }}>
           Unleash the full power of autonomous AI database analytics. Run complex graphs, automate dashboards, and never hit a limit again.

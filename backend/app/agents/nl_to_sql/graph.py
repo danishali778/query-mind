@@ -10,7 +10,7 @@ from app.query_engine.connection_pool import get_cached_engine
 from app.query_engine.executor import execute_query
 from app.query_engine.safety import validate_query
 
-logger = logging.getLogger("querymind.graph")
+logger = logging.getLogger("query-mind.graph")
 
 
 class ChatState(TypedDict):
@@ -47,7 +47,7 @@ def generate_sql_node(state: ChatState) -> dict:
     user_msg = state["user_message"].lower()
     if any(keyword in user_msg for keyword in _DESTRUCTIVE_KEYWORDS):
         explanation = (
-            "QueryMind is read-only. Data modification queries are not supported.\n\n"
+            "query-mind is read-only. Data modification queries are not supported.\n\n"
             + explanation
         )
 

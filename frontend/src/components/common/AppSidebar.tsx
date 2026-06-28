@@ -154,7 +154,7 @@ export function AppSidebar({ onDashboardHover }: { onDashboardHover?: (hovering:
           }}>
             Q
           </div>
-          QueryMind
+          query-mind
         </div>
 
         <NavSection onDashboardHover={onDashboardHover} />

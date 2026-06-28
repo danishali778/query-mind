@@ -284,7 +284,7 @@ export function ChatPage() {
                       What would you <br />like to know?
                     </div>
                     <div style={{ fontSize: '1rem', color: T.text2, maxWidth: 460, textAlign: 'center', lineHeight: 1.6, fontWeight: 400, opacity: 0.7 }}>
-                      QueryMind translates your plain English questions into optimized SQL, executing them against your database in real-time.
+                      query-mind translates your plain English questions into optimized SQL, executing them against your database in real-time.
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 16, justifyContent: 'center' }}>
                       {['Show me all tables', 'Describe the database', 'Who are the top customers?'].map(s => (

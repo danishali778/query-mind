@@ -1,4 +1,4 @@
-/* QueryMind Design Tokens — Comprehensive Design System */
+/* query-mind Design Tokens — Comprehensive Design System */
 export const T = {
   // ============ COLORS ============
 

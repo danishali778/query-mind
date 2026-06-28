@@ -17,7 +17,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const DEV_MODE = import.meta.env.VITE_DEV_MODE === 'true';
 const MOCK_USER: User = {
   id: '00000000-0000-0000-0000-000000000000',
-  email: 'dev@insightai.com',
+  email: 'dev@query-mind.com',
   role: 'authenticated',
   aud: 'authenticated',
   created_at: new Date().toISOString(),

@@ -1,5 +1,5 @@
 -- Supabase Schema Migration: Initial Setup
--- This script sets up the core tables for the InsightAI platform.
+-- This script sets up the core tables for the query-mind platform.
 -- Run this in your Supabase SQL Editor.
 
 -- 1. Enable UUID Extension
