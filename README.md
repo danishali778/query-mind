@@ -34,7 +34,7 @@ The long-term goal is not only to answer questions like `what happened?`, but al
 - Dashboard widgets built from saved or ad hoc query results
 - Supabase-backed auth, persistence, and application data
 - SSH-capable database connection flow in the frontend
-- Worker-based scheduling for saved queries and dashboard refresh jobs
+- Celery-based background execution for schedules and template generation
 
 ## Tech stack
 
@@ -45,7 +45,7 @@ The long-term goal is not only to answer questions like `what happened?`, but al
 | AI / Orchestration | LangGraph, LangChain, Groq |
 | Data / Auth | Supabase, PostgreSQL |
 | Query Execution | SQLAlchemy, psycopg2, PyMySQL, SSH tunneling |
-| Scheduling | APScheduler |
+| Scheduling | Celery, Redis, Celery Beat |
 
 ## Architecture
 
@@ -85,7 +85,7 @@ backend/
     agents/         # NL-to-SQL, visualization, insight generation
     integrations/   # Supabase, Groq, Lemon Squeezy, provider clients
     query_engine/   # query execution, schema inspection, safety
-    workers/        # schedulers and background jobs
+    workers/        # Celery app, beat dispatcher, and background jobs
     main.py         # canonical backend app entrypoint
 ```
 
@@ -132,6 +132,7 @@ backend/
 - Python 3.11+
 - a Supabase project
 - a Groq API key
+- Redis 7+
 
 ### 1. Clone the repository
 
@@ -148,10 +149,23 @@ python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
 copy .env.example .env
+```
+
+Start Redis locally, then use separate terminals for the API, Celery worker, and Celery beat:
+
+```bash
 uvicorn app.main:app --reload
 ```
 
-Backend runs at:
+```bash
+celery -A app.workers.worker:app worker --loglevel=info --queues default,scheduled,templates
+```
+
+```bash
+celery -A app.workers.beat:app beat --loglevel=info
+```
+
+Backend API runs at:
 
 ```text
 http://127.0.0.1:8000
@@ -159,7 +173,7 @@ http://127.0.0.1:8000
 
 ### 3. Frontend setup
 
-Open a second terminal:
+Open another terminal:
 
 ```bash
 cd frontend
@@ -188,7 +202,17 @@ APP_HOST=0.0.0.0
 APP_PORT=8000
 ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
 
+APP_DATABASE_URL=postgresql+psycopg2://postgres:password@db.your-project-id.supabase.co:5432/postgres
 DATABASE_URL=postgresql://user:password@localhost:5432/query_mind_demo
+
+REDIS_URL=redis://127.0.0.1:6379/0
+CELERY_BROKER_URL=redis://127.0.0.1:6379/0
+CELERY_DEFAULT_QUEUE=default
+CELERY_SCHEDULED_QUEUE=scheduled
+CELERY_TEMPLATES_QUEUE=templates
+CELERY_DISPATCH_LOCK_SECONDS=900
+CELERY_WORKER_CONCURRENCY=4
+
 ENCRYPTION_KEY=your_fernet_key
 
 SUPABASE_URL=https://your-project-id.supabase.co
@@ -219,7 +243,7 @@ VITE_DEV_MODE=false
 
 ## Future improvements
 
-- Replace in-process scheduling with Redis + Celery based workers
+- Add containerized deployment wiring for API, Celery worker, Celery beat, and Redis
 - Expand test coverage into full route and end-to-end integration suites
 - Improve query-engine chunking and frontend bundle splitting
 - Add richer observability around agent retries, SQL correction loops, and worker runs
