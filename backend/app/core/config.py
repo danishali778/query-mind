@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     supabase_anon_key: str | None = None
     supabase_service_role_key: str | None = None
     supabase_jwt_secret: str | None = None
+    auth_cookie_secure: bool | None = None
+    auth_cookie_domain: str | None = None
+    auth_cookie_samesite: str = "lax"
 
     groq_api_key: str | None = None
     groq_model: str = "llama-3.3-70b-versatile"
@@ -74,6 +77,12 @@ class Settings(BaseSettings):
     def resolved_celery_broker_url(self) -> str | None:
         return self.celery_broker_url or self.redis_url
 
+    @property
+    def resolved_auth_cookie_secure(self) -> bool:
+        if self.auth_cookie_secure is None:
+            return self.is_production
+        return self.auth_cookie_secure
+
     def require(self, field_name: str) -> str:
         value = getattr(self, field_name)
         if not value:
@@ -100,6 +109,9 @@ class Settings(BaseSettings):
             "has_supabase_anon_key": bool(self.supabase_anon_key),
             "has_supabase_service_role_key": bool(self.supabase_service_role_key),
             "has_supabase_jwt_secret": bool(self.supabase_jwt_secret),
+            "auth_cookie_secure": self.resolved_auth_cookie_secure,
+            "auth_cookie_domain": bool(self.auth_cookie_domain),
+            "auth_cookie_samesite": self.auth_cookie_samesite,
             "has_groq_api_key": bool(self.groq_api_key),
             "groq_model": self.groq_model,
             "has_lemon_squeezy_webhook_secret": bool(self.lemon_squeezy_webhook_secret),
