@@ -13,6 +13,21 @@ export interface ApiErrorResponse {
   error: ApiErrorDetail;
 }
 
+export interface AuthCredentialsRequest {
+  email: string;
+  password: string;
+}
+
+export interface AuthUserResponse {
+  id: string;
+  email?: string | null;
+}
+
+export interface AuthSessionResponse {
+  authenticated: boolean;
+  user: AuthUserResponse | null;
+  message?: string | null;
+}
 export interface ChartRecommendation {
   type: 'bar' | 'line' | 'pie' | 'scatter' | 'area' | 'table' | 'kpi';
   x_column: string;
@@ -492,3 +507,4 @@ export interface AnalyticsOverviewResponse {
   top_connections: AnalyticsTopConnection[];
   recent_queries: AnalyticsRecentQuery[];
 }
+

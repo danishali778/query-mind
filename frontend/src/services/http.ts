@@ -1,8 +1,11 @@
 import { API_BASE } from '../config';
-import { supabase } from '../lib/supabase';
 import type { ApiErrorResponse } from '../types/api';
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+type ApiRequestInit = RequestInit & {
+  skipAuthRedirect?: boolean;
+};
 
 function isApiErrorResponse(value: unknown): value is ApiErrorResponse {
   return typeof value === 'object' && value !== null && 'error' in value;
@@ -29,27 +32,24 @@ function getErrorMessage(payload: unknown, fallback: string): string {
   return fallback;
 }
 
-export async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  // Get the current session token to send to the backend
-  const { data: { session } } = await supabase.auth.getSession();
-  const token = session?.access_token;
-
+export async function request<T>(path: string, init?: ApiRequestInit): Promise<T> {
+  const { skipAuthRedirect, ...fetchInit } = init || {};
   const response = await fetch(`${API_BASE}${path}`, {
-    ...init,
+    ...fetchInit,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-      ...(init?.headers || {}),
+      ...(fetchInit.headers || {}),
     },
   });
 
   const payload = await parseResponseBody(response);
   if (!response.ok) {
-    if (response.status === 401) {
-      // Force sign out if the backend rejects the token (Database Truth Check failed)
-      console.warn("Session invalid or user deleted. Forcing sign out.");
-      await supabase.auth.signOut();
-      window.location.href = '/'; // Kick to landing page
+    if (response.status === 401 && !skipAuthRedirect) {
+      console.warn('Session invalid or expired. Redirecting to auth.');
+      if (window.location.pathname !== '/auth') {
+        window.location.href = '/auth';
+      }
     }
     throw new Error(getErrorMessage(payload, `Request failed with status ${response.status}`));
   }
@@ -57,8 +57,9 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
-export function jsonRequest<T>(path: string, method: HttpMethod, body?: unknown): Promise<T> {
+export function jsonRequest<T>(path: string, method: HttpMethod, body?: unknown, init?: Omit<ApiRequestInit, 'method' | 'body'>): Promise<T> {
   return request<T>(path, {
+    ...init,
     method,
     body: body ? JSON.stringify(body) : undefined,
   });

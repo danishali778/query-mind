@@ -28,7 +28,11 @@ def validate_core_credentials() -> None:
         "groq_api_key",
     ]
     if not settings.mock_auth_enabled:
-        required.append("supabase_jwt_secret")
+        required.extend([
+            "supabase_url",
+            "supabase_anon_key",
+            "supabase_jwt_secret",
+        ])
 
     missing = [name for name in required if not getattr(settings, name)]
     if missing:
