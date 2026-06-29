@@ -1,42 +1,49 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import type { User, Session } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabase';
+import {
+  getAuthSession,
+  signIn as signInRequest,
+  signOut as signOutRequest,
+  signUp as signUpRequest,
+} from '../services/auth';
+import type { AuthSessionResponse, AuthUserResponse } from '../types/api';
 
 interface AuthContextType {
-  user: User | null;
-  session: Session | null;
+  user: AuthUserResponse | null;
   loading: boolean;
+  signIn: (email: string, password: string) => Promise<AuthSessionResponse>;
+  signUp: (email: string, password: string) => Promise<AuthSessionResponse>;
   signOut: () => Promise<void>;
-  onboardUser: () => Promise<void>;
+  refreshSession: () => Promise<AuthSessionResponse | null>;
   isDevMode: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Developer Bypass Configuration
 const DEV_MODE = import.meta.env.VITE_DEV_MODE === 'true';
-const MOCK_USER: User = {
+const MOCK_USER: AuthUserResponse = {
   id: '00000000-0000-0000-0000-000000000000',
   email: 'dev@query-mind.com',
-  role: 'authenticated',
-  aud: 'authenticated',
-  created_at: new Date().toISOString(),
-  app_metadata: {},
-  user_metadata: { full_name: 'Dev Guest' },
-} as any;
-
-const MOCK_SESSION: Session = {
-  access_token: 'dev-token',
-  token_type: 'bearer',
-  expires_in: 3600,
-  refresh_token: 'dev-refresh',
-  user: MOCK_USER,
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(DEV_MODE ? MOCK_USER : null);
-  const [session, setSession] = useState<Session | null>(DEV_MODE ? MOCK_SESSION : null);
+  const [user, setUser] = useState<AuthUserResponse | null>(DEV_MODE ? MOCK_USER : null);
   const [loading, setLoading] = useState(!DEV_MODE);
+
+  const refreshSession = async (): Promise<AuthSessionResponse | null> => {
+    if (DEV_MODE) {
+      setUser(MOCK_USER);
+      return { authenticated: true, user: MOCK_USER };
+    }
+
+    try {
+      const session = await getAuthSession();
+      setUser(session.authenticated ? session.user : null);
+      return session;
+    } catch {
+      setUser(null);
+      return null;
+    }
+  };
 
   useEffect(() => {
     if (DEV_MODE) {
@@ -44,53 +51,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
-    // Get initial session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user && !DEV_MODE) {
-        // Silently ensure onboarding on every load
-        try {
-          const { request } = await import('../services/http');
-          await request('/settings/onboard', { method: 'POST' });
-        } catch (e) {
-          console.warn("Onboarding check failed", e);
-        }
-      }
-      setLoading(false);
-    });
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
+    void refreshSession().finally(() => setLoading(false));
   }, []);
+
+  const signIn = async (email: string, password: string) => {
+    const session = await signInRequest({ email, password });
+    setUser(session.authenticated ? session.user : null);
+    return session;
+  };
+
+  const signUp = async (email: string, password: string) => {
+    const session = await signUpRequest({ email, password });
+    setUser(session.authenticated ? session.user : null);
+    return session;
+  };
 
   const signOut = async () => {
     if (DEV_MODE) {
-      console.warn('Sign out is disabled in DEV_MODE');
+      setUser(MOCK_USER);
       return;
     }
-    await supabase.auth.signOut();
-  };
 
-  const onboardUser = async () => {
-    if (DEV_MODE) return;
-    const { request } = await import('../services/http');
     try {
-      await request('/settings/onboard', { method: 'POST' });
-    } catch (err) {
-      console.error('Failed to onboard user:', err);
-      throw err;
+      await signOutRequest();
+    } finally {
+      setUser(null);
     }
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signOut, onboardUser, isDevMode: DEV_MODE }}>
+    <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut, refreshSession, isDevMode: DEV_MODE }}>
       {!loading && children}
     </AuthContext.Provider>
   );
@@ -103,3 +93,4 @@ export const useAuth = () => {
   }
   return context;
 };
+
