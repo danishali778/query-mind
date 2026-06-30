@@ -1,10 +1,13 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { T } from '../components/dashboard/tokens';
 import {
   getAuthSession,
+  refreshAuthSession as refreshAuthSessionRequest,
   signIn as signInRequest,
   signOut as signOutRequest,
   signUp as signUpRequest,
 } from '../services/auth';
+import { ApiRequestError } from '../services/http';
 import type { AuthSessionResponse, AuthUserResponse } from '../types/api';
 
 interface AuthContextType {
@@ -25,6 +28,47 @@ const MOCK_USER: AuthUserResponse = {
   email: 'dev@query-mind.com',
 };
 
+function SessionBootstrapScreen() {
+  return (
+    <div style={{
+      minHeight: '100vh',
+      background: T.bg,
+      color: T.text,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontFamily: T.fontMono,
+    }}>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 16,
+        padding: '18px 22px',
+        border: `1px solid ${T.border}`,
+        background: T.s1,
+        boxShadow: `6px 6px 0px ${T.accent}`,
+      }}>
+        <div style={{
+          width: 28,
+          height: 28,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: T.text,
+          color: T.bg,
+          fontFamily: T.fontHead,
+          fontWeight: 950,
+        }}>
+          Q
+        </div>
+        <div style={{ fontSize: '0.72rem', fontWeight: 900, letterSpacing: 1.4, textTransform: 'uppercase' }}>
+          Restoring secure session
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AuthUserResponse | null>(DEV_MODE ? MOCK_USER : null);
   const [loading, setLoading] = useState(!DEV_MODE);
@@ -39,7 +83,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const session = await getAuthSession();
       setUser(session.authenticated ? session.user : null);
       return session;
-    } catch {
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 401) {
+        try {
+          const refreshedSession = await refreshAuthSessionRequest();
+          setUser(refreshedSession.authenticated ? refreshedSession.user : null);
+          return refreshedSession;
+        } catch {
+          setUser(null);
+          return null;
+        }
+      }
+
       setUser(null);
       return null;
     }
@@ -81,7 +136,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut, refreshSession, isDevMode: DEV_MODE }}>
-      {!loading && children}
+      {loading ? <SessionBootstrapScreen /> : children}
     </AuthContext.Provider>
   );
 };
@@ -93,4 +148,3 @@ export const useAuth = () => {
   }
   return context;
 };
-
