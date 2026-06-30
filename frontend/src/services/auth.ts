@@ -2,21 +2,21 @@ import { jsonRequest, request } from './http';
 import type { AuthCredentialsRequest, AuthSessionResponse } from '../types/api';
 
 export function signUp(data: AuthCredentialsRequest) {
-  return jsonRequest<AuthSessionResponse>('/auth/signup', 'POST', data);
+  return jsonRequest<AuthSessionResponse>('/auth/signup', 'POST', data, { skipAuthRefresh: true });
 }
 
 export function signIn(data: AuthCredentialsRequest) {
-  return jsonRequest<AuthSessionResponse>('/auth/login', 'POST', data);
+  return jsonRequest<AuthSessionResponse>('/auth/login', 'POST', data, { skipAuthRefresh: true });
 }
 
 export function signOut() {
-  return request<{ message: string; status?: string | null }>('/auth/logout', { method: 'POST' });
+  return request<{ message: string; status?: string | null }>('/auth/logout', { method: 'POST', skipAuthRefresh: true });
 }
 
 export function refreshAuthSession() {
-  return request<AuthSessionResponse>('/auth/refresh', { method: 'POST', skipAuthRedirect: true });
+  return request<AuthSessionResponse>('/auth/refresh', { method: 'POST', skipAuthRedirect: true, skipAuthRefresh: true });
 }
 
 export function getAuthSession() {
-  return request<AuthSessionResponse>('/auth/session', { skipAuthRedirect: true });
+  return request<AuthSessionResponse>('/auth/session', { skipAuthRedirect: true, skipAuthRefresh: true });
 }
