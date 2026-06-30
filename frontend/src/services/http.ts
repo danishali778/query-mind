@@ -173,4 +173,3 @@ export function jsonRequest<T>(path: string, method: HttpMethod, body?: unknown,
     body: body ? JSON.stringify(body) : undefined,
   });
 }
-

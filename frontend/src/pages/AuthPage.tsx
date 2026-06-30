@@ -4,6 +4,23 @@ import { T } from '../components/dashboard/tokens';
 import { useAuth } from '../context/AuthContext';
 import { Mail, ChevronRight, Activity, Globe, LockKeyhole } from 'lucide-react';
 import { LandingOverlay } from '../components/landing/LandingOverlay';
+import { ApiRequestError } from '../services/http';
+
+function authErrorMessage(error: unknown, isLogin: boolean): string {
+  if (error instanceof ApiRequestError) {
+    if (isLogin && error.status === 401) {
+      return 'INVALID EMAIL OR PASSWORD';
+    }
+    if (!isLogin && [400, 422].includes(error.status)) {
+      return 'COULD NOT CREATE ACCOUNT. CHECK EMAIL AND PASSWORD';
+    }
+    if (error.status === 0 || error.status === 503 || error.code === 'network_error' || error.code === 'service_unavailable') {
+      return 'AUTHENTICATION IS TEMPORARILY UNAVAILABLE';
+    }
+  }
+
+  return 'AUTHENTICATION FAILED. PLEASE TRY AGAIN';
+}
 
 export function AuthPage() {
   const navigate = useNavigate();
@@ -52,8 +69,8 @@ export function AuthPage() {
       }
 
       setError((session.message || 'Check your email to complete sign up.').toUpperCase());
-    } catch (err: any) {
-      setError(err.message?.toUpperCase() || 'AUTHENTICATION_FAILURE');
+    } catch (err) {
+      setError(authErrorMessage(err, isLogin));
     } finally {
       setLoading(false);
     }
@@ -168,6 +185,8 @@ export function AuthPage() {
                 <Mail size={16} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: T.text3 }} />
                 <input
                   type="email"
+                  name="email"
+                  autoComplete="email"
                   required
                   value={email}
                   onChange={e => setEmail(e.target.value)}
@@ -189,6 +208,8 @@ export function AuthPage() {
                 <LockKeyhole size={16} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: T.text3 }} />
                 <input
                   type="password"
+                  name="password"
+                  autoComplete={isLogin ? 'current-password' : 'new-password'}
                   required
                   value={password}
                   onChange={e => setPassword(e.target.value)}
@@ -245,7 +266,10 @@ export function AuthPage() {
           <p style={{ textAlign: 'center', marginTop: 40, fontFamily: T.fontMono, fontSize: '0.65rem', color: T.text3, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>
             {isLogin ? "Don't have an account?" : 'Already have an account?'}
             <button
-              onClick={() => setIsLogin(!isLogin)}
+              onClick={() => {
+                setIsLogin(!isLogin);
+                setError(null);
+              }}
               style={{ background: 'none', border: 'none', color: T.accent, fontWeight: 950, cursor: 'pointer', marginLeft: 8, textTransform: 'uppercase' }}
             >
               {isLogin ? 'Sign Up' : 'Sign In'}
