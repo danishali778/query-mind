@@ -225,7 +225,7 @@ def test_connection_attempt_audit_rows_do_not_store_secrets():
 def test_connection_attempt_migration_creates_expected_table_and_indexes():
     from pathlib import Path
 
-    migration = Path("backend/alembic/versions/20260701_0004_connection_attempt_guardrails.py").read_text()
+    migration = (Path(__file__).resolve().parents[1] / "alembic/versions/20260701_0004_connection_attempt_guardrails.py").read_text()
 
     assert "connection_attempts" in migration
     assert "idx_connection_attempts_owner_id_created_at" in migration
