@@ -218,7 +218,7 @@ def test_executor_blocks_destructive_sql_even_when_readonly_false():
 def test_readonly_migration_backfills_defaults_and_constraint():
     from pathlib import Path
 
-    migration = Path("backend/alembic/versions/20260701_0003_force_readonly_connections.py").read_text()
+    migration = (Path(__file__).resolve().parents[1] / "alembic/versions/20260701_0003_force_readonly_connections.py").read_text()
 
     assert "UPDATE database_connections SET readonly = true" in migration
     assert "nullable=False" in migration
