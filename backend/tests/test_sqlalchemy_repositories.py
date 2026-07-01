@@ -149,3 +149,87 @@ def test_chat_session_lookup_and_history_require_owner():
     assert [message.content for message in owned.messages] == ["hello"]
     assert other is None
     assert asyncio.run(chat_repository.get_history_for_llm(user_b, session.id)) == []
+
+
+def test_connection_persistence_forces_readonly_true():
+    user_id = _user_id()
+
+    connection_id = asyncio.run(
+        connection_repository.create_connection(
+            user_id,
+            ConnectionRequest(
+                db_type="postgresql",
+                host="localhost",
+                port=5432,
+                database="demo",
+                username="demo",
+                password=None,
+                name="Readonly Demo",
+                readonly=False,
+            ),
+        )
+    )
+
+    config = asyncio.run(connection_repository.get_connection_config(user_id, connection_id))
+    row = asyncio.run(connection_repository.get_connection_row(user_id, connection_id))
+    connections = asyncio.run(connection_repository.list_connections(user_id))
+
+    assert config is not None
+    assert row is not None
+    assert config.readonly is True
+    assert row["readonly"] is True
+    assert connections[0].readonly is True
+
+
+def test_connection_settings_update_cannot_disable_readonly():
+    user_id = _user_id()
+    connection_id = asyncio.run(asyncio_create_connection(user_id))
+
+    assert asyncio.run(connection_repository.update_connection_settings_record(user_id, connection_id, "require")) is True
+
+    row = asyncio.run(connection_repository.get_connection_row(user_id, connection_id))
+    assert row is not None
+    assert row["ssl_mode"] == "require"
+    assert row["readonly"] is True
+
+
+def test_connection_attempt_audit_rows_do_not_store_secrets():
+    from app.db.orm_models import ConnectionAttemptORM
+    from app.db.repositories import connection_attempt_repository
+    from app.db.session import session_scope
+
+    user_id = _user_id()
+    connection_attempt_repository.log_connection_attempt(
+        owner_id=user_id,
+        action="test",
+        db_type="postgresql",
+        host="db.example.com",
+        port=5432,
+        decision="allowed",
+        success=False,
+        error_code="connection_failed",
+        duration_ms=12.5,
+    )
+
+    with session_scope() as session:
+        row = session.query(ConnectionAttemptORM).filter(ConnectionAttemptORM.owner_id == user_id).one()
+        assert row.action == "test"
+        assert row.host == "db.example.com"
+        assert row.port == 5432
+        assert row.decision == "allowed"
+        assert row.error_code == "connection_failed"
+        assert not hasattr(row, "username")
+        assert not hasattr(row, "password")
+
+
+def test_connection_attempt_migration_creates_expected_table_and_indexes():
+    from pathlib import Path
+
+    migration = Path("backend/alembic/versions/20260701_0004_connection_attempt_guardrails.py").read_text()
+
+    assert "connection_attempts" in migration
+    assert "idx_connection_attempts_owner_id_created_at" in migration
+    assert "idx_connection_attempts_action_created_at" in migration
+    assert "idx_connection_attempts_decision_created_at" in migration
+    assert "password" not in migration
+    assert "username" not in migration
