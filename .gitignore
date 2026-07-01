@@ -102,3 +102,10 @@ BACKEND_STRUCTURE_PROPOSAL.md
 *.bak
 *.tmp
 *.temp
+# Local Codex/agent tooling
+.agents/skills/
+.codex/
+
+# Celery beat local schedule state
+backend/celerybeat-schedule.dat
+backend/celerybeat-schedule.dir
