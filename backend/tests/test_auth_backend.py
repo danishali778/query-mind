@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 
 import pytest
@@ -194,3 +195,114 @@ def test_mock_auth_bypass_still_works(client, monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["id"] == settings.dev_user_id
+
+
+def _connection_test_client(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api.v1.routes import connections as connections_route
+    from app.core.errors import register_exception_handlers
+    from app.integrations.supabase_auth import User, get_current_user
+
+    app = FastAPI()
+    register_exception_handlers(app)
+    app.include_router(connections_route.router)
+    app.dependency_overrides[get_current_user] = lambda: User(id="00000000-0000-0000-0000-000000000001", email="user@example.com")
+    return TestClient(app, raise_server_exceptions=False)
+
+
+def test_blocked_database_test_does_not_call_connection_pool(client, monkeypatch):
+    from app.core.config import settings
+    from app.db import connection_manager
+
+    monkeypatch.setattr(settings, "app_env", "production", raising=False)
+    monkeypatch.setattr(settings, "db_connect_allowed_hosts_raw", "", raising=False)
+    monkeypatch.setattr(settings, "db_connect_allowed_cidrs_raw", "", raising=False)
+    monkeypatch.setattr(connection_manager, "enforce_connection_attempt_rate_limit", lambda owner_id: None)
+
+    def fail_if_called(config):
+        raise AssertionError("connection pool should not be called for blocked targets")
+
+    monkeypatch.setattr(connection_manager.connection_pool, "test_connection", fail_if_called)
+    test_client = _connection_test_client(monkeypatch)
+
+    response = test_client.post(
+        "/api/database/test",
+        json={
+            "db_type": "postgresql",
+            "host": "127.0.0.1",
+            "port": 5432,
+            "database": "demo",
+            "username": "demo",
+            "password": "secret",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "bad_request"
+
+
+def test_blocked_database_connect_does_not_save_connection(client, monkeypatch):
+    from app.core.config import settings
+    from app.db import connection_manager
+    from app.db.repositories import connection_repository
+
+    monkeypatch.setattr(settings, "app_env", "production", raising=False)
+    monkeypatch.setattr(settings, "db_connect_allowed_hosts_raw", "", raising=False)
+    monkeypatch.setattr(settings, "db_connect_allowed_cidrs_raw", "", raising=False)
+    monkeypatch.setattr(connection_manager, "enforce_connection_attempt_rate_limit", lambda owner_id: None)
+
+    def fail_if_called(config):
+        raise AssertionError("open_connection should not be called for blocked targets")
+
+    monkeypatch.setattr(connection_manager.connection_pool, "open_connection", fail_if_called)
+    test_client = _connection_test_client(monkeypatch)
+
+    response = test_client.post(
+        "/api/database/connect",
+        json={
+            "db_type": "postgresql",
+            "host": "127.0.0.1",
+            "port": 5432,
+            "database": "demo",
+            "username": "demo",
+            "password": "secret",
+        },
+    )
+
+    assert response.status_code == 400
+    assert asyncio.run(connection_repository.list_connections("00000000-0000-0000-0000-000000000001")) == []
+
+
+def test_successful_database_test_uses_existing_connection_flow(client, monkeypatch):
+    from app.core.config import settings
+    from app.db import connection_manager
+
+    called = {"value": False}
+
+    async def fake_test_connection(config):
+        called["value"] = True
+        return True, "Connection successful"
+
+    monkeypatch.setattr(settings, "app_env", "development", raising=False)
+    monkeypatch.setattr(settings, "db_connect_allow_private_in_dev", True, raising=False)
+    monkeypatch.setattr(connection_manager, "enforce_connection_attempt_rate_limit", lambda owner_id: None)
+    monkeypatch.setattr(connection_manager.connection_pool, "test_connection", fake_test_connection)
+    test_client = _connection_test_client(monkeypatch)
+
+    response = test_client.post(
+        "/api/database/test",
+        json={
+            "db_type": "postgresql",
+            "host": "127.0.0.1",
+            "port": 5432,
+            "database": "demo",
+            "username": "demo",
+            "password": "secret",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert called["value"] is True
