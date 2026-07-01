@@ -25,10 +25,9 @@ def execute_query(
     connection_id: Optional[str] = None,
     readonly: bool = True,
 ) -> QueryExecutionResult:
-    if readonly:
-        is_safe, error_msg = validate_query(sql)
-        if not is_safe:
-            return QueryExecutionResult(success=False, error=error_msg)
+    is_safe, error_msg = validate_query(sql)
+    if not is_safe:
+        return QueryExecutionResult(success=False, error=error_msg)
 
     safe_sql = sanitize_row_limit(sql, row_limit)
     start_time = time.time()
@@ -41,20 +40,19 @@ def execute_query(
             except Exception:
                 pass
 
-            if readonly:
-                try:
-                    _apply_readonly_guards(conn, engine.dialect.name)
-                except Exception:
-                    transaction.rollback()
-                    return _log_and_return(
-                        QueryExecutionResult(
-                            success=False,
-                            error="Unable to enforce read-only execution for this database connection.",
-                        ),
-                        user_id,
-                        connection_id,
-                        sql,
-                    )
+            try:
+                _apply_readonly_guards(conn, engine.dialect.name)
+            except Exception:
+                transaction.rollback()
+                return _log_and_return(
+                    QueryExecutionResult(
+                        success=False,
+                        error="Unable to enforce read-only execution for this database connection.",
+                    ),
+                    user_id,
+                    connection_id,
+                    sql,
+                )
 
             result = conn.execute(text(safe_sql))
             columns = list(result.keys())

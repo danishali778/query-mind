@@ -3,6 +3,7 @@
 from app.db.orm_models.app import (
     ChatMessageORM,
     ChatSessionORM,
+    ConnectionAttemptORM,
     DashboardORM,
     DashboardWidgetORM,
     DatabaseConnectionORM,
@@ -16,6 +17,7 @@ from app.db.orm_models.app import (
 
 __all__ = [
     "DatabaseConnectionORM",
+    "ConnectionAttemptORM",
     "DashboardORM",
     "DashboardWidgetORM",
     "SavedQueryORM",

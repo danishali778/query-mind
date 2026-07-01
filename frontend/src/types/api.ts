@@ -64,7 +64,6 @@ export interface ConnectDatabaseRequest {
   username: string;
   password: string;
   ssl_mode?: string;
-  readonly?: boolean;
   // SSH Tunnel
   use_ssh?: boolean;
   ssh_host?: string;
@@ -507,4 +506,3 @@ export interface AnalyticsOverviewResponse {
   top_connections: AnalyticsTopConnection[];
   recent_queries: AnalyticsRecentQuery[];
 }
-

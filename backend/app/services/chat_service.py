@@ -42,7 +42,6 @@ async def send_message(
     if not engine:
         raise ValueError("Database connection not found. Connect first.")
 
-    readonly = await connection_service.get_readonly(user_id, connection_id)
     schema_context = await connection_service.get_schema_for_ai(user_id, connection_id)
     if not schema_context:
         schema_context = "No schema available. Please connect to a database first."
@@ -84,7 +83,7 @@ async def send_message(
             user_message=message,
             schema_context=schema_context,
             history=history,
-            readonly=readonly,
+            readonly=True,
         )
     )
 

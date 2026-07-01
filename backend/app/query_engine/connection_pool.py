@@ -12,6 +12,8 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - environment-dependent optional import
     SSHTunnelForwarder = None
 
+from app.core.config import settings
+from app.core.db_connection_guardrails import validate_connection_target
 from app.db.models.connection import ConnectionRequest, TableInfo
 import app.query_engine.schema_inspector as schema_inspector
 
@@ -79,6 +81,8 @@ def start_ssh_tunnel(config: ConnectionRequest) -> tuple[Optional[SSHTunnelForwa
         ssh_password=config.ssh_password,
         ssh_pkey=ssh_pkey,
         remote_bind_address=(config.host, config.port or 5432),
+        ssh_timeout=settings.db_connect_timeout_seconds,
+        tunnel_timeout=settings.db_connect_timeout_seconds,
     )
     tunnel.start()
     return tunnel, "127.0.0.1", tunnel.local_bind_port
@@ -86,6 +90,14 @@ def start_ssh_tunnel(config: ConnectionRequest) -> tuple[Optional[SSHTunnelForwa
 
 def build_engine(url: URL, db_type: str, ssl_mode: str = "disable") -> Engine:
     connect_args = {}
+    timeout = settings.db_connect_timeout_seconds
+    if db_type == "postgresql":
+        connect_args["connect_timeout"] = timeout
+    elif db_type in {"mysql", "mariadb"}:
+        connect_args["connect_timeout"] = timeout
+    elif db_type in {"sqlserver", "mssql"}:
+        connect_args["timeout"] = timeout
+
     if db_type in ["postgresql", "mariadb", "mysql"] and ssl_mode != "disable":
         connect_args["sslmode"] = ssl_mode
 
@@ -100,6 +112,7 @@ def build_engine(url: URL, db_type: str, ssl_mode: str = "disable") -> Engine:
 
 
 async def test_connection(config: ConnectionRequest) -> tuple[bool, str]:
+    validate_connection_target(config)
     tunnel = None
     engine = None
     try:
@@ -123,6 +136,7 @@ async def test_connection(config: ConnectionRequest) -> tuple[bool, str]:
 
 
 def open_connection(config: ConnectionRequest) -> tuple[Engine, Optional[SSHTunnelForwarder]]:
+    validate_connection_target(config)
     tunnel, host, port = start_ssh_tunnel(config)
     engine = build_engine(build_connection_url(config, host, port), config.db_type, config.ssl_mode)
     with engine.connect() as conn:

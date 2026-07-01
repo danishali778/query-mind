@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     celery_dispatch_lock_seconds: int = 900
     celery_worker_concurrency: int = 4
 
+    db_connect_timeout_seconds: int = 5
+    db_connect_rate_limit_attempts: int = 10
+    db_connect_rate_limit_window_seconds: int = 60
+    db_connect_allowed_hosts_raw: str = Field(default="", validation_alias="DB_CONNECT_ALLOWED_HOSTS")
+    db_connect_allowed_cidrs_raw: str = Field(default="", validation_alias="DB_CONNECT_ALLOWED_CIDRS")
+    db_connect_allow_private_in_dev: bool = True
+
     encryption_key: str | None = None
 
     supabase_url: str | None = None
@@ -78,6 +85,14 @@ class Settings(BaseSettings):
         return self.celery_broker_url or self.redis_url
 
     @property
+    def db_connect_allowed_hosts(self) -> list[str]:
+        return [host.strip() for host in self.db_connect_allowed_hosts_raw.split(",") if host.strip()]
+
+    @property
+    def db_connect_allowed_cidrs(self) -> list[str]:
+        return [cidr.strip() for cidr in self.db_connect_allowed_cidrs_raw.split(",") if cidr.strip()]
+
+    @property
     def resolved_auth_cookie_secure(self) -> bool:
         if self.auth_cookie_secure is None:
             return self.is_production
@@ -104,6 +119,12 @@ class Settings(BaseSettings):
             "celery_default_queue": self.celery_default_queue,
             "celery_scheduled_queue": self.celery_scheduled_queue,
             "celery_templates_queue": self.celery_templates_queue,
+            "db_connect_timeout_seconds": self.db_connect_timeout_seconds,
+            "db_connect_rate_limit_attempts": self.db_connect_rate_limit_attempts,
+            "db_connect_rate_limit_window_seconds": self.db_connect_rate_limit_window_seconds,
+            "db_connect_allowed_hosts_count": len(self.db_connect_allowed_hosts),
+            "db_connect_allowed_cidrs_count": len(self.db_connect_allowed_cidrs),
+            "db_connect_allow_private_in_dev": self.db_connect_allow_private_in_dev,
             "has_encryption_key": bool(self.encryption_key),
             "has_supabase_url": bool(self.supabase_url),
             "has_supabase_anon_key": bool(self.supabase_anon_key),

@@ -60,7 +60,7 @@ export function disconnectDatabase(connectionId: string) {
   return request<ApiMessageResponse>(`/database/connections/${connectionId}`, { method: 'DELETE' });
 }
 
-export function updateConnectionSettings(connectionId: string, data: { ssl_mode?: string; readonly?: boolean }) {
+export function updateConnectionSettings(connectionId: string, data: { ssl_mode?: string }) {
   return jsonRequest<DatabaseConnection>(`/database/connections/${connectionId}`, 'PATCH', data);
 }
 

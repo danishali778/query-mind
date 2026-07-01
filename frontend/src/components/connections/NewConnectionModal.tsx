@@ -6,7 +6,7 @@ import { Database, X, ChevronRight, ChevronLeft, Check, Lock, Globe, Server, Fil
 export function NewConnectionModal({ isOpen, onClose, onSaved }: { isOpen: boolean, onClose: () => void, onSaved?: () => void }) {
   const [step, setStep] = useState(1);
   const [selectedConnector, setSelectedConnector] = useState<string | null>(null);
-  const [formData, setFormData] = useState({ name: '', host: 'localhost', port: '', database: '', username: '', password: '', ssl_mode: 'disable', readonly: true });
+  const [formData, setFormData] = useState({ name: '', host: 'localhost', port: '', database: '', username: '', password: '', ssl_mode: 'disable' });
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string; tables?: number | null } | null>(null);
@@ -28,7 +28,6 @@ export function NewConnectionModal({ isOpen, onClose, onSaved }: { isOpen: boole
     password: formData.password,
     name: formData.name || undefined,
     ssl_mode: formData.ssl_mode,
-    readonly: formData.readonly,
     use_ssh: sshEnabled,
     ...(sshEnabled ? {
       ssh_host: sshData.ssh_host,
@@ -55,7 +54,7 @@ export function NewConnectionModal({ isOpen, onClose, onSaved }: { isOpen: boole
       await connectDatabase(buildPayload() as any);
       onSaved?.();
       setStep(1); setSelectedConnector(null);
-      setFormData({ name: '', host: 'localhost', port: '', database: '', username: '', password: '', ssl_mode: 'disable', readonly: true });
+      setFormData({ name: '', host: 'localhost', port: '', database: '', username: '', password: '', ssl_mode: 'disable' });
       setSshEnabled(false); setSshData({ ssh_host: '', ssh_port: '22', ssh_username: '', ssh_password: '', ssh_private_key: '' });
       setTestResult(null);
     } catch (e: any) {
@@ -145,11 +144,9 @@ export function NewConnectionModal({ isOpen, onClose, onSaved }: { isOpen: boole
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <label style={{ fontSize: '0.62rem', color: T.text3, fontWeight: 700, fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '1px' }}>ACCESS LEVEL</label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, height: 44 }}>
-                    <button type="button" onClick={() => setFormData(prev => ({...prev, readonly: !prev.readonly}))} style={{ width: 44, height: 22, borderRadius: 0, border: `1px solid ${T.border}`, cursor: 'pointer', background: formData.readonly ? T.accent : T.s4, position: 'relative', transition: 'all 0.2s', flexShrink: 0 }}>
-                      <div style={{ position: 'absolute', top: 2, left: formData.readonly ? 24 : 2, width: 16, height: 16, borderRadius: 0, background: '#000', transition: 'left 0.2s' }} />
-                    </button>
-                    <span style={{ fontSize: '0.72rem', color: formData.readonly ? T.text : T.text3, fontFamily: T.fontMono, fontWeight: 700 }}>{formData.readonly ? 'READ-ONLY' : 'READ / WRITE'}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 44, padding: '0 12px', background: T.s2, border: `1px solid ${T.border}` }}>
+                    <Lock size={14} color={T.accent} />
+                    <span style={{ fontSize: '0.72rem', color: T.text, fontFamily: T.fontMono, fontWeight: 700 }}>READ-ONLY ENFORCED</span>
                   </div>
                 </div>
               </div>

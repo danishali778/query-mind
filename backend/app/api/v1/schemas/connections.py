@@ -17,6 +17,7 @@ class ConnectionResponse(BaseModel):
     status: str
     message: str
     tables_count: Optional[int] = None
+    readonly: bool = True
 
 
 class ConnectionRequest(BaseModel):
@@ -31,7 +32,6 @@ class ConnectionRequest(BaseModel):
     username: Optional[str] = None
     password: Optional[str] = None
     ssl_mode: str = "disable"
-    readonly: bool = True
     use_ssh: bool = False
     ssh_host: Optional[str] = None
     ssh_port: Optional[int] = 22
@@ -131,7 +131,6 @@ class UpdateConnectionSettingsRequest(BaseModel):
     """Patchable security settings for an existing connection."""
 
     ssl_mode: Optional[str] = None
-    readonly: Optional[bool] = None
 
 
 class MermaidErdResponse(BaseModel):

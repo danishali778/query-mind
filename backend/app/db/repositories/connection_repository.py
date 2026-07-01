@@ -19,7 +19,7 @@ def _row_to_active_connection(row: DatabaseConnectionORM) -> ActiveConnection:
         status="connected",
         tables_count=0,
         ssl_mode=row.ssl_mode or "disable",
-        readonly=True if row.readonly is None else row.readonly,
+        readonly=True,
         use_ssh=bool(row.use_ssh),
         ssh_host=row.ssh_host,
     )
@@ -36,7 +36,7 @@ def _row_to_connection_request(row: DatabaseConnectionORM) -> ConnectionRequest:
         username=row.username,
         password=decrypt(row.password) if row.password else None,
         ssl_mode=row.ssl_mode or "disable",
-        readonly=True if row.readonly is None else row.readonly,
+        readonly=True,
         use_ssh=bool(row.use_ssh),
         ssh_host=row.ssh_host,
         ssh_port=row.ssh_port or 22,
@@ -57,7 +57,7 @@ def _connection_row(user_id: str, config: ConnectionRequest) -> DatabaseConnecti
         username=config.username,
         password=encrypt(config.password) if config.password else None,
         ssl_mode=getattr(config, "ssl_mode", "disable"),
-        readonly=getattr(config, "readonly", True),
+        readonly=True,
         use_ssh=getattr(config, "use_ssh", False),
         ssh_host=getattr(config, "ssh_host", None),
         ssh_port=getattr(config, "ssh_port", 22),
@@ -106,7 +106,7 @@ async def get_connection_row(user_id: str, connection_id: str) -> dict | None:
             "username": row.username,
             "password": row.password,
             "ssl_mode": row.ssl_mode,
-            "readonly": row.readonly,
+            "readonly": True,
             "use_ssh": row.use_ssh,
             "ssh_host": row.ssh_host,
             "ssh_port": row.ssh_port,
@@ -145,7 +145,6 @@ async def update_connection_settings_record(
     user_id: str,
     connection_id: str,
     ssl_mode: str | None,
-    readonly: bool | None,
 ) -> bool:
     with session_scope() as session:
         row = (
@@ -157,21 +156,12 @@ async def update_connection_settings_record(
             return False
         if ssl_mode is not None:
             row.ssl_mode = ssl_mode
-        if readonly is not None:
-            row.readonly = readonly
+        row.readonly = True
         return True
 
 
 async def get_readonly_setting(user_id: str, connection_id: str) -> bool:
-    with session_scope() as session:
-        row = (
-            session.query(DatabaseConnectionORM.readonly)
-            .filter(DatabaseConnectionORM.id == connection_id, DatabaseConnectionORM.owner_id == user_id)
-            .one_or_none()
-        )
-        if not row:
-            return True
-        return True if row.readonly is None else bool(row.readonly)
+    return True
 
 
 async def find_dev_connection(owner_id: str, name: str) -> str | None:

@@ -207,7 +207,6 @@ function CredentialsTab({ connection }: { connection: ConnectionListItem }) {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string; tables_found?: number | null } | null>(null);
   const [sslMode, setSslMode] = useState(connection.ssl_mode ?? 'disable');
-  const [readonly, setReadonly] = useState(connection.readonly ?? true);
   const [password, setPassword] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
@@ -216,7 +215,7 @@ function CredentialsTab({ connection }: { connection: ConnectionListItem }) {
     setSaving(true);
     setSaveMsg(null);
     try {
-      await updateConnectionSettings(connection.id, { ssl_mode: sslMode, readonly });
+      await updateConnectionSettings(connection.id, { ssl_mode: sslMode });
       setSaveMsg('SETTINGS SAVED.');
     } catch {
       setSaveMsg('ERROR SAVING SETTINGS.');
@@ -276,11 +275,9 @@ function CredentialsTab({ connection }: { connection: ConnectionListItem }) {
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <label style={{ fontSize: '0.62rem', color: T.text3, fontWeight: 700, fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '1px' }}>ACCESS LEVEL</label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, height: 44 }}>
-            <button type="button" onClick={() => setReadonly(r => !r)} style={{ width: 44, height: 22, borderRadius: 0, border: `1px solid ${T.border}`, cursor: 'pointer', background: readonly ? T.accent : T.s4, position: 'relative', transition: 'all 0.2s', flexShrink: 0 }}>
-              <div style={{ position: 'absolute', top: 2, left: readonly ? 24 : 2, width: 16, height: 16, borderRadius: 0, background: '#000', transition: 'left 0.2s' }} />
-            </button>
-            <span style={{ fontSize: '0.72rem', color: readonly ? T.text : T.text3, fontFamily: T.fontMono, fontWeight: 700 }}>{readonly ? 'READ-ONLY' : 'READ / WRITE'}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 44, padding: '0 12px', background: T.s2, border: `1px solid ${T.border}` }}>
+            <Shield size={14} color={T.accent} />
+            <span style={{ fontSize: '0.72rem', color: T.text, fontFamily: T.fontMono, fontWeight: 700 }}>READ-ONLY ENFORCED</span>
           </div>
         </div>
       </div>
@@ -518,4 +515,3 @@ function TestStep({ label, res, state }: { label: string, res: string, state: 'w
     </div>
   );
 }
-
