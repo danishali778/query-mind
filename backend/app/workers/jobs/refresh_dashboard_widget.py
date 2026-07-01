@@ -7,7 +7,7 @@ from app.core.config import settings
 from app.db.models.dashboard import UpdateWidgetInput
 from app.db.repositories import dashboard_repository
 from app.services import dashboard_service, scheduling_service
-from app.services.connection_service import get_engine, get_readonly
+from app.services.connection_service import get_engine
 from app.services.query_execution_service import execute_query
 from app.workers.celery_app import celery_app
 from app.workers.runtime import release_dispatch_lock
@@ -85,14 +85,13 @@ def refresh_dashboard_widget_task(self, widget_id: str, owner_id: str) -> None:
         if dashboard and dashboard.filters:
             final_sql = dashboard_service.apply_global_filters(widget.sql, dashboard.filters)
 
-        readonly = asyncio.run(get_readonly(owner_id, widget.connection_id))
         result = execute_query(
             owner_id,
             engine,
             final_sql,
             500,
             widget.connection_id,
-            readonly,
+            True,
         )
 
         if result.success:

@@ -19,7 +19,7 @@ def execute_query(
     connection_id: str | None = None,
     readonly: bool = True,
 ) -> QueryExecutionResult:
-    return _execute_query(user_id, engine, sql, row_limit, connection_id, readonly)
+    return _execute_query(user_id, engine, sql, row_limit, connection_id, True)
 
 
 async def execute_for_connection(
@@ -32,11 +32,6 @@ async def execute_for_connection(
     engine = await connection_service.get_engine(user_id, connection_id)
     if not engine:
         raise ValueError("Database connection not found.")
-
-    effective_readonly = readonly
-    if effective_readonly is None:
-        effective_readonly = await connection_service.get_readonly(user_id, connection_id)
-
     result = await anyio.to_thread.run_sync(
         functools.partial(
             _execute_query,
@@ -45,7 +40,7 @@ async def execute_for_connection(
             sql,
             row_limit,
             connection_id,
-            effective_readonly,
+            True,
         )
     )
     return result

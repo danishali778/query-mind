@@ -5,7 +5,7 @@ import asyncio
 from app.core.config import settings
 from app.db.repositories import query_library_repository
 from app.services import scheduling_service
-from app.services.connection_service import get_engine, get_readonly
+from app.services.connection_service import get_engine
 from app.services.query_execution_service import execute_query
 from app.workers.celery_app import celery_app
 from app.workers.runtime import release_dispatch_lock
@@ -82,14 +82,13 @@ def run_saved_query_task(self, query_id: str, owner_id: str) -> None:
             )
             return
 
-        readonly = asyncio.run(get_readonly(owner_id, query.connection_id))
         result = execute_query(
             owner_id,
             engine,
             query.sql,
             row_limit=500,
             connection_id=query.connection_id,
-            readonly=readonly,
+            readonly=True,
         )
         query_library_repository.sync_log_run(
             user_id=owner_id,

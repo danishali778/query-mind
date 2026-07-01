@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, Text, desc, func
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, Text, desc, func, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -33,7 +33,7 @@ class DatabaseConnectionORM(Base):
     username: Mapped[str | None] = mapped_column(Text)
     password: Mapped[str | None] = mapped_column(Text)
     ssl_mode: Mapped[str | None] = mapped_column(Text, default="disable", nullable=True)
-    readonly: Mapped[bool | None] = mapped_column(Boolean, default=True, nullable=True)
+    readonly: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_utcnow, server_default=func.now(), nullable=True)
     use_ssh: Mapped[bool | None] = mapped_column(Boolean, default=False, nullable=True)
     ssh_host: Mapped[str | None] = mapped_column(Text)
@@ -43,9 +43,30 @@ class DatabaseConnectionORM(Base):
     ssh_private_key: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (
+        CheckConstraint("readonly = true", name="database_connections_readonly_true"),
         Index("idx_database_connections_owner_id_created_at", "owner_id", desc("created_at")),
     )
 
+class ConnectionAttemptORM(Base):
+    __tablename__ = "connection_attempts"
+
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    owner_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    db_type: Mapped[str | None] = mapped_column(Text)
+    host: Mapped[str | None] = mapped_column(Text)
+    port: Mapped[int | None] = mapped_column(Integer)
+    decision: Mapped[str] = mapped_column(Text, nullable=False)
+    success: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    error_code: Mapped[str | None] = mapped_column(Text)
+    duration_ms: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_utcnow, server_default=func.now(), nullable=True)
+
+    __table_args__ = (
+        Index("idx_connection_attempts_owner_id_created_at", "owner_id", desc("created_at")),
+        Index("idx_connection_attempts_action_created_at", "action", desc("created_at")),
+        Index("idx_connection_attempts_decision_created_at", "decision", desc("created_at")),
+    )
 
 class DashboardORM(Base):
     __tablename__ = "dashboards"
@@ -320,6 +341,7 @@ class UserSubscriptionORM(Base):
 
 __all__ = [
     "DatabaseConnectionORM",
+    "ConnectionAttemptORM",
     "DashboardORM",
     "DashboardWidgetORM",
     "SavedQueryORM",

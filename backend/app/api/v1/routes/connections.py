@@ -17,7 +17,7 @@ from app.api.v1.schemas.connections import (
     UpdateConnectionSettingsRequest,
 )
 from app.db.models.connection import ConnectionRequest as DomainConnectionRequest
-from app.core.errors import BadRequestError, ServiceUnavailableError
+from app.core.errors import AppError, BadRequestError, ServiceUnavailableError
 from app.services import connection_service
 from app.services import query_template_service
 
@@ -42,7 +42,7 @@ def _sanitize_connection_error(exc: Exception) -> str:
 async def test_database_connection(config: TestConnectionRequest, current_user: CurrentUserDep):
     """Test a database connection without saving it."""
     request = DomainConnectionRequest(**config.model_dump())
-    success, message = await connection_service.test_connection(request)
+    success, message = await connection_service.test_connection(current_user.id, request)
     if not success:
         message = _sanitize_connection_error(Exception(message))
     return TestConnectionResponse(
@@ -80,6 +80,8 @@ async def connect_database(config: ConnectionRequest, current_user: CurrentUserD
             message=f"Successfully connected to {domain_request.database}",
             tables_count=tables_count,
         )
+    except AppError:
+        raise
     except ValueError as exc:
         raise BadRequestError(str(exc)) from exc
     except Exception as exc:
@@ -98,7 +100,7 @@ async def update_connection_settings(
     req: UpdateConnectionSettingsRequest, 
     current_user: CurrentUserDep
 ):
-    ok = await connection_service.update_settings(current_user.id, connection_id, req.ssl_mode, req.readonly)
+    ok = await connection_service.update_settings(current_user.id, connection_id, req.ssl_mode)
     if not ok:
         raise HTTPException(status_code=500, detail="Failed to apply settings.")
         
