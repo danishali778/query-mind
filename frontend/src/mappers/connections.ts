@@ -1,25 +1,34 @@
 import type { ConnectionApiRecord, ConnectionListItem } from '../types/connections';
 
 const DB_ICONS: Record<string, { icon: string; color: string }> = {
-  postgresql: { icon: '🐘', color: 'rgba(51,103,145,0.2)' },
-  mysql: { icon: '🐬', color: 'rgba(0,117,143,0.15)' },
-  sqlite: { icon: '🔵', color: 'rgba(59,130,246,0.15)' },
-  bigquery: { icon: '🔶', color: 'rgba(255,153,0,0.15)' },
-  snowflake: { icon: '❄️', color: 'rgba(41,182,246,0.15)' },
-  redshift: { icon: '🟠', color: 'rgba(255,107,53,0.15)' },
+  postgresql: { icon: 'PG', color: 'rgba(51,103,145,0.2)' },
 };
+
+function deriveStatus(apiConn: ConnectionApiRecord): ConnectionListItem['status'] {
+  if (apiConn.status === 'live' || apiConn.status === 'offline' || apiConn.status === 'warning') {
+    return apiConn.status;
+  }
+  if (apiConn.health_state === 'failed') {
+    return 'offline';
+  }
+  if (apiConn.health_state === 'live') {
+    return 'live';
+  }
+  return 'warning';
+}
 
 export function mapConnectionRecord(apiConn: ConnectionApiRecord): ConnectionListItem {
   const dbType = apiConn.db_type.toLowerCase();
-  const iconInfo = DB_ICONS[dbType] || { icon: '🗄️', color: 'rgba(100,100,100,0.15)' };
+  const iconInfo = DB_ICONS[dbType] || { icon: 'UN', color: 'rgba(100,100,100,0.15)' };
 
   return {
     id: apiConn.id,
     name: apiConn.name || apiConn.database,
     type: apiConn.db_type,
-    status: apiConn.status === 'connected' ? 'live' : 'offline',
+    status: deriveStatus(apiConn),
+    health_state: apiConn.health_state || 'unknown',
     queries: 0,
-    latency: 0,
+    latency: apiConn.latency_ms ?? null,
     icon: iconInfo.icon,
     color: iconInfo.color,
     host: apiConn.host ?? undefined,
@@ -29,5 +38,11 @@ export function mapConnectionRecord(apiConn: ConnectionApiRecord): ConnectionLis
     tables_count: apiConn.tables_count,
     ssl_mode: apiConn.ssl_mode ?? 'disable',
     readonly: apiConn.readonly ?? true,
+    use_ssh: apiConn.use_ssh ?? false,
+    ssh_host: apiConn.ssh_host ?? undefined,
+    last_tested_at: apiConn.last_tested_at ?? null,
+    last_status: apiConn.last_status ?? 'unknown',
+    last_error: apiConn.last_error ?? null,
+    last_schema_sync_at: apiConn.last_schema_sync_at ?? null,
   };
 }

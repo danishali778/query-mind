@@ -41,23 +41,34 @@ export interface ChartRecommendation {
   y_label: string;
 }
 
+export type SupportedDatabaseType = 'postgresql';
+export type ConnectionHealthState = 'live' | 'failed' | 'stale' | 'unknown';
+
 export interface DatabaseConnection {
   id: string;
   name: string;
   db_type: string;
   database: string;
-  host: string;
+  host?: string | null;
   port?: number | null;
   username?: string | null;
-  status: string;
+  status: 'live' | 'offline' | 'warning' | string;
+  health_state: ConnectionHealthState;
   tables_count: number;
   ssl_mode?: string;
   readonly?: boolean;
+  use_ssh?: boolean;
+  ssh_host?: string | null;
+  last_tested_at?: string | null;
+  last_status?: 'unknown' | 'healthy' | 'failed' | string;
+  last_error?: string | null;
+  latency_ms?: number | null;
+  last_schema_sync_at?: string | null;
 }
 
 export interface ConnectDatabaseRequest {
   name?: string;
-  db_type: string;
+  db_type: SupportedDatabaseType;
   host: string;
   port?: number;
   database: string;
@@ -78,7 +89,7 @@ export interface ConnectDatabaseResponse extends DatabaseConnection {
 }
 
 export interface TestConnectionRequest {
-  db_type: string;
+  db_type: SupportedDatabaseType;
   host: string;
   port?: number;
   database: string;
@@ -98,6 +109,7 @@ export interface TestConnectionResponse {
   success: boolean;
   message: string;
   tables_found?: number | null;
+  latency_ms?: number | null;
 }
 
 export interface SchemaColumn {

@@ -41,8 +41,7 @@ export function Sidebar({ sessions, activeSessionId, onSelectSession, onNewChat,
   };
 
   const dbTypeLabel = (t: string) => {
-    const m: Record<string, string> = { postgresql: 'PG', mysql: 'MY', sqlite: 'SL' };
-    return m[t?.toLowerCase()] || t?.slice(0, 2).toUpperCase() || '??';
+    return t?.toLowerCase() === 'postgresql' ? 'PG' : 'UN';
   };
   const activeConn = connections.find(c => c.id === activeConnectionId);
 
