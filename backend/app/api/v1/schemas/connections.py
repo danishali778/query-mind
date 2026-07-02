@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -15,9 +16,19 @@ class ConnectionResponse(BaseModel):
     host: Optional[str] = None
     port: Optional[int] = None
     status: str
+    health_state: str
     message: str
     tables_count: Optional[int] = None
     readonly: bool = True
+    ssl_mode: str = "disable"
+    username: Optional[str] = None
+    use_ssh: bool = False
+    ssh_host: Optional[str] = None
+    last_tested_at: datetime | None = None
+    last_status: str = "unknown"
+    last_error: Optional[str] = None
+    latency_ms: float | None = None
+    last_schema_sync_at: datetime | None = None
 
 
 class ConnectionRequest(BaseModel):
@@ -52,11 +63,17 @@ class ActiveConnection(BaseModel):
     port: Optional[int] = None
     username: Optional[str] = None
     status: str
+    health_state: str
     tables_count: int = 0
     ssl_mode: str = "disable"
     readonly: bool = True
     use_ssh: bool = False
     ssh_host: Optional[str] = None
+    last_tested_at: datetime | None = None
+    last_status: str = "unknown"
+    last_error: Optional[str] = None
+    latency_ms: float | None = None
+    last_schema_sync_at: datetime | None = None
 
 
 class ColumnInfo(BaseModel):
@@ -125,6 +142,7 @@ class TestConnectionResponse(BaseModel):
     success: bool
     message: str
     tables_found: Optional[int] = None
+    latency_ms: float | None = None
 
 
 class UpdateConnectionSettingsRequest(BaseModel):

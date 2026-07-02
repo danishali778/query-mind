@@ -3,7 +3,9 @@
 Tests validate_query() and sanitize_row_limit() with a wide range of
 normal, edge-case, and adversarial inputs.
 """
+import anyio
 import pytest
+from app.db.models.connection import ConnectionRequest
 from app.query_engine.safety import (
     validate_query,
     sanitize_row_limit,
@@ -198,6 +200,7 @@ def test_database_connection_model_enforces_readonly_default_and_constraint():
     assert readonly_column.default is not None
     assert readonly_column.server_default is not None
     assert "database_connections_readonly_true" in constraint_names
+    assert "database_connections_db_type_postgresql" in constraint_names
 
 
 def test_executor_blocks_destructive_sql_even_when_readonly_false():
@@ -385,3 +388,190 @@ def test_connection_pool_build_engine_sets_driver_timeout(monkeypatch):
     connection_pool.build_engine("postgresql://example.com/demo", "postgresql")
 
     assert captured["connect_args"]["connect_timeout"] == 7
+
+def test_connection_guardrails_reject_unsupported_database_types():
+    from app.core.db_connection_guardrails import UNSUPPORTED_DATABASE_MESSAGE, validate_connection_target
+    from app.core.errors import BadRequestError
+
+    for db_type in ["mysql", "sqlite", "mssql", "snowflake", ""]:
+        config = _connection()
+        config.db_type = db_type
+        with pytest.raises(BadRequestError) as exc:
+            validate_connection_target(config)
+        assert exc.value.message == UNSUPPORTED_DATABASE_MESSAGE
+
+
+def test_connection_pool_rejects_unsupported_saved_config_before_engine(monkeypatch):
+    from app.core.db_connection_guardrails import UNSUPPORTED_DATABASE_MESSAGE
+    from app.core.errors import BadRequestError
+    from app.query_engine import connection_pool
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("unsupported database type should be rejected before engine creation")
+
+    config = _connection()
+    config.db_type = "mysql"
+    monkeypatch.setattr(connection_pool, "create_engine", fail_if_called)
+
+    with pytest.raises(BadRequestError) as exc:
+        connection_pool.open_connection(config)
+    assert exc.value.message == UNSUPPORTED_DATABASE_MESSAGE
+
+
+def test_connection_health_model_enforces_default_and_constraint():
+    from app.db.orm_models import DatabaseConnectionORM
+
+    table = DatabaseConnectionORM.__table__
+    last_status_column = table.c.last_status
+    constraint_names = {constraint.name for constraint in table.constraints}
+
+    assert last_status_column.nullable is False
+    assert last_status_column.default is not None
+    assert last_status_column.server_default is not None
+    assert "database_connections_last_status_valid" in constraint_names
+
+
+def test_connection_status_derivation_states():
+    from datetime import datetime, timedelta, timezone
+
+    from app.db.models.connection import derive_connection_status
+
+    now = datetime.now(timezone.utc)
+
+    assert derive_connection_status("failed", now) == ("failed", "offline")
+    assert derive_connection_status("healthy", now) == ("live", "live")
+    assert derive_connection_status("healthy", now - timedelta(hours=25)) == ("stale", "warning")
+    assert derive_connection_status("unknown", None) == ("unknown", "warning")
+
+
+# ---------------------------------------------------------------------------
+# non-blocking connection attempt boundaries
+# ---------------------------------------------------------------------------
+
+def _async_boundary_config() -> ConnectionRequest:
+    return ConnectionRequest(
+        db_type="postgresql",
+        host="8.8.8.8",
+        port=5432,
+        database="demo",
+        username="demo",
+        password="secret",
+        readonly=True,
+    )
+
+
+def test_connection_pool_test_wraps_full_dial_in_thread(monkeypatch):
+    from app.query_engine import connection_pool
+
+    calls = []
+
+    async def fake_run_sync(func, *args, **kwargs):
+        calls.append((func, args))
+        return True, "ok"
+
+    monkeypatch.setattr(connection_pool.anyio.to_thread, "run_sync", fake_run_sync)
+
+    success, message = anyio.run(connection_pool.test_connection, _async_boundary_config())
+
+    assert success is True
+    assert message == "ok"
+    assert calls == [(connection_pool._test_connection_sync, (_async_boundary_config(),))]
+
+
+def test_connection_manager_connect_opens_connection_in_thread(monkeypatch):
+    from app.db import connection_manager
+
+    opened = []
+
+    class FakeEngine:
+        def dispose(self):
+            pass
+
+    async def fake_run_sync(func, *args, **kwargs):
+        opened.append((func, args))
+        return FakeEngine(), None
+
+    async def fake_create_connection(user_id, config):
+        return "conn_1"
+
+    async def fake_record_health(*args, **kwargs):
+        return True
+
+    monkeypatch.setattr(connection_manager.anyio.to_thread, "run_sync", fake_run_sync)
+    monkeypatch.setattr(connection_manager, "_preflight_connection_attempt", lambda *args, **kwargs: None)
+    monkeypatch.setattr(connection_manager.connection_repository, "create_connection", fake_create_connection)
+    monkeypatch.setattr(connection_manager.connection_repository, "record_connection_health", fake_record_health)
+    monkeypatch.setattr(connection_manager.connection_attempt_repository, "log_connection_attempt", lambda **kwargs: None)
+    monkeypatch.setattr(connection_manager.connection_pool, "cache_connection", lambda *args, **kwargs: None)
+
+    connection_id, engine, latency_ms = anyio.run(connection_manager.connect, "user_1", _async_boundary_config())
+
+    assert connection_id == "conn_1"
+    assert isinstance(engine, FakeEngine)
+    assert latency_ms >= 0
+    assert opened == [(connection_manager.connection_pool.open_connection, (_async_boundary_config(),))]
+
+
+def test_connection_manager_get_engine_reopens_saved_connection_in_thread(monkeypatch):
+    from app.db import connection_manager
+
+    opened = []
+
+    class FakeEngine:
+        pass
+
+    async def fake_run_sync(func, *args, **kwargs):
+        opened.append((func, args))
+        return FakeEngine(), None
+
+    async def fake_get_async_boundary_config(user_id, connection_id):
+        return _async_boundary_config()
+
+    monkeypatch.setattr(connection_manager.connection_pool, "get_cached_engine", lambda *args, **kwargs: None)
+    monkeypatch.setattr(connection_manager.anyio.to_thread, "run_sync", fake_run_sync)
+    monkeypatch.setattr(connection_manager.connection_repository, "get_connection_config", fake_get_async_boundary_config)
+    monkeypatch.setattr(connection_manager.connection_pool, "cache_connection", lambda *args, **kwargs: None)
+
+    engine = anyio.run(connection_manager.get_engine, "user_1", "conn_1")
+
+    assert isinstance(engine, FakeEngine)
+    assert opened == [(connection_manager.connection_pool.open_connection, (_async_boundary_config(),))]
+
+
+def test_connect_route_does_not_inspect_schema_or_bootstrap_templates(monkeypatch):
+    from app.api.v1.routes import connections
+    from app.db.models.connection import ActiveConnection
+
+    async def fake_connect(user_id, config):
+        return "conn_1", object(), 12.0
+
+    async def fake_get_connection(user_id, connection_id):
+        return ActiveConnection(
+            id=connection_id,
+            owner_id=user_id,
+            name="Warehouse Main",
+            db_type="postgresql",
+            database="demo",
+            host="8.8.8.8",
+            port=5432,
+            username="demo",
+            status="live",
+            health_state="live",
+            tables_count=0,
+            readonly=True,
+        )
+
+    async def fail_schema(*args, **kwargs):
+        raise AssertionError("connect route should not inspect schema inline")
+
+    monkeypatch.setattr(connections.connection_service, "connect", fake_connect)
+    monkeypatch.setattr(connections.connection_service, "get_connection", fake_get_connection)
+    monkeypatch.setattr(connections.connection_service, "get_cached_schema", fail_schema)
+
+    class User:
+        id = "user_1"
+
+    response = anyio.run(connections.connect_database, _async_boundary_config(), User())
+
+    assert response.id == "conn_1"
+    assert response.message == "Successfully connected to demo"

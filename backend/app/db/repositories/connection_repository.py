@@ -1,12 +1,33 @@
 """Connection persistence and settings access using SQLAlchemy."""
 
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any
+
 from app.core.security import decrypt, encrypt
-from app.db.models.connection import ActiveConnection, ConnectionRequest
+from app.db.models.connection import ActiveConnection, ConnectionRequest, derive_connection_status
 from app.db.orm_models import DatabaseConnectionORM
 from app.db.session import session_scope
 
 
+_UNSET = object()
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _normalize_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def _row_to_active_connection(row: DatabaseConnectionORM) -> ActiveConnection:
+    health_state, status = derive_connection_status(row.last_status, row.last_tested_at)
     return ActiveConnection(
         id=row.id,
         owner_id=row.owner_id,
@@ -16,12 +37,18 @@ def _row_to_active_connection(row: DatabaseConnectionORM) -> ActiveConnection:
         host=row.host,
         port=row.port,
         username=row.username,
-        status="connected",
+        status=status,
+        health_state=health_state,
         tables_count=0,
         ssl_mode=row.ssl_mode or "disable",
         readonly=True,
         use_ssh=bool(row.use_ssh),
         ssh_host=row.ssh_host,
+        last_tested_at=_normalize_utc(row.last_tested_at),
+        last_status=row.last_status or "unknown",
+        last_error=row.last_error,
+        latency_ms=row.latency_ms,
+        last_schema_sync_at=_normalize_utc(row.last_schema_sync_at),
     )
 
 
@@ -64,6 +91,7 @@ def _connection_row(user_id: str, config: ConnectionRequest) -> DatabaseConnecti
         ssh_username=getattr(config, "ssh_username", None),
         ssh_password=encrypt(config.ssh_password) if getattr(config, "ssh_password", None) else None,
         ssh_private_key=encrypt(config.ssh_private_key) if getattr(config, "ssh_private_key", None) else None,
+        last_status="unknown",
     )
 
 
@@ -84,6 +112,22 @@ async def list_connections(user_id: str) -> list[ActiveConnection]:
             .all()
         )
         return [_row_to_active_connection(row) for row in rows]
+
+
+def sync_get_active_connection(user_id: str, connection_id: str) -> ActiveConnection | None:
+    with session_scope() as session:
+        row = (
+            session.query(DatabaseConnectionORM)
+            .filter(DatabaseConnectionORM.id == connection_id, DatabaseConnectionORM.owner_id == user_id)
+            .one_or_none()
+        )
+        if not row:
+            return None
+        return _row_to_active_connection(row)
+
+
+async def get_active_connection(user_id: str, connection_id: str) -> ActiveConnection | None:
+    return sync_get_active_connection(user_id, connection_id)
 
 
 async def get_connection_row(user_id: str, connection_id: str) -> dict | None:
@@ -113,6 +157,11 @@ async def get_connection_row(user_id: str, connection_id: str) -> dict | None:
             "ssh_username": row.ssh_username,
             "ssh_password": row.ssh_password,
             "ssh_private_key": row.ssh_private_key,
+            "last_tested_at": _normalize_utc(row.last_tested_at),
+            "last_status": row.last_status or "unknown",
+            "last_error": row.last_error,
+            "latency_ms": row.latency_ms,
+            "last_schema_sync_at": _normalize_utc(row.last_schema_sync_at),
         }
 
 
@@ -174,13 +223,91 @@ async def find_dev_connection(owner_id: str, name: str) -> str | None:
         return row.id if row else None
 
 
+def sync_record_connection_health(
+    user_id: str,
+    connection_id: str,
+    *,
+    last_status: str,
+    last_error: str | None | object = _UNSET,
+    latency_ms: float | None | object = _UNSET,
+    tested_at: datetime | None = None,
+) -> bool:
+    with session_scope() as session:
+        row = (
+            session.query(DatabaseConnectionORM)
+            .filter(DatabaseConnectionORM.id == connection_id, DatabaseConnectionORM.owner_id == user_id)
+            .one_or_none()
+        )
+        if not row:
+            return False
+        row.last_status = last_status
+        row.last_tested_at = _normalize_utc(tested_at or _utcnow())
+        if last_error is not _UNSET:
+            row.last_error = last_error
+        if latency_ms is not _UNSET:
+            row.latency_ms = latency_ms
+        return True
+
+
+async def record_connection_health(
+    user_id: str,
+    connection_id: str,
+    *,
+    last_status: str,
+    last_error: str | None | object = _UNSET,
+    latency_ms: float | None | object = _UNSET,
+    tested_at: datetime | None = None,
+) -> bool:
+    return sync_record_connection_health(
+        user_id,
+        connection_id,
+        last_status=last_status,
+        last_error=last_error,
+        latency_ms=latency_ms,
+        tested_at=tested_at,
+    )
+
+
+def sync_record_schema_sync(
+    user_id: str,
+    connection_id: str,
+    *,
+    synced_at: datetime | None = None,
+) -> bool:
+    with session_scope() as session:
+        row = (
+            session.query(DatabaseConnectionORM)
+            .filter(DatabaseConnectionORM.id == connection_id, DatabaseConnectionORM.owner_id == user_id)
+            .one_or_none()
+        )
+        if not row:
+            return False
+        row.last_schema_sync_at = _normalize_utc(synced_at or _utcnow())
+        return True
+
+
+async def record_schema_sync(
+    user_id: str,
+    connection_id: str,
+    *,
+    synced_at: datetime | None = None,
+) -> bool:
+    return sync_record_schema_sync(user_id, connection_id, synced_at=synced_at)
+
+
 __all__ = [
     "create_connection",
     "list_connections",
+    "get_active_connection",
+    "sync_get_active_connection",
     "get_connection_row",
     "get_connection_config",
     "delete_connection",
     "update_connection_settings_record",
     "get_readonly_setting",
     "find_dev_connection",
+    "record_connection_health",
+    "sync_record_connection_health",
+    "record_schema_sync",
+    "sync_record_schema_sync",
 ]

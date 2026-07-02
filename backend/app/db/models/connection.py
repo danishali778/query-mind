@@ -1,6 +1,43 @@
-from typing import Optional
+from datetime import datetime, timedelta, timezone
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
+
+
+ConnectionHealthState = Literal["live", "failed", "stale", "unknown"]
+ConnectionLastStatus = Literal["unknown", "healthy", "failed"]
+ConnectionRuntimeStatus = Literal["live", "offline", "warning"]
+
+CONNECTION_HEALTH_STALE_AFTER = timedelta(hours=24)
+
+
+def _normalize_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def derive_connection_status(
+    last_status: str | None,
+    last_tested_at: datetime | None,
+    *,
+    now: datetime | None = None,
+) -> tuple[ConnectionHealthState, ConnectionRuntimeStatus]:
+    tested_at = _normalize_utc(last_tested_at)
+
+    if last_status == "failed":
+        return "failed", "offline"
+
+    if last_status == "healthy" and tested_at is not None:
+        now_utc = _normalize_utc(now or datetime.now(timezone.utc))
+        assert now_utc is not None
+        if now_utc - tested_at <= CONNECTION_HEALTH_STALE_AFTER:
+            return "live", "live"
+        return "stale", "warning"
+
+    return "unknown", "warning"
 
 
 class ConnectionRequest(BaseModel):
@@ -51,12 +88,24 @@ class ActiveConnection(BaseModel):
     host: Optional[str] = None
     port: Optional[int] = None
     username: Optional[str] = None
-    status: str
+    status: ConnectionRuntimeStatus
+    health_state: ConnectionHealthState = "unknown"
     tables_count: int = 0
     ssl_mode: str = "disable"
     readonly: bool = True
     use_ssh: bool = False
     ssh_host: Optional[str] = None
+    last_tested_at: datetime | None = None
+    last_status: ConnectionLastStatus = "unknown"
+    last_error: Optional[str] = None
+    latency_ms: float | None = None
+    last_schema_sync_at: datetime | None = None
+
+
+class ConnectionTestResult(BaseModel):
+    success: bool
+    message: str
+    latency_ms: float | None = None
 
 
 class ColumnInfo(BaseModel):
@@ -89,6 +138,11 @@ class TableInfo(BaseModel):
 __all__ = [
     "ConnectionRequest",
     "ActiveConnection",
+    "ConnectionHealthState",
+    "ConnectionLastStatus",
+    "ConnectionRuntimeStatus",
+    "ConnectionTestResult",
+    "derive_connection_status",
     "ColumnInfo",
     "ForeignKeyInfo",
     "TableInfo",

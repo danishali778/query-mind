@@ -306,3 +306,107 @@ def test_successful_database_test_uses_existing_connection_flow(client, monkeypa
     assert response.status_code == 200
     assert response.json()["success"] is True
     assert called["value"] is True
+
+@pytest.mark.parametrize("db_type", ["mysql", "sqlite", "mssql", "snowflake", ""])
+def test_unsupported_database_test_returns_bad_request(client, monkeypatch, db_type):
+    from app.core.db_connection_guardrails import UNSUPPORTED_DATABASE_MESSAGE
+    from app.db import connection_manager
+
+    monkeypatch.setattr(connection_manager, "enforce_connection_attempt_rate_limit", lambda owner_id: None)
+
+    async def fail_if_called(config):
+        raise AssertionError("connection pool should not be called for unsupported database types")
+
+    monkeypatch.setattr(connection_manager.connection_pool, "test_connection", fail_if_called)
+    test_client = _connection_test_client(monkeypatch)
+
+    response = test_client.post(
+        "/api/database/test",
+        json={
+            "db_type": db_type,
+            "host": "8.8.8.8",
+            "port": 5432,
+            "database": "demo",
+            "username": "demo",
+            "password": "secret",
+        },
+    )
+
+    assert response.status_code == 400
+    body = response.json()
+    assert body["error"]["code"] == "bad_request"
+    assert body["error"]["message"] == UNSUPPORTED_DATABASE_MESSAGE
+
+
+def test_unsupported_database_connect_does_not_open_connection(client, monkeypatch):
+    from app.core.db_connection_guardrails import UNSUPPORTED_DATABASE_MESSAGE
+    from app.db import connection_manager
+
+    monkeypatch.setattr(connection_manager, "enforce_connection_attempt_rate_limit", lambda owner_id: None)
+
+    def fail_if_called(config):
+        raise AssertionError("open_connection should not be called for unsupported database types")
+
+    monkeypatch.setattr(connection_manager.connection_pool, "open_connection", fail_if_called)
+    test_client = _connection_test_client(monkeypatch)
+
+    response = test_client.post(
+        "/api/database/connect",
+        json={
+            "db_type": "mysql",
+            "host": "8.8.8.8",
+            "port": 3306,
+            "database": "demo",
+            "username": "demo",
+            "password": "secret",
+        },
+    )
+
+    assert response.status_code == 400
+    body = response.json()
+    assert body["error"]["code"] == "bad_request"
+    assert body["error"]["message"] == UNSUPPORTED_DATABASE_MESSAGE
+
+
+def test_saved_connection_diagnostic_updates_persistent_health(client, monkeypatch):
+    from app.db import connection_manager
+    from app.db.models.connection import ConnectionRequest
+    from app.db.repositories import connection_repository
+
+    owner_id = "00000000-0000-0000-0000-000000000001"
+    connection_id = asyncio.run(
+        connection_repository.create_connection(
+            owner_id,
+            ConnectionRequest(
+                db_type="postgresql",
+                host="127.0.0.1",
+                port=5432,
+                database="demo",
+                username="demo",
+                password="secret",
+                name="Demo",
+            ),
+        )
+    )
+
+    monkeypatch.setattr(connection_manager, "enforce_connection_attempt_rate_limit", lambda owner_id: None)
+
+    async def fake_test_connection(config):
+        return False, "password authentication failed for user demo"
+
+    monkeypatch.setattr(connection_manager.connection_pool, "test_connection", fake_test_connection)
+    test_client = _connection_test_client(monkeypatch)
+
+    response = test_client.post(f"/api/database/connections/{connection_id}/test")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is False
+    assert body["latency_ms"] is not None
+    assert body["message"] == "Database authentication failed. Verify the connection credentials."
+
+    row = asyncio.run(connection_repository.get_connection_row(owner_id, connection_id))
+    assert row is not None
+    assert row["last_status"] == "failed"
+    assert row["last_error"] == "Database authentication failed. Verify the connection credentials."
+    assert row["latency_ms"] is not None

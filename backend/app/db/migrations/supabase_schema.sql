@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS database_connections (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     owner_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
-    db_type TEXT NOT NULL, -- postgresql, mysql, sqlite
+    db_type TEXT NOT NULL, -- postgresql
     host TEXT,
     port INTEGER,
     database TEXT NOT NULL,
@@ -25,7 +25,13 @@ CREATE TABLE IF NOT EXISTS database_connections (
     password TEXT, -- Note: Store encrypted in production
     ssl_mode TEXT DEFAULT 'disable',
     readonly BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    last_tested_at TIMESTAMP WITH TIME ZONE,
+    last_status TEXT NOT NULL DEFAULT 'unknown',
+    last_error TEXT,
+    latency_ms DOUBLE PRECISION,
+    last_schema_sync_at TIMESTAMP WITH TIME ZONE,
+    CONSTRAINT database_connections_last_status_valid CHECK (last_status IN ('unknown', 'healthy', 'failed'))
 );
 
 -- Enable RLS for Connections
