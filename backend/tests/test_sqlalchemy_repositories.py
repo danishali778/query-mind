@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import create_engine
@@ -37,6 +38,21 @@ def sqlite_app_db():
 
 def _user_id() -> str:
     return str(uuid.uuid4())
+
+
+async def asyncio_create_connection(user_id: str) -> str:
+    return await connection_repository.create_connection(
+        user_id,
+        ConnectionRequest(
+            db_type="postgresql",
+            host="localhost",
+            port=5432,
+            database="demo",
+            username="demo",
+            password=None,
+            name="Demo",
+        ),
+    )
 
 
 def test_onboard_user_creates_settings_and_subscription_rows():
@@ -93,21 +109,6 @@ def test_connection_lookup_requires_owner():
     assert asyncio.run(connection_repository.get_connection_config(user_b, connection_id)) is None
 
 
-async def asyncio_create_connection(user_id: str) -> str:
-    return await connection_repository.create_connection(
-        user_id,
-        ConnectionRequest(
-            db_type="postgresql",
-            host="localhost",
-            port=5432,
-            database="demo",
-            username="demo",
-            password=None,
-            name="Demo",
-        ),
-    )
-
-
 def test_dashboard_lookup_requires_owner():
     user_a = _user_id()
     user_b = _user_id()
@@ -116,6 +117,7 @@ def test_dashboard_lookup_requires_owner():
 
     assert asyncio.run(dashboard_repository.get_dashboard(user_a, dashboard.id)) is not None
     assert asyncio.run(dashboard_repository.get_dashboard(user_b, dashboard.id)) is None
+
 
 def test_saved_query_lookup_requires_owner():
     user_a = _user_id()
@@ -181,6 +183,88 @@ def test_connection_persistence_forces_readonly_true():
     assert connections[0].readonly is True
 
 
+def test_connection_defaults_to_unknown_health_until_real_check():
+    user_id = _user_id()
+    connection_id = asyncio.run(asyncio_create_connection(user_id))
+
+    connection = asyncio.run(connection_repository.get_active_connection(user_id, connection_id))
+    row = asyncio.run(connection_repository.get_connection_row(user_id, connection_id))
+
+    assert connection is not None
+    assert row is not None
+    assert connection.health_state == "unknown"
+    assert connection.status == "warning"
+    assert connection.last_status == "unknown"
+    assert row["last_status"] == "unknown"
+    assert row["last_tested_at"] is None
+
+
+def test_record_connection_health_marks_connection_live_and_stale():
+    user_id = _user_id()
+    connection_id = asyncio.run(asyncio_create_connection(user_id))
+    now = datetime.now(timezone.utc)
+
+    assert asyncio.run(
+        connection_repository.record_connection_health(
+            user_id,
+            connection_id,
+            last_status="healthy",
+            last_error=None,
+            latency_ms=12.5,
+            tested_at=now,
+        )
+    ) is True
+
+    live_connection = asyncio.run(connection_repository.get_active_connection(user_id, connection_id))
+    assert live_connection is not None
+    assert live_connection.health_state == "live"
+    assert live_connection.status == "live"
+    assert live_connection.latency_ms == 12.5
+    assert live_connection.last_error is None
+
+    old_check = now - timedelta(hours=25)
+    assert asyncio.run(
+        connection_repository.record_connection_health(
+            user_id,
+            connection_id,
+            last_status="healthy",
+            tested_at=old_check,
+        )
+    ) is True
+
+    stale_connection = asyncio.run(connection_repository.get_active_connection(user_id, connection_id))
+    assert stale_connection is not None
+    assert stale_connection.health_state == "stale"
+    assert stale_connection.status == "warning"
+
+
+def test_record_connection_health_marks_failures_and_schema_sync():
+    user_id = _user_id()
+    connection_id = asyncio.run(asyncio_create_connection(user_id))
+
+    assert asyncio.run(
+        connection_repository.record_connection_health(
+            user_id,
+            connection_id,
+            last_status="failed",
+            last_error="Database authentication failed. Verify the connection credentials.",
+            latency_ms=80.0,
+        )
+    ) is True
+    assert asyncio.run(connection_repository.record_schema_sync(user_id, connection_id)) is True
+
+    connection = asyncio.run(connection_repository.get_active_connection(user_id, connection_id))
+    row = asyncio.run(connection_repository.get_connection_row(user_id, connection_id))
+
+    assert connection is not None
+    assert row is not None
+    assert connection.health_state == "failed"
+    assert connection.status == "offline"
+    assert connection.last_error == "Database authentication failed. Verify the connection credentials."
+    assert connection.last_schema_sync_at is not None
+    assert row["latency_ms"] == 80.0
+
+
 def test_connection_settings_update_cannot_disable_readonly():
     user_id = _user_id()
     connection_id = asyncio.run(asyncio_create_connection(user_id))
@@ -233,3 +317,24 @@ def test_connection_attempt_migration_creates_expected_table_and_indexes():
     assert "idx_connection_attempts_decision_created_at" in migration
     assert "password" not in migration
     assert "username" not in migration
+
+
+def test_postgres_only_migration_creates_expected_constraint():
+    from pathlib import Path
+
+    migration = (Path(__file__).resolve().parents[1] / "alembic/versions/20260702_0005_postgres_only_connections.py").read_text()
+
+    assert "database_connections_db_type_postgresql" in migration
+    assert "CHECK (db_type = 'postgresql') NOT VALID" in migration
+    assert "op.drop_constraint" in migration
+
+
+def test_connection_health_migration_creates_expected_columns_and_constraint():
+    from pathlib import Path
+
+    migration = (Path(__file__).resolve().parents[1] / "alembic/versions/20260702_0006_connection_health_status.py").read_text()
+
+    for column_name in ["last_tested_at", "last_status", "last_error", "latency_ms", "last_schema_sync_at"]:
+        assert column_name in migration
+    assert "database_connections_last_status_valid" in migration
+    assert "'unknown'" in migration

@@ -1,79 +1,198 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { MainShell } from '../components/common/MainShell';
 import { HeaderIcons } from '../components/common/AppHeader';
 import { ConnectionListPanel } from '../components/connections/ConnectionListPanel';
 import { ConnectionDetail } from '../components/connections/ConnectionDetail';
+import { DisconnectConnectionModal } from '../components/connections/DisconnectConnectionModal';
 import { NewConnectionModal } from '../components/connections/NewConnectionModal';
 import { T } from '../components/dashboard/tokens';
 import { listConnections, disconnectDatabase, getSchema, getQueryHistory } from '../services/api';
+import { ApiRequestError } from '../services/http';
 import type { QueryRecord, SchemaResponse } from '../types/api';
-import type { ConnectionListItem } from '../types/connections';
+import type { ConnectionListItem, LoadState } from '../types/connections';
 import { mapConnectionRecord } from '../mappers/connections';
+
+function stableMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiRequestError) {
+    if (error.status === 401) return 'Session expired. Sign in again to continue.';
+    if (error.status === 404) return 'The selected connection no longer exists.';
+    if (error.status === 429) return 'Too many connection requests. Try again shortly.';
+    if (error.status === 503 || error.status === 0) return 'Connection service is temporarily unavailable.';
+  }
+  return fallback;
+}
 
 export function ConnectionsPage() {
   const [connections, setConnections] = useState<ConnectionListItem[]>([]);
+  const [connectionStatus, setConnectionStatus] = useState<LoadState>('loading');
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [schema, setSchema] = useState<SchemaResponse | null>(null);
+  const [schemaStatus, setSchemaStatus] = useState<LoadState>('idle');
+  const [schemaError, setSchemaError] = useState<string | null>(null);
   const [queryHistory, setQueryHistory] = useState<QueryRecord[]>([]);
+  const [queryHistoryStatus, setQueryHistoryStatus] = useState<LoadState>('idle');
+  const [queryHistoryError, setQueryHistoryError] = useState<string | null>(null);
+  const [pendingDisconnect, setPendingDisconnect] = useState<ConnectionListItem | null>(null);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [disconnectError, setDisconnectError] = useState<string | null>(null);
 
-  const fetchConnections = async () => {
+  const fetchConnections = useCallback(async () => {
+    setConnectionStatus(prev => prev === 'ready' ? 'ready' : 'loading');
+    setConnectionError(null);
     try {
       const data = await listConnections();
       const mapped = data.map(mapConnectionRecord);
       setConnections(mapped);
-      if (mapped.length > 0 && !activeId) {
-        setActiveId(mapped[0].id);
-      }
+      setConnectionStatus(mapped.length > 0 ? 'ready' : 'empty');
+      setActiveId(currentActiveId => {
+        if (currentActiveId && mapped.some(connection => connection.id === currentActiveId)) {
+          return currentActiveId;
+        }
+        return mapped[0]?.id || null;
+      });
     } catch (err) {
-      console.error('Failed to fetch connections:', err);
+      setConnectionStatus('error');
+      setConnectionError(stableMessage(err, 'Connection records could not be loaded.'));
     }
-  };
-
-  useEffect(() => {
-    fetchConnections();
   }, []);
 
   useEffect(() => {
-    if (!activeId) { setSchema(null); return; }
+    fetchConnections();
+  }, [fetchConnections]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!activeId) {
+      setSchema(null);
+      setSchemaStatus('idle');
+      setSchemaError(null);
+      setQueryHistory([]);
+      setQueryHistoryStatus('idle');
+      setQueryHistoryError(null);
+      return;
+    }
+
+    setSchema(null);
+    setSchemaStatus('loading');
+    setSchemaError(null);
     getSchema(activeId)
-      .then(setSchema)
-      .catch(() => setSchema(null));
+      .then(nextSchema => {
+        if (cancelled) return;
+        setSchema(nextSchema);
+        setSchemaStatus(nextSchema.tables.length > 0 ? 'ready' : 'empty');
+      })
+      .catch(err => {
+        if (cancelled) return;
+        setSchema(null);
+        setSchemaStatus('error');
+        setSchemaError(stableMessage(err, 'Schema sync failed for this connection.'));
+      });
+
+    setQueryHistory([]);
+    setQueryHistoryStatus('loading');
+    setQueryHistoryError(null);
     getQueryHistory(activeId, 20)
-      .then(setQueryHistory)
-      .catch(() => setQueryHistory([]));
+      .then(records => {
+        if (cancelled) return;
+        setQueryHistory(records);
+        setQueryHistoryStatus(records.length > 0 ? 'ready' : 'empty');
+      })
+      .catch(err => {
+        if (cancelled) return;
+        setQueryHistory([]);
+        setQueryHistoryStatus('error');
+        setQueryHistoryError(stableMessage(err, 'Query activity could not be loaded.'));
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [activeId]);
 
-  const handleDelete = async (connId: string) => {
+  const handleRefreshSchema = async () => {
+    if (!activeId) {
+      return;
+    }
+    setSchemaStatus('loading');
+    setSchemaError(null);
     try {
-      await disconnectDatabase(connId);
-      setConnections(prev => prev.filter(c => c.id !== connId));
-      if (activeId === connId) {
-        setActiveId(connections.find(c => c.id !== connId)?.id || null);
-      }
+      const refreshedSchema = await getSchema(activeId);
+      setSchema(refreshedSchema);
+      setSchemaStatus(refreshedSchema.tables.length > 0 ? 'ready' : 'empty');
     } catch (err) {
-      console.error('Failed to disconnect:', err);
+      setSchema(null);
+      setSchemaStatus('error');
+      setSchemaError(stableMessage(err, 'Schema sync failed for this connection.'));
+    }
+    await fetchConnections();
+  };
+
+  const handleRequestDelete = (connId: string) => {
+    const conn = connections.find(c => c.id === connId) || null;
+    setPendingDisconnect(conn);
+    setDisconnectError(null);
+  };
+
+  const handleConfirmDisconnect = async () => {
+    if (!pendingDisconnect) return;
+    setDisconnecting(true);
+    setDisconnectError(null);
+    try {
+      await disconnectDatabase(pendingDisconnect.id);
+      if (activeId === pendingDisconnect.id) {
+        setSchema(null);
+        setSchemaStatus('idle');
+        setQueryHistory([]);
+        setQueryHistoryStatus('idle');
+      }
+      setPendingDisconnect(null);
+      await fetchConnections();
+    } catch (err) {
+      setDisconnectError(stableMessage(err, 'Connection could not be disconnected.'));
+    } finally {
+      setDisconnecting(false);
     }
   };
 
-  const handleConnectionAdded = () => {
+  const handleConnectionAdded = async () => {
     setIsModalOpen(false);
-    fetchConnections();
+    await fetchConnections();
   };
 
   const activeConnection = connections.find(c => c.id === activeId) || null;
+  const pageBadge = useMemo(() => {
+    if (!activeConnection) {
+      const idleText = connectionStatus === 'loading' ? 'Loading' : 'Idle';
+      return {
+        text: idleText,
+        color: T.accent,
+        icon: <div style={{ width: 6, height: 6, borderRadius: '50%', background: T.accent }} />,
+      };
+    }
+
+    const color = activeConnection.status === 'live'
+      ? T.green
+      : activeConnection.status === 'offline'
+        ? T.red
+        : T.yellow;
+
+    return {
+      text: activeConnection.health_state.toUpperCase(),
+      color,
+      icon: <div style={{ width: 6, height: 6, borderRadius: '50%', background: color }} />,
+    };
+  }, [activeConnection, connectionStatus]);
 
   return (
     <MainShell
       title="Connection Ledger"
       subtitle="Source distribution and technical bridge telemetry"
-      badge={{
-        text: 'Live',
-        color: T.accent,
-        icon: <div className="pulse-dot" style={{ width: 6, height: 6, borderRadius: '50%', background: T.accent }} />
-      }}
+      badge={pageBadge}
       headerActions={
-        <button 
+        <button
           onClick={() => setIsModalOpen(true)}
           style={{
             display: 'flex', alignItems: 'center', gap: 8,
@@ -100,17 +219,23 @@ export function ConnectionsPage() {
         <ConnectionListPanel
           connections={connections}
           activeId={activeId}
+          status={connectionStatus}
+          error={connectionError}
           onSelect={setActiveId}
           onAdd={() => setIsModalOpen(true)}
+          onRetry={fetchConnections}
         />
         <ConnectionDetail
           connection={activeConnection}
           schema={schema}
+          schemaState={schemaStatus}
+          schemaError={schemaError}
           queryHistory={queryHistory}
-          onDelete={handleDelete}
-          onRefreshSchema={() => {
-            if (activeId) getSchema(activeId).then(setSchema).catch(() => setSchema(null));
-          }}
+          queryHistoryState={queryHistoryStatus}
+          queryHistoryError={queryHistoryError}
+          onDelete={handleRequestDelete}
+          onRefreshSchema={handleRefreshSchema}
+          onConnectionUpdated={fetchConnections}
         />
       </div>
 
@@ -119,10 +244,15 @@ export function ConnectionsPage() {
         onClose={() => setIsModalOpen(false)}
         onSaved={handleConnectionAdded}
       />
-      <style>{`
-        .pulse-dot { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
-      `}</style>
+      <DisconnectConnectionModal
+        connection={pendingDisconnect}
+        isDisconnecting={disconnecting}
+        error={disconnectError}
+        onCancel={() => {
+          if (!disconnecting) setPendingDisconnect(null);
+        }}
+        onConfirm={handleConfirmDisconnect}
+      />
     </MainShell>
   );
 }

@@ -1,6 +1,7 @@
-import type { DatabaseConnection, QueryRecord, SchemaResponse } from './api';
+import type { ConnectionHealthState, DatabaseConnection, QueryRecord, SchemaResponse } from './api';
 
 export type ConnectionStatus = 'live' | 'offline' | 'warning';
+export type LoadState = 'idle' | 'loading' | 'ready' | 'empty' | 'error';
 
 export interface ConnectionListItem {
   id: string;
@@ -8,7 +9,8 @@ export interface ConnectionListItem {
   type: string;
   version?: string;
   status: ConnectionStatus;
-  latency?: number;
+  health_state: ConnectionHealthState;
+  latency?: number | null;
   queries: number;
   icon: string;
   color: string;
@@ -19,14 +21,25 @@ export interface ConnectionListItem {
   tables_count?: number;
   ssl_mode?: string;
   readonly?: boolean;
+  use_ssh?: boolean;
+  ssh_host?: string;
+  last_tested_at?: string | null;
+  last_status?: 'unknown' | 'healthy' | 'failed' | string;
+  last_error?: string | null;
+  last_schema_sync_at?: string | null;
 }
 
 export interface ConnectionDetailData {
   connection: ConnectionListItem | null;
   schema?: SchemaResponse | null;
+  schemaState?: LoadState;
+  schemaError?: string | null;
   queryHistory?: QueryRecord[];
+  queryHistoryState?: LoadState;
+  queryHistoryError?: string | null;
   onDelete?: (id: string) => void;
-  onRefreshSchema?: () => void;
+  onRefreshSchema?: () => Promise<void> | void;
+  onConnectionUpdated?: () => Promise<void> | void;
 }
 
 export type ConnectionApiRecord = DatabaseConnection;

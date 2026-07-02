@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { T } from '../dashboard/tokens';
 import { connectDatabase, testConnection } from '../../services/api';
-import { Database, X, ChevronRight, ChevronLeft, Check, Lock, Globe, Server, FileText } from 'lucide-react';
+import { Database, X, ChevronRight, ChevronLeft, Check, Lock } from 'lucide-react';
 
 export function NewConnectionModal({ isOpen, onClose, onSaved }: { isOpen: boolean, onClose: () => void, onSaved?: () => void }) {
   const [step, setStep] = useState(1);
-  const [selectedConnector, setSelectedConnector] = useState<string | null>(null);
+  const [selectedConnector, setSelectedConnector] = useState<string>('pg');
   const [formData, setFormData] = useState({ name: '', host: 'localhost', port: '', database: '', username: '', password: '', ssl_mode: 'disable' });
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -17,10 +17,8 @@ export function NewConnectionModal({ isOpen, onClose, onSaved }: { isOpen: boole
   const [sshAuth, setSshAuth] = useState<'password' | 'key'>('password');
   const [sshData, setSshData] = useState({ ssh_host: '', ssh_port: '22', ssh_username: '', ssh_password: '', ssh_private_key: '' });
 
-  const connectorMap: Record<string, string> = { pg: 'postgresql', my: 'mysql', sqlite: 'sqlite', sql: 'mssql', snow: 'snowflake', bq: 'bigquery', rs: 'redshift', dbx: 'databricks', xls: 'excel', gs: 'gsheets', csv: 'csv', duck: 'duckdb' };
-
   const buildPayload = () => ({
-    db_type: connectorMap[selectedConnector || ''] || selectedConnector || '',
+    db_type: 'postgresql' as const,
     host: formData.host || 'localhost',
     port: parseInt(formData.port) || 5432,
     database: formData.database,
@@ -41,7 +39,7 @@ export function NewConnectionModal({ isOpen, onClose, onSaved }: { isOpen: boole
   const handleTest = async () => {
     setTesting(true); setTestResult(null);
     try {
-      const res = await testConnection(buildPayload() as any);
+      const res = await testConnection(buildPayload());
       setTestResult({ success: res.success, message: res.message, tables: res.tables_found });
     } catch (e: any) {
       setTestResult({ success: false, message: e.message || 'Test failed' });
@@ -51,9 +49,9 @@ export function NewConnectionModal({ isOpen, onClose, onSaved }: { isOpen: boole
   const handleSave = async () => {
     setSaving(true); setError(null);
     try {
-      await connectDatabase(buildPayload() as any);
+      await connectDatabase(buildPayload());
       onSaved?.();
-      setStep(1); setSelectedConnector(null);
+      setStep(1); setSelectedConnector('pg');
       setFormData({ name: '', host: 'localhost', port: '', database: '', username: '', password: '', ssl_mode: 'disable' });
       setSshEnabled(false); setSshData({ ssh_host: '', ssh_port: '22', ssh_username: '', ssh_password: '', ssh_private_key: '' });
       setTestResult(null);
@@ -72,7 +70,7 @@ export function NewConnectionModal({ isOpen, onClose, onSaved }: { isOpen: boole
         <div style={{ padding: '24px 32px', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, background: T.s2 }}>
           <div>
             <div style={{ fontFamily: T.fontHead, fontWeight: 900, fontSize: '1.2rem', color: T.text, fontStyle: 'italic', letterSpacing: '-0.5px' }}>SOURCE REGISTRATION</div>
-            <div style={{ fontSize: '0.62rem', color: T.text3, fontFamily: T.fontMono, textTransform: 'uppercase', marginTop: 2, letterSpacing: '1px' }}>System Node: {selectedConnector ? selectedConnector.toUpperCase() : 'PENDING'}</div>
+            <div style={{ fontSize: '0.62rem', color: T.text3, fontFamily: T.fontMono, textTransform: 'uppercase', marginTop: 2, letterSpacing: '1px' }}>System Node: POSTGRESQL</div>
           </div>
           <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 0, background: 'transparent', border: `1px solid ${T.border}`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.text3, transition: 'all 0.15s' }}
             onMouseEnter={e => { e.currentTarget.style.borderColor = T.text; e.currentTarget.style.color = T.text; }}
@@ -94,30 +92,12 @@ export function NewConnectionModal({ isOpen, onClose, onSaved }: { isOpen: boole
           
           {step === 1 && (
             <div>
-              <Section label="SQL ENGINES">
+              <Section label="SQL ENGINE">
                 <Grid>
                   <Card icon={<Database size={20} />} name="POSTGRESQL" type="DB" selected={selectedConnector === 'pg'} onClick={() => setSelectedConnector('pg')} />
-                  <Card icon={<Database size={20} />} name="MYSQL" type="DB" selected={selectedConnector === 'my'} onClick={() => setSelectedConnector('my')} />
-                  <Card icon={<Server size={20} />} name="SQL SERVER" type="DB" selected={selectedConnector === 'sql'} onClick={() => setSelectedConnector('sql')} />
-                  <Card icon={<Globe size={20} />} name="SQLITE" type="DB" selected={selectedConnector === 'sqlite'} onClick={() => setSelectedConnector('sqlite')} />
                 </Grid>
               </Section>
-              <Section label="WAREHOUSES">
-                <Grid>
-                  <Card icon={<Server size={20} />} name="SNOWFLAKE" type="WHS" selected={selectedConnector === 'snow'} onClick={() => setSelectedConnector('snow')} />
-                  <Card icon={<Globe size={20} />} name="BIGQUERY" type="WHS" selected={selectedConnector === 'bq'} onClick={() => setSelectedConnector('bq')} />
-                  <Card icon={<Database size={20} />} name="REDSHIFT" type="WHS" selected={selectedConnector === 'rs'} onClick={() => setSelectedConnector('rs')} />
-                  <Card icon={<Database size={20} />} name="DATABRICKS" type="WHS" selected={selectedConnector === 'dbx'} onClick={() => setSelectedConnector('dbx')} />
-                </Grid>
-              </Section>
-              <Section label="FLAT SOURCES">
-                <Grid>
-                  <Card icon={<FileText size={20} />} name="EXCEL" type="SS" selected={selectedConnector === 'xls'} onClick={() => setSelectedConnector('xls')} />
-                  <Card icon={<FileText size={20} />} name="G-SHEETS" type="SS" selected={selectedConnector === 'gs'} onClick={() => setSelectedConnector('gs')} />
-                  <Card icon={<FileText size={20} />} name="CSV UPLOAD" type="FILE" selected={selectedConnector === 'csv'} onClick={() => setSelectedConnector('csv')} />
-                  <Card icon={<Database size={20} />} name="DUCKDB" type="EMB" selected={selectedConnector === 'duck'} onClick={() => setSelectedConnector('duck')} />
-                </Grid>
-              </Section>
+
             </div>
           )}
 
@@ -198,7 +178,7 @@ export function NewConnectionModal({ isOpen, onClose, onSaved }: { isOpen: boole
                 <div style={{ fontSize: '0.62rem', color: T.text3, fontFamily: T.fontMono, marginBottom: 12, textTransform: 'uppercase', letterSpacing: '1px' }}>MANIFEST SUMMARY</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                    <SummaryRow label="SOURCE" val={formData.name || formData.database} />
-                   <SummaryRow label="ENGINE" val={connectorMap[selectedConnector || ''] || selectedConnector || 'N/A'} />
+                   <SummaryRow label="ENGINE" val="postgresql" />
                    <SummaryRow label="ENDPOINT" val={`${formData.host}:${formData.port || 5432}`} />
                    {sshEnabled && <SummaryRow label="SSH BRIDGE" val={sshData.ssh_host} color={T.accent} />}
                 </div>
@@ -239,7 +219,7 @@ export function NewConnectionModal({ isOpen, onClose, onSaved }: { isOpen: boole
              <button onClick={() => setStep(step - 1)} style={{ padding: '10px 24px', borderRadius: 0, border: `1px solid ${T.border}`, background: 'transparent', color: T.text2, fontFamily: T.fontMono, fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: 8, textTransform: 'uppercase' }}><ChevronLeft size={14} /> BACK</button>
           )}
 
-          <button onClick={() => { if (step < 3) { setStep(step + 1); setTestResult(null); } }} disabled={!selectedConnector || step === 3} style={{ padding: '10px 24px', borderRadius: 0, border: 'none', background: step < 3 && selectedConnector ? T.accent : T.s4, color: step < 3 && selectedConnector ? '#000' : T.text3, fontFamily: T.fontMono, fontSize: '0.68rem', fontWeight: 900, cursor: step < 3 && selectedConnector ? 'pointer' : 'not-allowed', display: step === 3 ? 'none' : 'flex', alignItems: 'center', gap: 8, textTransform: 'uppercase' }}>
+          <button onClick={() => { if (step < 3) { setStep(step + 1); setTestResult(null); } }} disabled={step === 3} style={{ padding: '10px 24px', borderRadius: 0, border: 'none', background: step < 3 ? T.accent : T.s4, color: step < 3 ? '#000' : T.text3, fontFamily: T.fontMono, fontSize: '0.68rem', fontWeight: 900, cursor: step < 3 ? 'pointer' : 'not-allowed', display: step === 3 ? 'none' : 'flex', alignItems: 'center', gap: 8, textTransform: 'uppercase' }}>
             NEXT <ChevronRight size={14} />
           </button>
         </div>

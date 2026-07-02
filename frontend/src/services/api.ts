@@ -52,6 +52,10 @@ export function testConnection(config: TestConnectionRequest) {
   return jsonRequest<TestConnectionResponse>('/database/test', 'POST', config);
 }
 
+export function testSavedConnection(connectionId: string) {
+  return request<TestConnectionResponse>(`/database/connections/${connectionId}/test`, { method: 'POST' });
+}
+
 export function listConnections() {
   return request<DatabaseConnection[]>('/database/connections');
 }

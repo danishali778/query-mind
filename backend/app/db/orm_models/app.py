@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, Text, desc, func, true
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, Text, desc, func, text, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -41,9 +41,16 @@ class DatabaseConnectionORM(Base):
     ssh_username: Mapped[str | None] = mapped_column(Text)
     ssh_password: Mapped[str | None] = mapped_column(Text)
     ssh_private_key: Mapped[str | None] = mapped_column(Text)
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_status: Mapped[str] = mapped_column(Text, default="unknown", server_default=text("'unknown'"), nullable=False)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    latency_ms: Mapped[float | None] = mapped_column(Float)
+    last_schema_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
         CheckConstraint("readonly = true", name="database_connections_readonly_true"),
+        CheckConstraint("db_type = 'postgresql'", name="database_connections_db_type_postgresql"),
+        CheckConstraint("last_status IN ('unknown', 'healthy', 'failed')", name="database_connections_last_status_valid"),
         Index("idx_database_connections_owner_id_created_at", "owner_id", desc("created_at")),
     )
 

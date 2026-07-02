@@ -7,7 +7,7 @@ from app.agents.nl_to_sql.generator import generate_error_correction, generate_s
 from app.agents.nl_to_sql.prompts import build_conversation_prompt
 from app.agents.visualization.generator import generate_visualization_blueprint
 from app.query_engine.connection_pool import get_cached_engine
-from app.query_engine.executor import execute_query
+from app.services.query_execution_service import execute_query
 from app.query_engine.safety import validate_query
 
 logger = logging.getLogger("query-mind.graph")

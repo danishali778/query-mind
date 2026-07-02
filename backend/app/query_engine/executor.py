@@ -13,7 +13,7 @@ QUERY_TIMEOUT = 30
 
 
 def _apply_readonly_guards(conn, dialect_name: str) -> None:
-    if dialect_name in {"postgresql", "mysql", "mariadb"}:
+    if dialect_name == "postgresql":
         conn.execute(text("SET TRANSACTION READ ONLY"))
 
 

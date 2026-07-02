@@ -33,11 +33,10 @@ class ConnectionAttemptTarget:
 
 _DEFAULT_PORTS = {
     "postgresql": 5432,
-    "mysql": 3306,
-    "mariadb": 3306,
-    "sqlserver": 1433,
-    "mssql": 1433,
 }
+
+SUPPORTED_DATABASE_TYPE = "postgresql"
+UNSUPPORTED_DATABASE_MESSAGE = "Only PostgreSQL connections are currently supported."
 
 _METADATA_HOSTS = {
     "metadata",
@@ -82,6 +81,11 @@ def connection_attempt_target(config: ConnectionRequest) -> ConnectionAttemptTar
     if config.use_ssh:
         return ConnectionAttemptTarget(config.ssh_host, config.ssh_port or 22, "ssh_host")
     return ConnectionAttemptTarget(config.host, config.port or _DEFAULT_PORTS.get(config.db_type), "database_host")
+
+
+def validate_supported_database_type(db_type: str | None) -> None:
+    if (db_type or "").strip().lower() != SUPPORTED_DATABASE_TYPE:
+        raise BadRequestError(UNSUPPORTED_DATABASE_MESSAGE)
 
 
 def _literal_ip(host: str) -> ipaddress._BaseAddress | None:
@@ -133,8 +137,7 @@ def _is_allowed_ip(ip: ipaddress._BaseAddress, networks: Iterable[ipaddress._Bas
 
 
 def validate_connection_target(config: ConnectionRequest) -> None:
-    if config.db_type == "sqlite":
-        return
+    validate_supported_database_type(config.db_type)
 
     target = connection_attempt_target(config)
     host = _normalize_host(target.host)
@@ -217,8 +220,11 @@ def enforce_connection_attempt_rate_limit(owner_id: str) -> None:
 __all__ = [
     "ConnectionAttemptTarget",
     "RateLimitError",
+    "SUPPORTED_DATABASE_TYPE",
+    "UNSUPPORTED_DATABASE_MESSAGE",
     "connection_attempt_target",
     "enforce_connection_attempt_rate_limit",
     "get_redis_client",
+    "validate_supported_database_type",
     "validate_connection_target",
 ]

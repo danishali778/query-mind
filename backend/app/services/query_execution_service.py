@@ -19,7 +19,9 @@ def execute_query(
     connection_id: str | None = None,
     readonly: bool = True,
 ) -> QueryExecutionResult:
-    return _execute_query(user_id, engine, sql, row_limit, connection_id, True)
+    result = _execute_query(user_id, engine, sql, row_limit, connection_id, True)
+    connection_service.record_query_execution_health_sync(user_id, connection_id, result)
+    return result
 
 
 async def execute_for_connection(
@@ -43,6 +45,7 @@ async def execute_for_connection(
             True,
         )
     )
+    await connection_service.record_query_execution_health(user_id, connection_id, result)
     return result
 
 

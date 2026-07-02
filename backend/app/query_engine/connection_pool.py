@@ -5,7 +5,7 @@ from typing import Optional
 
 import anyio
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine, URL, make_url
+from sqlalchemy.engine import Engine, URL
 
 try:
     from sshtunnel import SSHTunnelForwarder
@@ -13,7 +13,11 @@ except ModuleNotFoundError:  # pragma: no cover - environment-dependent optional
     SSHTunnelForwarder = None
 
 from app.core.config import settings
-from app.core.db_connection_guardrails import validate_connection_target
+from app.core.db_connection_guardrails import (
+    SUPPORTED_DATABASE_TYPE,
+    validate_connection_target,
+    validate_supported_database_type,
+)
 from app.db.models.connection import ConnectionRequest, TableInfo
 import app.query_engine.schema_inspector as schema_inspector
 
@@ -42,27 +46,13 @@ def build_connection_url(
     override_host: str | None = None,
     override_port: int | None = None,
 ) -> URL:
-    host = override_host or config.host
-    port = override_port or config.port
-
-    drivers = {
-        "postgresql": "postgresql+psycopg2",
-        "mysql": "mysql+pymysql",
-        "sqlite": "sqlite",
-        "sqlserver": "mssql+pyodbc",
-        "mariadb": "mysql+pymysql",
-    }
-    driver = drivers.get(config.db_type, config.db_type)
-
-    if config.db_type == "sqlite":
-        return make_url(f"sqlite:///{config.database}")
-
+    validate_supported_database_type(config.db_type)
     return URL.create(
-        drivername=driver,
+        drivername="postgresql+psycopg2",
         username=config.username,
         password=config.password,
-        host=host,
-        port=port,
+        host=override_host or config.host,
+        port=override_port or config.port,
         database=config.database,
     )
 
@@ -89,16 +79,10 @@ def start_ssh_tunnel(config: ConnectionRequest) -> tuple[Optional[SSHTunnelForwa
 
 
 def build_engine(url: URL, db_type: str, ssl_mode: str = "disable") -> Engine:
-    connect_args = {}
-    timeout = settings.db_connect_timeout_seconds
-    if db_type == "postgresql":
-        connect_args["connect_timeout"] = timeout
-    elif db_type in {"mysql", "mariadb"}:
-        connect_args["connect_timeout"] = timeout
-    elif db_type in {"sqlserver", "mssql"}:
-        connect_args["timeout"] = timeout
+    validate_supported_database_type(db_type)
+    connect_args = {"connect_timeout": settings.db_connect_timeout_seconds}
 
-    if db_type in ["postgresql", "mariadb", "mysql"] and ssl_mode != "disable":
+    if db_type == SUPPORTED_DATABASE_TYPE and ssl_mode != "disable":
         connect_args["sslmode"] = ssl_mode
 
     return create_engine(
@@ -111,19 +95,15 @@ def build_engine(url: URL, db_type: str, ssl_mode: str = "disable") -> Engine:
     )
 
 
-async def test_connection(config: ConnectionRequest) -> tuple[bool, str]:
+def _test_connection_sync(config: ConnectionRequest) -> tuple[bool, str]:
     validate_connection_target(config)
     tunnel = None
     engine = None
     try:
         tunnel, host, port = start_ssh_tunnel(config)
         engine = build_engine(build_connection_url(config, host, port), config.db_type, config.ssl_mode)
-
-        def _sync_test():
-            with engine.connect() as conn:
-                conn.execute(text("SELECT 1"))
-
-        await anyio.to_thread.run_sync(_sync_test)
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
         return True, "Connection successful"
     except Exception as exc:
         logger.error("Connection test failed: %s", exc)
@@ -134,6 +114,9 @@ async def test_connection(config: ConnectionRequest) -> tuple[bool, str]:
         if tunnel:
             tunnel.stop()
 
+
+async def test_connection(config: ConnectionRequest) -> tuple[bool, str]:
+    return await anyio.to_thread.run_sync(_test_connection_sync, config)
 
 def open_connection(config: ConnectionRequest) -> tuple[Engine, Optional[SSHTunnelForwarder]]:
     validate_connection_target(config)

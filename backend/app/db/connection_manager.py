@@ -1,7 +1,11 @@
 """Connection persistence and runtime connection orchestration."""
 
+from __future__ import annotations
+
 import logging
 import time
+
+import anyio
 
 from sqlalchemy.engine import Engine, make_url
 
@@ -12,13 +16,27 @@ from app.core.db_connection_guardrails import (
     validate_connection_target,
 )
 from app.core.errors import AppError
-from app.db.models.connection import ActiveConnection, ConnectionRequest, TableInfo
+from app.db.models.connection import ActiveConnection, ConnectionRequest, ConnectionTestResult, TableInfo
 from app.db.repositories import connection_attempt_repository, connection_repository
+from app.query_engine.results import QueryExecutionResult
 from app.query_engine.schema_inspector import generate_erd_json, generate_erd_mermaid
 import app.query_engine.connection_pool as connection_pool
 
 
 logger = logging.getLogger(__name__)
+
+
+def sanitize_connection_error(exc: Exception | str) -> str:
+    message = str(exc).lower()
+    if "ssh" in message or "tunnel" in message:
+        return "Unable to establish the SSH tunnel with the provided connection settings."
+    if "authentication" in message or "password" in message or "access denied" in message:
+        return "Database authentication failed. Verify the connection credentials."
+    if "timeout" in message:
+        return "Connection attempt timed out. Verify the host, port, and network access."
+    if "could not translate host" in message or "name or service not known" in message:
+        return "Database host could not be resolved. Verify the host and port."
+    return "Database connection could not be established with the provided settings."
 
 
 def _error_code(exc: Exception) -> str:
@@ -90,11 +108,12 @@ def _preflight_connection_attempt(user_id: str, action: str, config: ConnectionR
         raise
 
 
-async def test_connection(user_id: str, config: ConnectionRequest) -> tuple[bool, str]:
+async def test_connection(user_id: str, config: ConnectionRequest) -> ConnectionTestResult:
     started_at = time.monotonic()
     _preflight_connection_attempt(user_id, "test", config, started_at)
 
     success, message = await connection_pool.test_connection(config)
+    latency_ms = round((time.monotonic() - started_at) * 1000, 2)
     _log_attempt(
         user_id=user_id,
         action="test",
@@ -104,18 +123,59 @@ async def test_connection(user_id: str, config: ConnectionRequest) -> tuple[bool
         error_code=None if success else "connection_failed",
         started_at=started_at,
     )
-    return success, message
+    return ConnectionTestResult(success=success, message=message, latency_ms=latency_ms)
 
 
-async def connect(user_id: str, config: ConnectionRequest) -> tuple[str, Engine]:
+async def test_saved_connection(user_id: str, connection_id: str) -> ConnectionTestResult | None:
+    config = await connection_repository.get_connection_config(user_id, connection_id)
+    if not config:
+        return None
+
+    started_at = time.monotonic()
+    _preflight_connection_attempt(user_id, "test", config, started_at)
+
+    success, message = await connection_pool.test_connection(config)
+    latency_ms = round((time.monotonic() - started_at) * 1000, 2)
+    persisted_error = None if success else sanitize_connection_error(message)
+    await connection_repository.record_connection_health(
+        user_id,
+        connection_id,
+        last_status="healthy" if success else "failed",
+        last_error=persisted_error,
+        latency_ms=latency_ms,
+    )
+    if not success:
+        connection_pool.release_connection(user_id, connection_id)
+
+    _log_attempt(
+        user_id=user_id,
+        action="test",
+        config=config,
+        decision="allowed",
+        success=success,
+        error_code=None if success else "connection_failed",
+        started_at=started_at,
+    )
+    return ConnectionTestResult(success=success, message=message, latency_ms=latency_ms)
+
+
+async def connect(user_id: str, config: ConnectionRequest) -> tuple[str, Engine, float]:
     started_at = time.monotonic()
     _preflight_connection_attempt(user_id, "connect", config, started_at)
 
     engine = None
     tunnel = None
     try:
-        engine, tunnel = connection_pool.open_connection(config)
+        engine, tunnel = await anyio.to_thread.run_sync(connection_pool.open_connection, config)
         connection_id = await connection_repository.create_connection(user_id, config)
+        latency_ms = round((time.monotonic() - started_at) * 1000, 2)
+        await connection_repository.record_connection_health(
+            user_id,
+            connection_id,
+            last_status="healthy",
+            last_error=None,
+            latency_ms=latency_ms,
+        )
     except Exception as exc:
         if engine:
             engine.dispose()
@@ -142,11 +202,15 @@ async def connect(user_id: str, config: ConnectionRequest) -> tuple[str, Engine]
         error_code=None,
         started_at=started_at,
     )
-    return connection_id, engine
+    return connection_id, engine, latency_ms
 
 
 async def get_all_connections(user_id: str) -> list[ActiveConnection]:
     return await connection_repository.list_connections(user_id)
+
+
+async def get_connection(user_id: str, connection_id: str) -> ActiveConnection | None:
+    return await connection_repository.get_active_connection(user_id, connection_id)
 
 
 async def get_engine(user_id: str, connection_id: str) -> Engine | None:
@@ -158,7 +222,17 @@ async def get_engine(user_id: str, connection_id: str) -> Engine | None:
     if not config:
         return None
 
-    engine, tunnel = connection_pool.open_connection(config)
+    try:
+        engine, tunnel = await anyio.to_thread.run_sync(connection_pool.open_connection, config)
+    except Exception as exc:
+        await connection_repository.record_connection_health(
+            user_id,
+            connection_id,
+            last_status="failed",
+            last_error=sanitize_connection_error(exc),
+        )
+        raise
+
     connection_pool.cache_connection(user_id, connection_id, engine, tunnel)
     return engine
 
@@ -200,7 +274,78 @@ async def get_cached_schema(
 
 
 async def refresh_schema(user_id: str, connection_id: str) -> list[TableInfo] | None:
-    return await get_cached_schema(user_id, connection_id, force_refresh=True)
+    try:
+        schema = await get_cached_schema(user_id, connection_id, force_refresh=True)
+    except Exception as exc:
+        await connection_repository.record_connection_health(
+            user_id,
+            connection_id,
+            last_status="failed",
+            last_error=sanitize_connection_error(exc),
+        )
+        raise
+
+    if schema is not None:
+        await connection_repository.record_connection_health(
+            user_id,
+            connection_id,
+            last_status="healthy",
+            last_error=None,
+        )
+        await connection_repository.record_schema_sync(user_id, connection_id)
+    return schema
+
+
+async def record_connection_health(
+    user_id: str,
+    connection_id: str,
+    *,
+    success: bool,
+    error: str | None = None,
+    latency_ms: float | None | object = connection_repository._UNSET,
+) -> bool:
+    last_status = "healthy" if success else "failed"
+    return await connection_repository.record_connection_health(
+        user_id,
+        connection_id,
+        last_status=last_status,
+        last_error=None if success else error,
+        latency_ms=latency_ms,
+    )
+
+
+async def record_schema_sync(user_id: str, connection_id: str) -> bool:
+    return await connection_repository.record_schema_sync(user_id, connection_id)
+
+
+def record_query_execution_health_sync(
+    user_id: str,
+    connection_id: str | None,
+    result: QueryExecutionResult,
+) -> None:
+    if not connection_id:
+        return
+    connection_repository.sync_record_connection_health(
+        user_id,
+        connection_id,
+        last_status="healthy" if result.success else "failed",
+        last_error=None if result.success else result.error,
+    )
+
+
+async def record_query_execution_health(
+    user_id: str,
+    connection_id: str | None,
+    result: QueryExecutionResult,
+) -> None:
+    if not connection_id:
+        return
+    await connection_repository.record_connection_health(
+        user_id,
+        connection_id,
+        last_status="healthy" if result.success else "failed",
+        last_error=None if result.success else result.error,
+    )
 
 
 async def get_readonly(user_id: str, connection_id: str) -> bool:
@@ -239,7 +384,7 @@ async def seed_dev_connection() -> str | None:
             name=name,
             readonly=True,
         )
-        connection_id, _ = await connect(owner_id, config)
+        connection_id, _, _ = await connect(owner_id, config)
         return connection_id
     except Exception:
         return None
@@ -254,9 +399,12 @@ __all__ = [
     "_engines",
     "_schema_cache",
     "_tunnels",
+    "sanitize_connection_error",
     "test_connection",
+    "test_saved_connection",
     "connect",
     "get_all_connections",
+    "get_connection",
     "disconnect",
     "get_engine",
     "get_readonly",
@@ -265,6 +413,10 @@ __all__ = [
     "get_schema_for_ai",
     "seed_dev_connection",
     "update_settings",
+    "record_connection_health",
+    "record_query_execution_health",
+    "record_query_execution_health_sync",
+    "record_schema_sync",
     "generate_erd_mermaid",
     "generate_erd_json",
 ]

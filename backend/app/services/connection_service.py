@@ -1,6 +1,6 @@
 """Connection workflows backed by the DB connection manager."""
 
-from app.db.models.connection import ActiveConnection, ConnectionRequest, TableInfo
+from app.db.models.connection import ActiveConnection, ConnectionRequest, ConnectionTestResult, TableInfo
 from app.db.connection_manager import (
     connect,
     disconnect,
@@ -8,12 +8,19 @@ from app.db.connection_manager import (
     generate_erd_mermaid,
     get_all_connections,
     get_cached_schema,
+    get_connection,
     get_engine,
     get_readonly,
     get_schema_for_ai,
+    record_connection_health,
+    record_query_execution_health,
+    record_query_execution_health_sync,
+    record_schema_sync,
     refresh_schema,
+    sanitize_connection_error,
     seed_dev_connection,
     test_connection,
+    test_saved_connection,
     update_settings,
 )
 
@@ -25,11 +32,18 @@ __all__ = [
     "generate_erd_mermaid",
     "get_all_connections",
     "get_cached_schema",
+    "get_connection",
     "get_engine",
     "get_readonly",
     "get_schema_for_ai",
+    "record_connection_health",
+    "record_query_execution_health",
+    "record_query_execution_health_sync",
+    "record_schema_sync",
     "refresh_schema",
+    "sanitize_connection_error",
     "seed_dev_connection",
     "test_connection",
+    "test_saved_connection",
     "update_settings",
 ]

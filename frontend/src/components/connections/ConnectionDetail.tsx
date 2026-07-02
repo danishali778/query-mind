@@ -1,14 +1,11 @@
 import React, { useState } from 'react';
 import { RefreshCw, Edit3, Share2, Trash2, Database, Shield, Activity, Layout, Terminal } from 'lucide-react';
 import { T } from '../dashboard/tokens';
-import type { ConnectionListItem, ConnectionDetailProps, ConnectionDetailTab } from '../../types/connections';
+import type { ConnectionListItem, ConnectionDetailProps, ConnectionDetailTab, LoadState } from '../../types/connections';
 import type { QueryRecord, SchemaResponse, SchemaTable, SchemaColumn } from '../../types/api';
 import { ErdDiagram } from './ErdDiagram';
-import { updateConnectionSettings, testConnection } from '../../services/api';
+import { updateConnectionSettings, testSavedConnection } from '../../services/api';
 
-// ---------------------------------------------------------------------------
-// Local type definitions for schema and query data
-// ---------------------------------------------------------------------------
 interface UiColumnSchema {
   name: string;
   type?: string;
@@ -31,9 +28,21 @@ const timeAgo = (dateStr: string) => {
   return date.toLocaleDateString();
 };
 
-export function ConnectionDetail({ connection, schema, queryHistory, onDelete, onRefreshSchema }: ConnectionDetailProps) {
+const formatTimestamp = (dateStr?: string | null) => {
+  if (!dateStr) return 'NEVER';
+  const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) return 'UNKNOWN';
+  return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+};
+
+const formatLatency = (latency?: number | null) => {
+  if (latency == null) return 'N/A';
+  return `${Math.round(latency)} MS`;
+};
+
+export function ConnectionDetail({ connection, schema, schemaState = 'idle', schemaError, queryHistory, queryHistoryState = 'idle', queryHistoryError, onDelete, onRefreshSchema, onConnectionUpdated }: ConnectionDetailProps) {
   const [activeTab, setActiveTab] = useState<ConnectionDetailTab>('overview');
-  
+
   if (!connection) {
     return (
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: T.bg, color: T.text3, fontFamily: T.fontMono, fontSize: '0.72rem', letterSpacing: '1px' }}>
@@ -43,7 +52,7 @@ export function ConnectionDetail({ connection, schema, queryHistory, onDelete, o
   }
 
   const getStatusColor = () => {
-    switch(connection.status) {
+    switch (connection.status) {
       case 'live': return { bg: T.greenDim, text: T.green, border: 'rgba(34,211,165,0.1)' };
       case 'offline': return { bg: T.redDim, text: T.red, border: 'rgba(248,113,113,0.1)' };
       case 'warning': return { bg: T.yellowDim, text: T.yellow, border: 'rgba(245,158,11,0.1)' };
@@ -54,23 +63,21 @@ export function ConnectionDetail({ connection, schema, queryHistory, onDelete, o
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: T.bg, fontFamily: T.fontBody }}>
-      
-      {/* Header Masthead */}
       <div style={{ padding: '24px 32px 20px', background: T.s1, borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 20 }}>
         <div style={{ width: 56, height: 56, borderRadius: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.8rem', flexShrink: 0, background: connection.color }}>
           {connection.icon}
         </div>
-        
+
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
              <div style={{ fontFamily: T.fontHead, fontWeight: 900, fontSize: '1.4rem', color: T.text, fontStyle: 'italic' }}>{connection.name}</div>
-             <div style={{ fontSize: '0.62rem', background: sc.bg, color: sc.text, padding: '2px 8px', fontFamily: T.fontMono, fontWeight: 700, textTransform: 'uppercase' }}>{connection.status}</div>
+             <div style={{ fontSize: '0.62rem', background: sc.bg, color: sc.text, padding: '2px 8px', fontFamily: T.fontMono, fontWeight: 700, textTransform: 'uppercase' }}>{connection.health_state}</div>
           </div>
           <div style={{ fontSize: '0.68rem', color: T.text3, fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            {connection.host || 'localhost'} · {connection.port || 'N/A'} · DB: {connection.database || 'N/A'} · <span style={{ color: T.accent }}>{connection.type}</span>
+            {connection.host || 'localhost'} - {connection.port || 'N/A'} - DB: {connection.database || 'N/A'} - <span style={{ color: T.accent }}>{connection.type}</span>
           </div>
         </div>
-        
+
         <div style={{ display: 'flex', gap: 8 }}>
           <HeaderBtn icon={<RefreshCw size={12} />} label="RE-DISCOVER" onClick={onRefreshSchema} />
           <HeaderBtn icon={<Edit3 size={12} />} label="CONFIG" onClick={() => setActiveTab('credentials')} />
@@ -79,7 +86,6 @@ export function ConnectionDetail({ connection, schema, queryHistory, onDelete, o
         </div>
       </div>
 
-      {/* Navigation Ledger */}
       <div style={{ display: 'flex', background: T.s1, borderBottom: `1px solid ${T.border}`, padding: '0 32px' }}>
         <Tab active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} label="OVERVIEW" icon={<Layout size={12} />} />
         <Tab active={activeTab === 'credentials'} onClick={() => setActiveTab('credentials')} label="CREDENTIALS" icon={<Shield size={12} />} />
@@ -88,15 +94,12 @@ export function ConnectionDetail({ connection, schema, queryHistory, onDelete, o
         <Tab active={activeTab === 'activity'} onClick={() => setActiveTab('activity')} label="ACTIVITY LOG" icon={<Activity size={12} />} />
       </div>
 
-      {/* Body */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '32px' }} className="cd-body">
-        
         {activeTab === 'overview' && <OverviewTab connection={connection} schema={schema ?? null} queryHistory={queryHistory || []} onTabSwitch={setActiveTab} />}
-        {activeTab === 'credentials' && <CredentialsTab connection={connection} />}
-        {activeTab === 'schema' && <SchemaTab schema={schema ?? null} onRefresh={onRefreshSchema} />}
+        {activeTab === 'credentials' && <CredentialsTab connection={connection} onConnectionUpdated={onConnectionUpdated} />}
+        {activeTab === 'schema' && <SchemaTab schema={schema ?? null} state={schemaState} error={schemaError} onRefresh={onRefreshSchema} />}
         {activeTab === 'security' && <SecurityTab />}
-        {activeTab === 'activity' && <ActivityTab queryHistory={queryHistory || []} />}
-
+        {activeTab === 'activity' && <ActivityTab queryHistory={queryHistory || []} state={queryHistoryState} error={queryHistoryError} />}
       </div>
 
       <style>{`
@@ -140,13 +143,22 @@ function OverviewTab({ connection, schema, queryHistory, onTabSwitch }: { connec
   const tables = schema?.tables || [];
   const tableCount = tables.length;
   const recentQueries = queryHistory.slice(0, 5);
+  const bridgeLabel = connection.health_state.toUpperCase();
+  const bridgeColor = connection.status === 'live' ? T.green : connection.status === 'offline' ? T.red : T.yellow;
+  const bridgeSub = connection.health_state === 'live'
+    ? 'RECENT CHECK PASSED'
+    : connection.health_state === 'failed'
+      ? 'LATEST CHECK FAILED'
+      : connection.health_state === 'stale'
+        ? 'CHECK IS OVER 24H OLD'
+        : 'NO DURABLE CHECK RECORDED';
 
   return (
     <>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 32 }}>
         <KpiCard val={String(tableCount)} label="TABLES DISCOVERED" sub="SCHEMA MAPPED" valColor={T.accent} />
         <KpiCard val={connection.type} label="ENGINE" sub={connection.host || 'LOCAL'} valColor={T.text} />
-        <KpiCard val={connection.status === 'live' ? 'ONLINE' : 'OFFLINE'} label="BRIDGE STATUS" sub={connection.status === 'live' ? 'SYNCED' : 'DISCONNECTED'} valColor={connection.status === 'live' ? T.green : T.red} />
+        <KpiCard val={bridgeLabel} label="BRIDGE STATUS" sub={bridgeSub} valColor={bridgeColor} />
         <KpiCard val={String(connection.port || 'N/A')} label="PORT" sub={connection.database || 'PRIMARY'} valColor={T.purple} />
       </div>
 
@@ -168,12 +180,16 @@ function OverviewTab({ connection, schema, queryHistory, onTabSwitch }: { connec
         </SectionCard>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-          <SectionCard title="SOURCE TELEMETRY" badge={{ text: 'LIVE', color: T.accent }}>
-            <div style={{ padding: '24px 20px', textAlign: 'center', color: T.text3, fontSize: '0.68rem', fontFamily: T.fontMono, letterSpacing: '0.5px' }}>
-              SOURCE HEALTH MONITORING ACTIVE
+          <SectionCard title="SOURCE TELEMETRY" badge={{ text: bridgeLabel, color: bridgeColor }}>
+            <div style={{ padding: '12px 20px' }}>
+              <InfoRow label="LAST TESTED" val={formatTimestamp(connection.last_tested_at)} />
+              <InfoRow label="LAST STATUS" val={String(connection.last_status || 'unknown').toUpperCase()} />
+              <InfoRow label="LATENCY" val={formatLatency(connection.latency)} />
+              <InfoRow label="SCHEMA SYNC" val={formatTimestamp(connection.last_schema_sync_at)} />
+              <InfoRow label="LATEST ERROR" val={connection.last_error || 'NONE'} noBorder />
             </div>
           </SectionCard>
-          
+
           <SectionCard title="CONFIG SUMMARY">
             <div style={{ padding: '12px 20px' }}>
               <InfoRow label="TYPE" val={connection.type} />
@@ -185,8 +201,8 @@ function OverviewTab({ connection, schema, queryHistory, onTabSwitch }: { connec
           </SectionCard>
         </div>
       </div>
-      
-      <SectionCard title="RECENT QUERY ACTIVITY" onAction={() => onTabSwitch('activity')} actionText="VIEW LOG →">
+
+      <SectionCard title="RECENT QUERY ACTIVITY" onAction={() => onTabSwitch('activity')} actionText="VIEW LOG ->">
          <div style={{ display: 'flex', flexDirection: 'column' }}>
            {recentQueries.map((q: QueryRecord, i: number) => (
              <ActivityRow key={i} ok={q.success} err={!q.success}
@@ -203,11 +219,10 @@ function OverviewTab({ connection, schema, queryHistory, onTabSwitch }: { connec
   );
 }
 
-function CredentialsTab({ connection }: { connection: ConnectionListItem }) {
+function CredentialsTab({ connection, onConnectionUpdated }: { connection: ConnectionListItem, onConnectionUpdated?: () => Promise<void> | void }) {
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string; tables_found?: number | null } | null>(null);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string; latency_ms?: number | null } | null>(null);
   const [sslMode, setSslMode] = useState(connection.ssl_mode ?? 'disable');
-  const [password, setPassword] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
 
@@ -216,6 +231,7 @@ function CredentialsTab({ connection }: { connection: ConnectionListItem }) {
     setSaveMsg(null);
     try {
       await updateConnectionSettings(connection.id, { ssl_mode: sslMode });
+      await onConnectionUpdated?.();
       setSaveMsg('SETTINGS SAVED.');
     } catch {
       setSaveMsg('ERROR SAVING SETTINGS.');
@@ -226,32 +242,21 @@ function CredentialsTab({ connection }: { connection: ConnectionListItem }) {
   };
 
   const runTest = async () => {
-    if (!password.trim()) {
-      setTestResult({
-        success: false,
-        message: 'Re-enter the database password to validate the saved connection credentials.',
-      });
-      return;
-    }
-
     setTesting(true);
     setTestResult(null);
     try {
-      const result = await testConnection({
-        db_type: connection.type,
-        host: connection.host || 'localhost',
-        port: connection.port || 5432,
-        database: connection.database || '',
-        username: connection.username || '',
-        password,
-      });
+      const result = await testSavedConnection(connection.id);
       setTestResult(result);
+      await onConnectionUpdated?.();
     } catch (err: unknown) {
       setTestResult({ success: false, message: (err as Error).message || 'Test failed' });
     } finally {
       setTesting(false);
     }
   };
+
+  const displayedLatency = testResult?.latency_ms ?? connection.latency ?? null;
+  const displayedStatus = testResult ? (testResult.success ? 'HEALTHY' : 'FAILED') : String(connection.last_status || 'unknown').toUpperCase();
 
   return (
     <>
@@ -282,29 +287,10 @@ function CredentialsTab({ connection }: { connection: ConnectionListItem }) {
         </div>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
-        <label style={{ fontSize: '0.62rem', color: T.text3, fontWeight: 700, fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '1px' }}>RE-ENTER PASSWORD FOR TEST</label>
-        <input
-          type="password"
-          value={password}
-          onChange={e => setPassword(e.target.value)}
-          placeholder="••••••••"
-          style={{
-            background: T.s2,
-            border: `1px solid ${T.border}`,
-            borderRadius: 0,
-            padding: '12px 16px',
-            color: T.text,
-            fontFamily: T.fontMono,
-            fontSize: '0.72rem',
-            outline: 'none',
-            width: '100%',
-            transition: 'all 0.15s',
-            letterSpacing: '0.5px'
-          }}
-        />
-        <div style={{ fontSize: '0.62rem', color: T.text3, fontFamily: T.fontMono, lineHeight: 1.6 }}>
-          This is used only for validation. It is not saved from this screen.
+      <div style={{ padding: '12px 16px', background: T.s1, border: `1px solid ${T.border}`, marginBottom: 20 }}>
+        <div style={{ fontSize: '0.62rem', color: T.accent, fontWeight: 700, fontFamily: T.fontMono, letterSpacing: '1px', marginBottom: 8 }}>SAVED CREDENTIAL DIAGNOSTICS</div>
+        <div style={{ fontSize: '0.64rem', color: T.text3, fontFamily: T.fontMono, lineHeight: 1.6 }}>
+          Diagnostics on this screen use the encrypted credentials already stored on the backend. No password re-entry is required.
         </div>
       </div>
 
@@ -316,10 +302,16 @@ function CredentialsTab({ connection }: { connection: ConnectionListItem }) {
           <span style={{ fontSize: '0.7rem', fontWeight: 800, color: T.text, fontFamily: T.fontMono }}>HEALTH CHECK RESULTS</span>
           <button onClick={runTest} disabled={testing} style={{ padding: '6px 14px', borderRadius: 0, border: `1px solid ${T.border}`, background: 'transparent', color: T.text2, fontSize: '0.62rem', fontFamily: T.fontMono, fontWeight: 700, cursor: testing ? 'not-allowed' : 'pointer', textTransform: 'uppercase' }}>RE-RUN DIAGNOSTICS</button>
         </div>
-        
+
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <TestStep label="Establishing Bridge" res={testing ? 'EXECUTING...' : (testResult ? (testResult.success ? 'BRIDGE SECURE' : 'BRIDGE FAILED') : 'AWAITING DISPATCH')} state={testing ? 'load' : (testResult ? (testResult.success ? 'ok' : 'err') : 'wait')} />
-          <TestStep label="Schema Discovery" res={testing ? 'WAITING...' : (testResult?.success ? `${testResult.tables_found || 0} TABLES DISCOVERED` : (testResult ? 'N/A' : 'AWAITING DISPATCH'))} state={testing ? 'wait' : (testResult ? (testResult.success ? 'ok' : 'err') : 'wait')} />
+          <TestStep label="Saved Credential Check" res={testing ? 'EXECUTING...' : displayedStatus} state={testing ? 'load' : (testResult ? (testResult.success ? 'ok' : 'err') : 'wait')} />
+          <TestStep label="Round-trip Latency" res={testing ? 'MEASURING...' : formatLatency(displayedLatency)} state={testing ? 'load' : (displayedLatency != null ? 'ok' : 'wait')} />
+          <div style={{ padding: '12px 16px', background: T.s2, border: `1px solid ${T.border}` }}>
+            <InfoRow label="LAST TESTED" val={formatTimestamp(connection.last_tested_at)} />
+            <InfoRow label="LAST STATUS" val={String(connection.last_status || 'unknown').toUpperCase()} />
+            <InfoRow label="SCHEMA SYNC" val={formatTimestamp(connection.last_schema_sync_at)} />
+            <InfoRow label="LATEST ERROR" val={connection.last_error || 'NONE'} noBorder />
+          </div>
           {testResult && (
             <div style={{ padding: '12px 16px', borderRadius: 0, marginTop: 10, background: testResult.success ? T.greenDim : T.redDim, border: `1px solid ${testResult.success ? T.green : T.red}`, color: testResult.success ? T.green : T.red, fontSize: '0.68rem', fontFamily: T.fontMono, fontWeight: 700 }}>
               {testResult.message.toUpperCase()}
@@ -335,12 +327,11 @@ function CredentialsTab({ connection }: { connection: ConnectionListItem }) {
          <button onClick={runTest} disabled={testing} style={{ padding: '12px 24px', borderRadius: 0, border: `1px solid ${T.accent}`, background: 'transparent', color: T.accent, fontSize: '0.7rem', fontWeight: 900, cursor: testing ? 'not-allowed' : 'pointer', fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '1px' }}>{testing ? 'TESTING...' : 'RUN TEST'}</button>
          {saveMsg && <span style={{ fontSize: '0.62rem', color: saveMsg.includes('ERROR') ? T.red : T.green, fontFamily: T.fontMono, fontWeight: 700, letterSpacing: '1px' }}>{saveMsg}</span>}
       </div>
-
     </>
   );
 }
 
-function SchemaTab({ schema, onRefresh }: { schema?: SchemaResponse | null, onRefresh?: () => void }) {
+function SchemaTab({ schema, state = 'idle', error, onRefresh }: { schema?: SchemaResponse | null, state?: LoadState, error?: string | null, onRefresh?: () => Promise<void> | void }) {
   const tables = schema?.tables || [];
   const [viewMode, setViewMode] = useState<'table' | 'erd'>('table');
 
@@ -362,7 +353,11 @@ function SchemaTab({ schema, onRefresh }: { schema?: SchemaResponse | null, onRe
         {onRefresh && <button onClick={onRefresh} style={{ marginLeft: 'auto', padding: '6px 16px', borderRadius: 0, border: `1px solid ${T.border}`, background: 'transparent', color: T.text2, fontSize: '0.62rem', cursor: 'pointer', fontFamily: T.fontMono, fontWeight: 700, textTransform: 'uppercase' }}>SYNC SCHEMA</button>}
       </div>
 
-      {viewMode === 'table' && (
+      {state === 'loading' && <StateBlock title="SCHEMA SYNC IN PROGRESS" body="Reading table and relationship metadata from the source." />}
+      {state === 'error' && <StateBlock title="SCHEMA SYNC FAILED" body={error || 'Schema metadata could not be loaded.'} tone="error" actionLabel="RETRY SYNC" onAction={onRefresh} />}
+      {state === 'empty' && <StateBlock title="NO ENTITIES DISCOVERED" body="The schema sync completed, but no tables were returned for this connection." actionLabel="SYNC AGAIN" onAction={onRefresh} />}
+
+      {state !== 'loading' && state !== 'error' && state !== 'empty' && viewMode === 'table' && (
         <SectionCard title="ENTITY DEFINITIONS" badge={{ text: `${tables.length} ENTITIES`, color: T.accent }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.72rem' }}>
             <thead>
@@ -381,14 +376,14 @@ function SchemaTab({ schema, onRefresh }: { schema?: SchemaResponse | null, onRe
                 </tr>
               ))}
               {tables.length === 0 && (
-                <tr><td colSpan={3} style={{ padding: '32px', color: T.text3, textAlign: 'center', fontFamily: T.fontMono, fontSize: '0.68rem' }}>NO ENTITIES DISCOVERED — VERIFY SOURCE CONNECTION</td></tr>
+                <tr><td colSpan={3} style={{ padding: '32px', color: T.text3, textAlign: 'center', fontFamily: T.fontMono, fontSize: '0.68rem' }}>NO ENTITIES DISCOVERED - VERIFY SOURCE CONNECTION</td></tr>
               )}
             </tbody>
           </table>
         </SectionCard>
       )}
 
-      {viewMode === 'erd' && (
+      {state !== 'loading' && state !== 'error' && state !== 'empty' && viewMode === 'erd' && (
         <div style={{ height: 'calc(100vh - 340px)', minHeight: 450, border: `1px solid ${T.border}` }}>
           <ErdDiagram tables={tables} />
         </div>
@@ -397,34 +392,46 @@ function SchemaTab({ schema, onRefresh }: { schema?: SchemaResponse | null, onRe
   );
 }
 
+function StateBlock({ title, body, actionLabel, onAction, tone = 'neutral' }: { title: string; body: string; actionLabel?: string; onAction?: () => Promise<void> | void; tone?: 'neutral' | 'error' }) {
+  const color = tone === 'error' ? T.red : T.text3;
+  return (
+    <div style={{ padding: '34px 24px', border: `1px solid ${tone === 'error' ? T.red : T.border}`, background: tone === 'error' ? T.redDim : T.s1, color: T.text3, textAlign: 'center', fontFamily: T.fontMono }}>
+      <div style={{ color, fontSize: '0.72rem', fontWeight: 900, letterSpacing: '1px', marginBottom: 10 }}>{title}</div>
+      <div style={{ fontSize: '0.68rem', lineHeight: 1.7, maxWidth: 520, margin: '0 auto' }}>{body}</div>
+      {actionLabel && onAction && (
+        <button onClick={onAction} style={{ marginTop: 18, padding: '8px 16px', border: `1px solid ${tone === 'error' ? T.red : T.accent}`, background: 'transparent', color: tone === 'error' ? T.red : T.accent, fontFamily: T.fontMono, fontSize: '0.62rem', fontWeight: 900, cursor: 'pointer' }}>
+          {actionLabel}
+        </button>
+      )}
+    </div>
+  );
+}
 function SecurityTab() {
   return (
     <div style={{ color: T.text2 }}>Security settings coming soon...</div>
-  )
+  );
 }
-function ActivityTab({ queryHistory }: { queryHistory?: QueryRecord[] }) {
+
+function ActivityTab({ queryHistory, state = 'idle', error }: { queryHistory?: QueryRecord[], state?: LoadState, error?: string | null }) {
   const records = queryHistory || [];
   return (
     <SectionCard title="All Query Activity" badge={{ text: `${records.length} queries`, color: T.accent }}>
       <div style={{ display: 'flex', flexDirection: 'column' }}>
-        {records.map((q: QueryRecord, i: number) => (
+        {state === 'loading' && <StateBlock title="LOADING QUERY ACTIVITY" body="Retrieving recent runs for this source." />}
+        {state === 'error' && <StateBlock title="QUERY ACTIVITY FAILED" body={error || 'Recent query activity could not be loaded.'} tone="error" />}
+        {state !== 'loading' && state !== 'error' && records.map((q: QueryRecord, i: number) => (
           <ActivityRow key={i} ok={q.success} err={!q.success}
             query={q.sql?.substring(0, 100) + (q.sql?.length > 100 ? '...' : '')}
             dur={q.success ? `${((q.execution_time_ms || 0) / 1000).toFixed(2)}s` : 'Error'}
             time={timeAgo(q.timestamp)} />
         ))}
-        {records.length === 0 && (
+        {state !== 'loading' && state !== 'error' && records.length === 0 && (
           <div style={{ padding: '24px', color: T.text3, fontSize: '0.82rem', textAlign: 'center' }}>No queries have been executed yet. Run a query from the Chat page and it will appear here.</div>
         )}
       </div>
     </SectionCard>
-  )
+  );
 }
-
-
-// ------------------------
-// Helpers
-// ------------------------
 
 function KpiCard({ val, label, sub, valColor }: { val: string, label: string, sub: string, valColor: string }) {
   return (
@@ -444,7 +451,7 @@ function SectionCard({ title, badge, onAction, actionText, children }: { title: 
         <span style={{ fontFamily: T.fontMono, fontWeight: 700, fontSize: '0.7rem', color: T.text, letterSpacing: '1px' }}>{title}</span>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           {badge && <span style={{ fontSize: '0.58rem', fontFamily: T.fontMono, padding: '2px 8px', borderRadius: 0, background: `${badge.color}15`, color: badge.color, border: `1px solid ${badge.color}33`, fontWeight: 700 }}>{badge.text}</span>}
-          {onAction && <button onClick={onAction} style={{ padding: '4px 12px', borderRadius: 0, border: `1px solid ${T.border}`, background: 'transparent', color: T.text3, fontSize: '0.62rem', cursor: 'pointer', fontFamily: T.fontMono, fontWeight: 700 }}>{actionText || 'VIEW ALL →'}</button>}
+          {onAction && <button onClick={onAction} style={{ padding: '4px 12px', borderRadius: 0, border: `1px solid ${T.border}`, background: 'transparent', color: T.text3, fontSize: '0.62rem', cursor: 'pointer', fontFamily: T.fontMono, fontWeight: 700 }}>{actionText || 'VIEW ALL ->'}</button>}
         </div>
       </div>
       {children}
@@ -457,7 +464,7 @@ function SchemaTableComponent({ name, rows, defaultExpanded, cols }: { name: str
   return (
     <div style={{ marginBottom: 2 }}>
       <div onClick={() => setIsOpen(!isOpen)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', cursor: 'pointer', background: isOpen ? T.s2 : 'transparent', borderBottom: `1px solid ${T.border}` }}>
-        <div style={{ width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', color: T.text3, flexShrink: 0 }}>{isOpen ? '—' : '+'}</div>
+        <div style={{ width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', color: T.text3, flexShrink: 0 }}>{isOpen ? '-' : '+'}</div>
         <span style={{ fontSize: '0.72rem', fontWeight: 700, color: T.text2, flex: 1, fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{name}</span>
         <span style={{ fontSize: '0.58rem', fontFamily: T.fontMono, color: T.text3 }}>{rows}</span>
       </div>
@@ -479,11 +486,11 @@ function SchemaTableComponent({ name, rows, defaultExpanded, cols }: { name: str
 
 function InfoRow({ label, val, noBorder }: { label: string, val: React.ReactNode, noBorder?: boolean }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: noBorder ? 'none' : `1px solid ${T.border}`, fontSize: '0.68rem' }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: noBorder ? 'none' : `1px solid ${T.border}`, fontSize: '0.68rem', gap: 16 }}>
       <span style={{ color: T.text3, fontFamily: T.fontMono, fontWeight: 700 }}>{label}</span>
-      <span style={{ color: T.text2, fontFamily: T.fontMono, fontWeight: 700 }}>{val}</span>
+      <span style={{ color: T.text2, fontFamily: T.fontMono, fontWeight: 700, textAlign: 'right', wordBreak: 'break-word' }}>{val}</span>
     </div>
-  )
+  );
 }
 
 function ActivityRow({ ok, err, query, dur, time }: { ok?: boolean, err?: boolean, query: string, dur: string, time: string }) {
@@ -499,10 +506,10 @@ function ActivityRow({ ok, err, query, dur, time }: { ok?: boolean, err?: boolea
 
 function TestStep({ label, res, state }: { label: string, res: string, state: 'wait'|'load'|'ok'|'err' }) {
   const st = {
-    wait: { icon: '···', bg: T.s3, col: T.text3, spin: false },
-    load: { icon: 'REF', bg: T.accentDim, col: T.accent, spin: true },
-    ok: { icon: 'OK!', bg: T.greenDim, col: T.green, spin: false },
-    err: { icon: 'ERR', bg: T.redDim, col: T.red, spin: false },
+    wait: { icon: '...', bg: T.s3, col: T.text3 },
+    load: { icon: 'REF', bg: T.accentDim, col: T.accent },
+    ok: { icon: 'OK', bg: T.greenDim, col: T.green },
+    err: { icon: 'ERR', bg: T.redDim, col: T.red },
   }[state];
 
   return (
