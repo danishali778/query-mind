@@ -97,8 +97,10 @@ async def edit_chat_sql(
             request.sql,
             request.connection_id,
         )
-    except ValueError as exc:
+    except chat_service.ChatEditNotFoundError as exc:
         raise NotFoundError(str(exc)) from exc
+    except chat_service.ChatEditValidationError as exc:
+        raise BadRequestError(str(exc)) from exc
     except Exception as exc:
         raise ServiceUnavailableError("Unable to re-run the edited SQL at the moment.") from exc
 

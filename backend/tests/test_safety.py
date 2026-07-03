@@ -3,14 +3,20 @@
 Tests validate_query() and sanitize_row_limit() with a wide range of
 normal, edge-case, and adversarial inputs.
 """
+import asyncio
+from types import SimpleNamespace
+
 import anyio
 import pytest
+from sqlalchemy import create_engine, text
 from app.db.models.connection import ConnectionRequest
+from app.query_engine.executor import execute_query
 from app.query_engine.safety import (
     validate_query,
     sanitize_row_limit,
     get_readonly_wrapped_query,
 )
+from app.services import chat_service
 
 
 # ---------------------------------------------------------------------------
@@ -133,11 +139,11 @@ class TestSanitizeRowLimit:
         result = sanitize_row_limit(sql, 100)
         assert result.endswith("LIMIT 100")
 
-    def test_preserves_existing_limit(self):
+    def test_wraps_existing_limit_with_server_cap(self):
         sql = "SELECT * FROM users LIMIT 50"
         result = sanitize_row_limit(sql, 100)
         assert "LIMIT 50" in result
-        assert "LIMIT 100" not in result
+        assert result.endswith("LIMIT 100")
 
     def test_strips_trailing_semicolon_before_adding_limit(self):
         sql = "SELECT * FROM users;"
@@ -145,11 +151,18 @@ class TestSanitizeRowLimit:
         assert result.endswith("LIMIT 100")
         assert ";;" not in result
 
-    def test_case_insensitive_limit_detection(self):
+    def test_case_insensitive_existing_limit_still_gets_server_cap(self):
         sql = "SELECT * FROM users limit 20"
         result = sanitize_row_limit(sql, 100)
-        assert "LIMIT 100" not in result  # should keep existing limit
+        assert "limit 20" in result
+        assert result.endswith("LIMIT 100")
 
+
+    def test_wraps_cte_query_with_server_cap(self):
+        sql = "WITH users AS (SELECT 1 AS id) SELECT id FROM users"
+        result = sanitize_row_limit(sql, 100)
+        assert result.startswith("SELECT * FROM (\nWITH users AS")
+        assert result.endswith("LIMIT 100")
 
 # ---------------------------------------------------------------------------
 # get_readonly_wrapped_query
@@ -575,3 +588,294 @@ def test_connect_route_does_not_inspect_schema_or_bootstrap_templates(monkeypatc
 
     assert response.id == "conn_1"
     assert response.message == "Successfully connected to demo"
+
+# ---------------------------------------------------------------------------
+# execute_query row caps
+# ---------------------------------------------------------------------------
+
+class TestExecuteQueryRowLimits:
+    def test_enforces_row_limit_when_query_has_huge_limit(self):
+        engine = create_engine("sqlite:///:memory:")
+        with engine.begin() as conn:
+            conn.execute(text("CREATE TABLE items (id INTEGER PRIMARY KEY)"))
+            for i in range(10):
+                conn.execute(text("INSERT INTO items (id) VALUES (:id)"), {"id": i + 1})
+
+        result = execute_query(
+            user_id="user-1",
+            engine=engine,
+            sql="SELECT id FROM items ORDER BY id LIMIT 1000000",
+            row_limit=3,
+        )
+
+        assert result.success is True
+        assert result.row_count == 3
+        assert result.truncated is True
+        assert [row["id"] for row in result.rows] == [1, 2, 3]
+
+
+# ---------------------------------------------------------------------------
+# chat truncated metadata
+# ---------------------------------------------------------------------------
+
+class TestChatTruncatedMetadata:
+    def test_chat_response_and_stored_message_include_truncated(self, monkeypatch):
+        stored_messages = []
+
+        async def fake_get_engine(user_id, connection_id):
+            return object()
+
+        async def fake_get_schema_for_ai(user_id, connection_id):
+            return "Table: items\n  - id: integer NOT NULL"
+
+        async def fake_create_session(user_id, connection_id):
+            return SimpleNamespace(id="session-1")
+
+        async def fake_noop(*args, **kwargs):
+            return None
+
+        async def fake_get_history_for_llm(user_id, session_id):
+            return []
+
+        async def fake_get_latest_user_message_id(user_id, session_id):
+            return None
+
+        async def fake_add_message(user_id, session_id, message):
+            stored_messages.append(message)
+
+        def fake_run_chat(**kwargs):
+            return {
+                "explanation": "Preview is limited.",
+                "sql": "SELECT id FROM items LIMIT 1000000",
+                "columns": ["id"],
+                "rows": [{"id": 1}],
+                "row_count": 500,
+                "execution_time_ms": 12.5,
+                "truncated": True,
+                "chart_recommendation": None,
+                "error": "",
+                "column_metadata": {"id": "numeric"},
+            }
+
+        monkeypatch.setattr(chat_service.connection_service, "get_engine", fake_get_engine)
+        monkeypatch.setattr(chat_service.connection_service, "get_schema_for_ai", fake_get_schema_for_ai)
+        monkeypatch.setattr(chat_service, "create_session", fake_create_session)
+        monkeypatch.setattr(chat_service, "rename_session", fake_noop)
+        monkeypatch.setattr(chat_service, "track_connection", fake_noop)
+        monkeypatch.setattr(chat_service, "get_history_for_llm", fake_get_history_for_llm)
+        monkeypatch.setattr(chat_service, "get_latest_user_message_id", fake_get_latest_user_message_id)
+        monkeypatch.setattr(chat_service, "add_message", fake_add_message)
+        monkeypatch.setattr(chat_service, "run_chat", fake_run_chat)
+
+        response = asyncio.run(
+            chat_service.send_message(
+                user_id="user-1",
+                connection_id="connection-1",
+                message="show items",
+            )
+        )
+
+        assert response["truncated"] is True
+        assert response["row_count"] == 500
+        assert len(stored_messages) == 2
+        assistant_message = stored_messages[1]
+        assert assistant_message.truncated is True
+        assert assistant_message.results["truncated"] is True
+        assert assistant_message.results["row_count"] == 500
+        assert assistant_message.results["execution_time_ms"] == 12.5
+
+# ---------------------------------------------------------------------------
+# edit-SQL preflight validation
+# ---------------------------------------------------------------------------
+
+class TestEditSqlPreflight:
+    def test_missing_session_does_not_execute(self, monkeypatch):
+        executed = False
+
+        async def fake_get_session(user_id, session_id):
+            return None
+
+        async def fake_execute_for_connection(*args, **kwargs):
+            nonlocal executed
+            executed = True
+
+        monkeypatch.setattr(chat_service, "get_session", fake_get_session)
+        monkeypatch.setattr(chat_service.query_execution_service, "execute_for_connection", fake_execute_for_connection)
+
+        with pytest.raises(chat_service.ChatEditNotFoundError):
+            asyncio.run(chat_service.edit_message_sql("user-1", "missing", "msg-1", "SELECT 1", "conn-1"))
+
+        assert executed is False
+
+    def test_missing_message_does_not_execute(self, monkeypatch):
+        executed = False
+
+        async def fake_get_session(user_id, session_id):
+            return SimpleNamespace(id=session_id)
+
+        async def fake_get_message(user_id, session_id, message_id):
+            return None
+
+        async def fake_execute_for_connection(*args, **kwargs):
+            nonlocal executed
+            executed = True
+
+        monkeypatch.setattr(chat_service, "get_session", fake_get_session)
+        monkeypatch.setattr(chat_service, "get_message", fake_get_message)
+        monkeypatch.setattr(chat_service.query_execution_service, "execute_for_connection", fake_execute_for_connection)
+
+        with pytest.raises(chat_service.ChatEditNotFoundError):
+            asyncio.run(chat_service.edit_message_sql("user-1", "session-1", "missing", "SELECT 1", "conn-1"))
+
+        assert executed is False
+
+    def test_user_message_target_does_not_execute(self, monkeypatch):
+        executed = False
+
+        async def fake_get_session(user_id, session_id):
+            return SimpleNamespace(id=session_id)
+
+        async def fake_get_message(user_id, session_id, message_id):
+            return SimpleNamespace(role="user", sql=None)
+
+        async def fake_execute_for_connection(*args, **kwargs):
+            nonlocal executed
+            executed = True
+
+        monkeypatch.setattr(chat_service, "get_session", fake_get_session)
+        monkeypatch.setattr(chat_service, "get_message", fake_get_message)
+        monkeypatch.setattr(chat_service.query_execution_service, "execute_for_connection", fake_execute_for_connection)
+
+        with pytest.raises(chat_service.ChatEditValidationError):
+            asyncio.run(chat_service.edit_message_sql("user-1", "session-1", "msg-1", "SELECT 1", "conn-1"))
+
+        assert executed is False
+
+    def test_assistant_without_sql_does_not_execute(self, monkeypatch):
+        executed = False
+
+        async def fake_get_session(user_id, session_id):
+            return SimpleNamespace(id=session_id)
+
+        async def fake_get_message(user_id, session_id, message_id):
+            return SimpleNamespace(role="assistant", sql=None)
+
+        async def fake_execute_for_connection(*args, **kwargs):
+            nonlocal executed
+            executed = True
+
+        monkeypatch.setattr(chat_service, "get_session", fake_get_session)
+        monkeypatch.setattr(chat_service, "get_message", fake_get_message)
+        monkeypatch.setattr(chat_service.query_execution_service, "execute_for_connection", fake_execute_for_connection)
+
+        with pytest.raises(chat_service.ChatEditValidationError):
+            asyncio.run(chat_service.edit_message_sql("user-1", "session-1", "msg-1", "SELECT 1", "conn-1"))
+
+        assert executed is False
+
+    def test_missing_connection_does_not_execute(self, monkeypatch):
+        executed = False
+
+        async def fake_get_session(user_id, session_id):
+            return SimpleNamespace(id=session_id)
+
+        async def fake_get_message(user_id, session_id, message_id):
+            return SimpleNamespace(role="assistant", sql="SELECT 1")
+
+        async def fake_get_engine(user_id, connection_id):
+            return None
+
+        async def fake_execute_for_connection(*args, **kwargs):
+            nonlocal executed
+            executed = True
+
+        monkeypatch.setattr(chat_service, "get_session", fake_get_session)
+        monkeypatch.setattr(chat_service, "get_message", fake_get_message)
+        monkeypatch.setattr(chat_service.connection_service, "get_engine", fake_get_engine)
+        monkeypatch.setattr(chat_service.query_execution_service, "execute_for_connection", fake_execute_for_connection)
+
+        with pytest.raises(chat_service.ChatEditNotFoundError):
+            asyncio.run(chat_service.edit_message_sql("user-1", "session-1", "msg-1", "SELECT 1", "missing"))
+
+        assert executed is False
+
+    def test_valid_message_executes_and_updates(self, monkeypatch):
+        updates = []
+
+        async def fake_get_session(user_id, session_id):
+            return SimpleNamespace(id=session_id)
+
+        async def fake_get_message(user_id, session_id, message_id):
+            return SimpleNamespace(role="assistant", sql="SELECT 1")
+
+        async def fake_get_engine(user_id, connection_id):
+            return object()
+
+        async def fake_execute_for_connection(*args, **kwargs):
+            return SimpleNamespace(
+                success=True,
+                rows=[],
+                columns=["id"],
+                row_count=0,
+                execution_time_ms=4.5,
+                truncated=False,
+                error=None,
+            )
+
+        async def fake_get_history_for_llm(user_id, session_id):
+            return []
+
+        async def fake_update_message(user_id, session_id, message_id, update):
+            updates.append(update)
+            return True
+
+        monkeypatch.setattr(chat_service, "get_session", fake_get_session)
+        monkeypatch.setattr(chat_service, "get_message", fake_get_message)
+        monkeypatch.setattr(chat_service.connection_service, "get_engine", fake_get_engine)
+        monkeypatch.setattr(chat_service.query_execution_service, "execute_for_connection", fake_execute_for_connection)
+        monkeypatch.setattr(chat_service, "get_history_for_llm", fake_get_history_for_llm)
+        monkeypatch.setattr(chat_service, "update_message", fake_update_message)
+
+        response = asyncio.run(chat_service.edit_message_sql("user-1", "session-1", "msg-1", "SELECT 2", "conn-1"))
+
+        assert response.sql == "SELECT 2"
+        assert response.columns == ["id"]
+        assert updates[0]["results"]["execution_time_ms"] == 4.5
+        assert updates[0]["results"]["truncated"] is False
+
+    def test_failed_post_execution_update_raises_service_failure(self, monkeypatch):
+        async def fake_get_session(user_id, session_id):
+            return SimpleNamespace(id=session_id)
+
+        async def fake_get_message(user_id, session_id, message_id):
+            return SimpleNamespace(role="assistant", sql="SELECT 1")
+
+        async def fake_get_engine(user_id, connection_id):
+            return object()
+
+        async def fake_execute_for_connection(*args, **kwargs):
+            return SimpleNamespace(
+                success=True,
+                rows=[],
+                columns=["id"],
+                row_count=0,
+                execution_time_ms=4.5,
+                truncated=False,
+                error=None,
+            )
+
+        async def fake_get_history_for_llm(user_id, session_id):
+            return []
+
+        async def fake_update_message(user_id, session_id, message_id, update):
+            return False
+
+        monkeypatch.setattr(chat_service, "get_session", fake_get_session)
+        monkeypatch.setattr(chat_service, "get_message", fake_get_message)
+        monkeypatch.setattr(chat_service.connection_service, "get_engine", fake_get_engine)
+        monkeypatch.setattr(chat_service.query_execution_service, "execute_for_connection", fake_execute_for_connection)
+        monkeypatch.setattr(chat_service, "get_history_for_llm", fake_get_history_for_llm)
+        monkeypatch.setattr(chat_service, "update_message", fake_update_message)
+
+        with pytest.raises(RuntimeError):
+            asyncio.run(chat_service.edit_message_sql("user-1", "session-1", "msg-1", "SELECT 2", "conn-1"))

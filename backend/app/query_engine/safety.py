@@ -66,11 +66,11 @@ def get_readonly_wrapped_query(sql: str) -> str:
 
 
 def sanitize_row_limit(sql: str, max_rows: int) -> str:
-    if re.search(r"\bLIMIT\b", sql, re.IGNORECASE):
-        return sql
-
-    sql = sql.rstrip(";").strip()
-    return f"{sql} LIMIT {max_rows}"
+    limit = max(1, int(max_rows))
+    normalized = sql.strip()
+    if normalized.endswith(";"):
+        normalized = normalized[:-1].rstrip()
+    return f"SELECT * FROM (\n{normalized}\n) AS qm_limited_query\nLIMIT {limit}"
 
 
 __all__ = [
