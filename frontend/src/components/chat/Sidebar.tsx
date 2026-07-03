@@ -3,7 +3,7 @@ import { T } from '../dashboard/tokens';
 import type { ChatSidebarProps } from '../../types/chat';
 import { DeleteSessionModal } from './DeleteSessionModal';
 
-export function Sidebar({ sessions, activeSessionId, onSelectSession, onNewChat, onDeleteSession, onRenameSession, connections, activeConnectionId }: ChatSidebarProps) {
+export function Sidebar({ sessions, activeSessionId, sessionsState = 'ready', sessionsError, onRetrySessions, onSelectSession, onNewChat, onDeleteSession, onRenameSession, connections, activeConnectionId }: ChatSidebarProps) {
   const [search, setSearch] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
@@ -183,7 +183,23 @@ export function Sidebar({ sessions, activeSessionId, onSelectSession, onNewChat,
               })}
           </div>
         ))}
-        {sessions.length === 0 && (
+        {sessionsState === 'loading' && (
+          <div style={{ textAlign: 'center', padding: '48px 20px', color: T.text3, fontSize: '0.72rem', lineHeight: 1.7, fontFamily: T.fontMono, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            LOADING CONVERSATIONS
+          </div>
+        )}
+        {sessionsState === 'error' && (
+          <div style={{ textAlign: 'center', padding: '40px 14px', color: T.red, fontSize: '0.72rem', lineHeight: 1.7, fontFamily: T.fontMono, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <div>CONVERSATION LOAD FAILED</div>
+            <div style={{ color: T.text3, fontSize: '0.62rem', marginTop: 8 }}>{sessionsError || 'COULD NOT LOAD CONVERSATIONS'}</div>
+            {onRetrySessions && (
+              <button onClick={onRetrySessions} style={{ marginTop: 14, padding: '8px 12px', background: '#fff', border: '1px solid rgba(0,0,0,0.12)', color: T.text, fontFamily: T.fontMono, fontWeight: 800, fontSize: '0.65rem', cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                RETRY CONVERSATIONS
+              </button>
+            )}
+          </div>
+        )}
+        {sessionsState !== 'loading' && sessionsState !== 'error' && sessions.length === 0 && (
           <div style={{ textAlign: 'center', padding: '48px 20px', color: T.text3, fontSize: '0.8rem', lineHeight: 1.7 }}>
             No conversations yet.<br />Start a new chat!
           </div>

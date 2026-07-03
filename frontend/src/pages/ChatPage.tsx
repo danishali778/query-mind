@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Pin } from 'lucide-react';
 import { MainShell } from '../components/common/MainShell';
 import { Sidebar as ChatSidebar } from '../components/chat/Sidebar';
@@ -8,58 +8,209 @@ import { ConnectionModal } from '../components/chat/ConnectionModal';
 import { T } from '../components/dashboard/tokens';
 import * as api from '../services/api';
 import type { ChatMessageView } from '../types/chat';
-import type { DatabaseConnection, SessionSummary } from '../types/api';
+import type { DatabaseConnection, SessionMessagesResponse, SessionSummary } from '../types/api';
+
+type LoadState = 'loading' | 'ready' | 'error';
+type MessageLoadState = 'idle' | LoadState;
+
+const CONNECTION_LOAD_ERROR = 'COULD NOT LOAD DATABASE CONNECTIONS';
+const SESSION_LOAD_ERROR = 'COULD NOT LOAD CONVERSATIONS';
+const MESSAGE_LOAD_ERROR = 'COULD NOT LOAD THIS CONVERSATION';
+const SEND_ERROR = 'QUERY REQUEST FAILED. PLEASE TRY AGAIN';
+
+function mapSessionMessages(data: SessionMessagesResponse): ChatMessageView[] {
+  return data.messages.map((message) => ({
+    id: message.id,
+    role: message.role as ChatMessageView['role'],
+    content: message.content,
+    sql: message.sql || undefined,
+    columns: message.columns || message.results?.columns || undefined,
+    rows: message.rows || message.results?.rows || undefined,
+    row_count: message.row_count ?? message.results?.row_count ?? undefined,
+    truncated: message.truncated ?? message.results?.truncated ?? undefined,
+    execution_time_ms: message.execution_time_ms ?? message.results?.execution_time_ms ?? undefined,
+    chart_recommendation: message.chart_recommendation || undefined,
+    column_metadata: message.column_metadata || undefined,
+    error: message.error || undefined,
+    is_pinned: message.is_pinned ?? false,
+    parent_id: message.parent_id || undefined,
+    prev_query_id: message.prev_query_id || undefined,
+  }));
+}
+
+function isUsageLimitError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('LIMIT_EXCEEDED') || message.includes('402');
+}
+
+function StatePanel({
+  title,
+  body,
+  tone = 'neutral',
+  actionLabel,
+  onAction,
+}: {
+  title: string;
+  body: string;
+  tone?: 'neutral' | 'error';
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '65vh', gap: 18, textAlign: 'center' }}>
+      <div style={{
+        width: 56,
+        height: 56,
+        borderRadius: 0,
+        background: tone === 'error' ? '#fee2e2' : '#1a1a1a',
+        border: tone === 'error' ? '1px solid #fecaca' : 'none',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: '1.4rem',
+        fontWeight: 900,
+        color: tone === 'error' ? T.red : '#fff',
+        fontFamily: T.fontHead,
+        fontStyle: 'italic'
+      }}>Q</div>
+      <div style={{ fontFamily: T.fontMono, fontWeight: 900, fontSize: '0.8rem', color: tone === 'error' ? T.red : T.text, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+        {title}
+      </div>
+      <div style={{ fontSize: '0.95rem', color: T.text2, maxWidth: 430, lineHeight: 1.6 }}>
+        {body}
+      </div>
+      {actionLabel && onAction && (
+        <button
+          onClick={onAction}
+          style={{
+            padding: '11px 18px',
+            borderRadius: 0,
+            border: `1px solid ${tone === 'error' ? '#fecaca' : 'rgba(0,0,0,0.12)'}`,
+            background: '#fff',
+            color: T.text,
+            cursor: 'pointer',
+            fontFamily: T.fontMono,
+            fontSize: '0.7rem',
+            fontWeight: 900,
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase'
+          }}
+        >
+          {actionLabel}
+        </button>
+      )}
+    </div>
+  );
+}
 
 export function ChatPage() {
   const [connections, setConnections] = useState<DatabaseConnection[]>([]);
+  const [connectionsState, setConnectionsState] = useState<LoadState>('loading');
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const [activeConnectionId, setActiveConnectionId] = useState('');
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [sessionsState, setSessionsState] = useState<LoadState>('loading');
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessageView[]>([]);
+  const [messagesState, setMessagesState] = useState<MessageLoadState>('idle');
+  const [messagesError, setMessagesError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [showPaywall, setShowPaywall] = useState(false);
-  const [schemaOpen, setSchemaOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const skipNextFetch = useRef(false);
+  const messageLoadRequestRef = useRef(0);
 
-  useEffect(() => {
-    api.listConnections().then(conns => {
+  const loadConnections = useCallback(async (options: { preferLast?: boolean; preferredId?: string } = {}) => {
+    setConnectionsState('loading');
+    setConnectionError(null);
+    try {
+      const conns = await api.listConnections();
       setConnections(conns);
-      if (conns.length > 0) setActiveConnectionId(conns[0].id);
-    });
-    api.listSessions().then(setSessions);
+      setConnectionsState('ready');
+      setActiveConnectionId(current => {
+        if (options.preferredId && conns.some(c => c.id === options.preferredId)) return options.preferredId;
+        if (options.preferLast) return conns[conns.length - 1]?.id || '';
+        if (current && conns.some(c => c.id === current)) return current;
+        return conns[0]?.id || '';
+      });
+      return conns;
+    } catch (error) {
+      console.error('Failed to load connections:', error);
+      setConnectionsState('error');
+      setConnectionError(CONNECTION_LOAD_ERROR);
+      return [];
+    }
   }, []);
 
-  useEffect(() => {
-    if (!activeSessionId) { setMessages([]); return; }
-    if (skipNextFetch.current) { skipNextFetch.current = false; return; }
-    api.getSessionMessages(activeSessionId).then(data => {
-      const msgs: ChatMessageView[] = data.messages.map((message) => ({
-        id: message.id,
-        role: message.role as any,
-        content: message.content,
-        sql: message.sql || undefined,
-        columns: message.columns || message.results?.columns || undefined,
-        rows: message.rows || message.results?.rows || undefined,
-        row_count: message.row_count ?? message.results?.row_count ?? undefined,
-        execution_time_ms: message.execution_time_ms ?? message.results?.execution_time_ms ?? undefined,
-        chart_recommendation: message.chart_recommendation || undefined,
-        column_metadata: message.column_metadata || undefined,
-        error: message.error || undefined,
-        is_pinned: message.is_pinned ?? false,
-        parent_id: message.parent_id || undefined,
-        prev_query_id: message.prev_query_id || undefined,
-      }));
-      setMessages(msgs);
-      // Auto-switch to the session's last-used connection
+  const loadSessions = useCallback(async () => {
+    setSessionsState('loading');
+    setSessionsError(null);
+    try {
+      const nextSessions = await api.listSessions();
+      setSessions(nextSessions);
+      setSessionsState('ready');
+      return nextSessions;
+    } catch (error) {
+      console.error('Failed to load conversations:', error);
+      setSessionsState('error');
+      setSessionsError(SESSION_LOAD_ERROR);
+      return [];
+    }
+  }, []);
+
+  const loadMessages = useCallback(async (sessionId: string) => {
+    const requestId = messageLoadRequestRef.current + 1;
+    messageLoadRequestRef.current = requestId;
+    setMessagesState('loading');
+    setMessagesError(null);
+    setMessages([]);
+
+    try {
+      const data = await api.getSessionMessages(sessionId);
+      if (messageLoadRequestRef.current !== requestId) return;
+      setMessages(mapSessionMessages(data));
+      setMessagesState('ready');
       if (data.last_connection_id && connections.some(c => c.id === data.last_connection_id)) {
         setActiveConnectionId(data.last_connection_id);
       }
-    });
-  }, [activeSessionId, connections]); // Added connections to deps to ensure switch works when conns load
+    } catch (error) {
+      if (messageLoadRequestRef.current !== requestId) return;
+      console.error('Failed to load conversation messages:', error);
+      setMessages([]);
+      setMessagesState('error');
+      setMessagesError(MESSAGE_LOAD_ERROR);
+    }
+  }, [connections]);
 
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  useEffect(() => {
+    void loadConnections();
+    void loadSessions();
+  }, [loadConnections, loadSessions]);
+
+  useEffect(() => {
+    if (!activeSessionId) {
+      messageLoadRequestRef.current += 1;
+      setMessages([]);
+      setMessagesState('idle');
+      setMessagesError(null);
+      return;
+    }
+    if (skipNextFetch.current) {
+      skipNextFetch.current = false;
+      setMessagesState('ready');
+      setMessagesError(null);
+      return;
+    }
+    void loadMessages(activeSessionId);
+  }, [activeSessionId, loadMessages]);
+
+  useEffect(() => {
+    if (typeof messagesEndRef.current?.scrollIntoView === 'function') {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages]);
 
   const handleSqlSave = async (messageId: string, newSql: string) => {
     if (!activeSessionId || !activeConnectionId) return;
@@ -75,6 +226,7 @@ export function ChatPage() {
         rows: (updatedMsg as any).rows || (updatedMsg as any).results?.rows || undefined,
         columns: (updatedMsg as any).columns || (updatedMsg as any).results?.columns || undefined,
         chart_recommendation: (updatedMsg as any).chart_recommendation || undefined,
+        truncated: (updatedMsg as any).truncated ?? (updatedMsg as any).results?.truncated ?? undefined,
         execution_time_ms: (updatedMsg as any).execution_time_ms || (updatedMsg as any).results?.execution_time_ms || undefined,
         error: (updatedMsg as any).error || undefined,
         content: (updatedMsg as any).content || m.content,
@@ -96,8 +248,14 @@ export function ChatPage() {
   };
 
   const handleSend = async (message: string) => {
-    if (!activeConnectionId) return;
+    if (!activeConnectionId) {
+      setMessagesState('ready');
+      setMessages(prev => [...prev, { role: 'assistant', content: '', error: connectionsState === 'error' ? CONNECTION_LOAD_ERROR : 'CONNECT A DATABASE BEFORE CHATTING' }]);
+      return;
+    }
+
     const userMsg: ChatMessageView = { role: 'user', content: message };
+    setMessagesState('ready');
     setMessages(prev => [...prev, userMsg]);
     setLoading(true);
     try {
@@ -110,17 +268,17 @@ export function ChatPage() {
         columns: r.columns || [],
         rows: r.rows || [],
         row_count: r.row_count,
+        truncated: r.truncated,
         execution_time_ms: r.execution_time_ms,
         chart_recommendation: r.chart_recommendation || undefined,
         column_metadata: r.column_metadata || undefined,
         error: r.error || undefined,
         is_pinned: r.is_pinned ?? false,
-        parent_id: userMsg.id, // Direct link
+        parent_id: userMsg.id,
         prev_query_id: r.prev_query_id || undefined,
       };
       setMessages(prev => {
         const updated = [...prev];
-        // The last message in 'prev' is the user message we just added
         if (updated.length > 0 && updated[updated.length - 1].role === 'user') {
           updated[updated.length - 1] = {
             ...updated[updated.length - 1],
@@ -134,43 +292,62 @@ export function ChatPage() {
       if (!activeSessionId && r.session_id) {
         skipNextFetch.current = true;
         setActiveSessionId(r.session_id);
-        api.listSessions().then(setSessions);
+        void loadSessions();
       }
-    } catch (err: any) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('LIMIT_EXCEEDED') || msg.includes('402')) {
+    } catch (err) {
+      if (isUsageLimitError(err)) {
         setShowPaywall(true);
       } else {
-        setMessages(prev => [...prev, { role: 'assistant', content: '', error: msg }]);
+        setMessages(prev => [...prev, { role: 'assistant', content: '', error: SEND_ERROR }]);
       }
     } finally { setLoading(false); }
   };
 
-  const handleNewChat = () => { setActiveSessionId(null); setMessages([]); };
+  const handleNewChat = () => {
+    setActiveSessionId(null);
+    setMessages([]);
+    setMessagesState('idle');
+    setMessagesError(null);
+  };
+
   const handleDeleteSession = async (sid: string) => {
     await api.deleteSession(sid);
     setSessions(prev => prev.filter(s => s.id !== sid));
-    if (activeSessionId === sid) { setActiveSessionId(null); setMessages([]); }
+    if (activeSessionId === sid) handleNewChat();
   };
+
   const handleRenameSession = async (sid: string, title: string) => {
     await api.renameSession(sid, title);
     setSessions(prev => prev.map(s => s.id === sid ? { ...s, title } : s));
   };
+
   const handleRefreshConnections = () => {
-    api.listConnections().then(conns => {
-      setConnections(conns);
-      if (conns.length > 0 && !activeConnectionId) setActiveConnectionId(conns[0].id);
-      else if (conns.length > 0) setActiveConnectionId(conns[conns.length - 1].id);
-    });
+    void loadConnections({ preferLast: true });
   };
 
   const activeConn = connections.find(c => c.id === activeConnectionId);
   const activeSession = sessions.find(s => s.id === activeSessionId);
+  const chatInputDisabled = loading || connectionsState !== 'ready' || !activeConnectionId;
+  const chatInputDisabledReason = connectionsState === 'loading'
+    ? 'LOADING SOURCES'
+    : connectionsState === 'error'
+      ? 'SOURCE LOAD FAILED'
+      : connections.length === 0
+        ? 'CONNECT A DATABASE'
+        : !activeConnectionId
+          ? 'SELECT DATABASE'
+          : undefined;
+  const showConnectionLoading = connectionsState === 'loading' && connections.length === 0;
+  const showConnectionError = connectionsState === 'error' && connections.length === 0;
+  const showNoConnections = connectionsState === 'ready' && connections.length === 0;
+  const showMessageLoading = connectionsState === 'ready' && connections.length > 0 && messagesState === 'loading';
+  const showMessageError = connectionsState === 'ready' && connections.length > 0 && messagesState === 'error';
+  const showEmptyPrompt = connectionsState === 'ready' && connections.length > 0 && messagesState !== 'loading' && messagesState !== 'error' && messages.length === 0;
 
   return (
     <MainShell
       title={activeSession?.title || 'New Chat'}
-      subtitle={activeConn ? `${activeConn.db_type} • ${activeConn.database}` : 'Select a connection'}
+      subtitle={activeConn ? `${activeConn.db_type} - ${activeConn.database}` : 'Select a connection'}
       hideSidebar={true}
       hideHeader={true}
       activeId="chat"
@@ -179,32 +356,11 @@ export function ChatPage() {
         color: T.green,
         icon: <div style={{ width: 6, height: 6, borderRadius: '50%', background: T.green }} />
       } : undefined}
-      headerActions={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button
-            onClick={() => setSchemaOpen(!schemaOpen)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '7px 14px', borderRadius: 8,
-              border: `1px solid ${schemaOpen ? T.accent : T.border}`,
-              background: schemaOpen ? T.accentDim : 'transparent',
-              color: schemaOpen ? T.accent : T.text2,
-              fontSize: '0.76rem', cursor: 'pointer', fontFamily: T.fontBody,
-              transition: 'all 0.18s ease',
-            }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-            </svg>
-            Schema {schemaOpen ? 'Open' : ''}
-          </button>
-        </div>
-      }
     >
       <div style={{ display: 'flex', width: '100%', height: '100%', overflow: 'hidden', position: 'relative' }}>
         <ChatSidebar
           sessions={sessions} activeSessionId={activeSessionId}
+          sessionsState={sessionsState} sessionsError={sessionsError} onRetrySessions={() => { void loadSessions(); }}
           onSelectSession={setActiveSessionId} onNewChat={handleNewChat}
           onDeleteSession={handleDeleteSession} onRenameSession={handleRenameSession}
           connections={connections} activeConnectionId={activeConnectionId}
@@ -219,7 +375,6 @@ export function ChatPage() {
           background: 'transparent',
           position: 'relative'
         }}>
-          {/* Main Stage (Messages + Centering Logic) */}
           <div style={{ flex: 1, display: 'flex', justifyContent: 'center', minWidth: 0, overflow: 'hidden' }}>
             <div
               id="chat-messages-scroll"
@@ -231,12 +386,11 @@ export function ChatPage() {
                 flexDirection: 'column',
                 overflowY: 'auto',
                 overflowX: 'hidden',
-                padding: '0 80px 40px', // Increased padding for editorial feel
+                padding: '0 80px 40px',
                 scrollBehavior: 'smooth'
               }}
             >
               <div style={{ width: '100%', minWidth: 0, paddingTop: 24 }}>
-                {/* Pinned Messages Bar - Editorial Style */}
                 {messages.filter(m => m.is_pinned).length > 0 && (
                   <div style={{ padding: '0 0 24px', borderBottom: `1px solid rgba(0,0,0,0.05)`, marginBottom: 32 }}>
                     <div style={{ fontSize: '0.62rem', fontWeight: 700, color: T.text3, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8, fontFamily: T.fontMono }}>
@@ -260,7 +414,7 @@ export function ChatPage() {
                             {m.content.length > 30 ? m.content.substring(0, 30) + '...' : m.content}
                           </div>
                           <div style={{ fontSize: '0.6rem', color: T.text3, fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                            {m.rows?.length || 0} ROWS • {m.columns?.length || 0} COLS
+                            {m.rows?.length || 0} ROWS - {m.columns?.length || 0} COLS
                           </div>
                         </div>
                       ))}
@@ -268,7 +422,27 @@ export function ChatPage() {
                   </div>
                 )}
 
-                {messages.length === 0 && (
+                {showConnectionLoading && (
+                  <StatePanel title="LOADING DATABASE CONNECTIONS" body="Preparing your available data sources before chat starts." />
+                )}
+
+                {showConnectionError && (
+                  <StatePanel title="SOURCE LOAD FAILED" body={connectionError || CONNECTION_LOAD_ERROR} tone="error" actionLabel="RETRY LOAD" onAction={() => { void loadConnections(); }} />
+                )}
+
+                {showNoConnections && (
+                  <StatePanel title="NO DATABASE CONNECTIONS" body="Connect a PostgreSQL database before starting a chat." actionLabel="CONNECT DATABASE" onAction={() => setShowConnectModal(true)} />
+                )}
+
+                {showMessageLoading && (
+                  <StatePanel title="LOADING CONVERSATION" body="Restoring the selected conversation and its saved results." />
+                )}
+
+                {showMessageError && (
+                  <StatePanel title="CONVERSATION LOAD FAILED" body={messagesError || MESSAGE_LOAD_ERROR} tone="error" actionLabel="RETRY MESSAGE LOAD" onAction={() => { if (activeSessionId) void loadMessages(activeSessionId); }} />
+                )}
+
+                {showEmptyPrompt && (
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '65vh', gap: 20 }}>
                     <div style={{
                       width: 64, height: 64, borderRadius: 0, background: '#1a1a1a',
@@ -288,12 +462,12 @@ export function ChatPage() {
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 16, justifyContent: 'center' }}>
                       {['Show me all tables', 'Describe the database', 'Who are the top customers?'].map(s => (
-                        <button key={s} onClick={() => handleSend(s)} disabled={!activeConnectionId || loading} style={{
+                        <button key={s} onClick={() => handleSend(s)} disabled={chatInputDisabled} style={{
                           padding: '10px 20px', borderRadius: 0, border: `1px solid rgba(0,0,0,0.1)`, background: '#fff',
-                          color: T.text, fontSize: '0.8rem', cursor: 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap',
+                          color: T.text, fontSize: '0.8rem', cursor: chatInputDisabled ? 'default' : 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap',
                           fontWeight: 700, fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '0.05em'
                         }}
-                          onMouseEnter={e => { e.currentTarget.style.borderColor = '#1a1a1a'; e.currentTarget.style.background = '#fdfcfb'; }}
+                          onMouseEnter={e => { if (!chatInputDisabled) { e.currentTarget.style.borderColor = '#1a1a1a'; e.currentTarget.style.background = '#fdfcfb'; } }}
                           onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(0,0,0,0.1)'; e.currentTarget.style.background = '#fff'; }}
                         >{s}</button>
                       ))}
@@ -332,6 +506,7 @@ export function ChatPage() {
               <ChatInput
                 connections={connections} activeConnectionId={activeConnectionId}
                 onConnectionChange={setActiveConnectionId} onSend={handleSend} loading={loading}
+                disabled={chatInputDisabled} disabledReason={chatInputDisabledReason}
               />
             </div>
           </div>
@@ -340,7 +515,6 @@ export function ChatPage() {
 
       <ConnectionModal isOpen={showConnectModal} onClose={() => setShowConnectModal(false)} onConnected={handleRefreshConnections} />
 
-      {/* Paywall Overlay */}
       {showPaywall && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
@@ -353,7 +527,7 @@ export function ChatPage() {
             padding: '40px 40px', maxWidth: 440, width: '100%', textAlign: 'center',
             boxShadow: '0 24px 64px rgba(0,0,0,0.5), 0 0 0 1px rgba(124,58,255,0.1) inset'
           }}>
-            <div style={{ fontSize: '3rem', marginBottom: 16 }}>⚡</div>
+            <div style={{ fontSize: '3rem', marginBottom: 16 }}>!</div>
             <h2 style={{ fontFamily: T.fontHead, fontWeight: 800, fontSize: '1.8rem', color: T.text, margin: '0 0 12px 0' }}>Usage Limit Reached</h2>
             <p style={{ fontSize: '0.95rem', color: T.text3, lineHeight: 1.6, margin: '0 0 32px 0' }}>
               You have hit your free tier limit for AI requests. Upgrade to Pro for unlimited AI analytics, background sync, and more.

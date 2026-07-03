@@ -21,6 +21,9 @@ export interface ChatMessageView {
 export interface ChatSidebarProps {
   sessions: SessionSummary[];
   activeSessionId: string | null;
+  sessionsState?: 'loading' | 'ready' | 'error';
+  sessionsError?: string | null;
+  onRetrySessions?: () => void;
   onSelectSession: (id: string) => void;
   onNewChat: () => void;
   onDeleteSession: (id: string) => void;
@@ -35,6 +38,8 @@ export interface ChatInputProps {
   onConnectionChange: (id: string) => void;
   onSend: (message: string) => void;
   loading: boolean;
+  disabled?: boolean;
+  disabledReason?: string;
 }
 
 export interface AddToDashboardMessage {

@@ -145,6 +145,7 @@ export function MessageBubble({
                 rows={message.rows}
                 rowCount={message.row_count}
                 executionTime={message.execution_time_ms}
+                truncated={message.truncated}
               />
             </div>
           )}
