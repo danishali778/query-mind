@@ -2,16 +2,18 @@ import { useState, useRef } from 'react';
 import { T } from '../dashboard/tokens';
 import type { ChatInputProps } from '../../types/chat';
 
-export function ChatInput({ connections, activeConnectionId, onConnectionChange, onSend, loading }: ChatInputProps) {
+export function ChatInput({ connections, activeConnectionId, onConnectionChange, onSend, loading, disabled = false, disabledReason }: ChatInputProps) {
   const [text, setText] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const textRef = useRef<HTMLTextAreaElement>(null);
 
   const activeConn = connections.find(c => c.id === activeConnectionId);
+  const sendDisabled = disabled || loading || !text.trim();
+  const selectorDisabled = connections.length === 0;
 
   const handleSend = () => {
-    if (!text.trim() || loading) return;
+    if (!text.trim() || loading || disabled) return;
     onSend(text.trim());
     setText('');
   };
@@ -48,7 +50,8 @@ export function ChatInput({ connections, activeConnectionId, onConnectionChange,
           {/* DB Selector (Professional Style) */}
           <div style={{ position: 'relative', marginTop: 2 }}>
             <button
-              onClick={() => setShowDropdown(!showDropdown)}
+              onClick={() => { if (!selectorDisabled) setShowDropdown(!showDropdown); }}
+              disabled={selectorDisabled}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -57,7 +60,7 @@ export function ChatInput({ connections, activeConnectionId, onConnectionChange,
                 border: `1px solid rgba(0,0,0,0.1)`,
                 borderRadius: 0,
                 padding: '6px 12px',
-                cursor: 'pointer',
+                cursor: selectorDisabled ? 'default' : 'pointer',
                 color: T.text,
                 fontSize: '0.68rem',
                 fontFamily: T.fontMono,
@@ -71,7 +74,7 @@ export function ChatInput({ connections, activeConnectionId, onConnectionChange,
               onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(0,0,0,0.1)'; }}
             >
               <div style={{ width: 5, height: 5, borderRadius: '50%', background: activeConn ? '#1a1a1a' : '#ef4444' }} />
-              {activeConn?.database || 'SELECT DB'}
+              {activeConn?.database || disabledReason || 'SELECT DB'}
               <span style={{ fontSize: '0.5rem', color: T.text3, marginLeft: 2 }}>▼</span>
             </button>
 
@@ -86,6 +89,11 @@ export function ChatInput({ connections, activeConnectionId, onConnectionChange,
                 boxShadow: '0 12px 32px rgba(0,0,0,0.1)',
                 zIndex: 100,
               }}>
+                {connections.length === 0 && (
+                  <div style={{ padding: '10px 14px', fontSize: '0.72rem', color: T.text3, fontFamily: T.fontMono, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    NO DATABASES AVAILABLE
+                  </div>
+                )}
                 {connections.map(c => (
                   <div key={c.id} onClick={e => { e.stopPropagation(); onConnectionChange(c.id); setShowDropdown(false); }}
                     style={{
@@ -113,7 +121,9 @@ export function ChatInput({ connections, activeConnectionId, onConnectionChange,
             onKeyDown={handleKeyDown}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
-            placeholder="What would you like to know?"
+            placeholder={disabledReason || 'What would you like to know?'}
+            disabled={disabled}
+            maxLength={2048}
             rows={2}
             style={{
               flex: 1,
@@ -136,14 +146,15 @@ export function ChatInput({ connections, activeConnectionId, onConnectionChange,
              <span style={{ fontSize: '0.62rem', color: T.text3, fontFamily: T.fontMono, fontWeight: 700 }}>{text.length} / 2048</span>
              <button
               onClick={handleSend}
-              disabled={loading || !text.trim()}
+              disabled={sendDisabled}
+              aria-label="Send message"
               style={{
                 width: 40,
                 height: 40,
                 borderRadius: 0,
-                background: text.trim() ? '#1a1a1a' : 'rgba(0,0,0,0.05)',
+                background: !sendDisabled ? '#1a1a1a' : 'rgba(0,0,0,0.05)',
                 border: 'none',
-                cursor: text.trim() ? 'pointer' : 'default',
+                cursor: !sendDisabled ? 'pointer' : 'default',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',

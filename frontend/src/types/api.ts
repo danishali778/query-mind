@@ -155,10 +155,12 @@ export interface ChatMessageRecord {
     columns?: string[];
     rows?: Array<Record<string, unknown>>;
     row_count?: number | null;
+    truncated?: boolean | null;
     execution_time_ms?: number | null;
   } | null;
   rows?: Array<Record<string, unknown>> | null;
   row_count?: number | null;
+  truncated?: boolean | null;
   execution_time_ms?: number | null;
   column_metadata?: Record<string, string> | null;
   chart_recommendation?: ChartRecommendation | null;
@@ -198,6 +200,7 @@ export interface ChatResponse {
   columns: string[];
   rows: Array<Record<string, unknown>>;
   row_count: number;
+  truncated: boolean;
   execution_time_ms: number;
   chart_recommendation?: ChartRecommendation | null;
   error?: string | null;
