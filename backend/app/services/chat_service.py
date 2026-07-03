@@ -13,6 +13,7 @@ from app.db.repositories.chat_repository import (
     delete_session,
     get_history_for_llm,
     get_latest_user_message_id,
+    get_message,
     get_session,
     list_sessions,
     reconstruct_dual_chain,
@@ -21,6 +22,14 @@ from app.db.repositories.chat_repository import (
     update_message,
 )
 from app.services import connection_service, query_execution_service
+
+
+class ChatEditNotFoundError(ValueError):
+    pass
+
+
+class ChatEditValidationError(ValueError):
+    pass
 
 
 def _sanitize_chart_recommendation(chart_rec: dict | None) -> dict | None:
@@ -93,8 +102,14 @@ async def send_message(
         content=result.get("explanation", ""),
         connection_id=connection_id,
         sql=result.get("sql"),
-        results={"rows": result.get("rows", [])},
+        results={
+            "rows": result.get("rows", []),
+            "row_count": result.get("row_count", 0),
+            "execution_time_ms": result.get("execution_time_ms", 0.0),
+            "truncated": result.get("truncated", False),
+        },
         columns=result.get("columns", []),
+        truncated=result.get("truncated", False),
         chart_recommendation=result.get("chart_recommendation"),
         error=result.get("error"),
         parent_id=user_msg.id,
@@ -113,6 +128,7 @@ async def send_message(
         "columns": result.get("columns", []),
         "rows": result.get("rows", []),
         "row_count": result.get("row_count", 0),
+        "truncated": result.get("truncated", False),
         "execution_time_ms": result.get("execution_time_ms", 0.0),
         "chart_recommendation": chart_rec,
         "error": error if error else None,
@@ -184,6 +200,22 @@ async def edit_message_sql(
     sql: str,
     connection_id: str,
 ) -> ChatMessage:
+    session = await get_session(user_id, session_id)
+    if not session:
+        raise ChatEditNotFoundError("Session not found.")
+
+    message = await get_message(user_id, session_id, message_id)
+    if not message:
+        raise ChatEditNotFoundError("Message not found.")
+    if message.role != "assistant":
+        raise ChatEditValidationError("Only assistant SQL messages can be edited.")
+    if not message.sql:
+        raise ChatEditValidationError("This message does not contain editable SQL.")
+
+    engine = await connection_service.get_engine(user_id, connection_id)
+    if not engine:
+        raise ChatEditNotFoundError("Database connection not found.")
+
     result = await query_execution_service.execute_for_connection(
         user_id=user_id,
         connection_id=connection_id,
@@ -212,28 +244,41 @@ async def edit_message_sql(
 
     updates = {
         "sql": sql,
-        "results": {"rows": result.rows},
+        "results": {
+            "rows": result.rows,
+            "row_count": result.row_count,
+            "execution_time_ms": result.execution_time_ms,
+            "truncated": result.truncated,
+        },
         "columns": result.columns,
+        "truncated": result.truncated,
     }
     if new_viz is not None:
         updates["chart_recommendation"] = new_viz
     if result.error:
         updates["error"] = result.error
 
-    await update_message(user_id, session_id, message_id, updates)
+    updated = await update_message(user_id, session_id, message_id, updates)
+    if not updated:
+        raise RuntimeError("Edited SQL executed, but the chat message could not be updated.")
 
     return ChatMessage(
         id=message_id,
         role="assistant",
         content="SQL Updated & Re-run",
         sql=sql,
-        results={"rows": result.rows},
+        results={
+            "rows": result.rows,
+            "row_count": result.row_count,
+            "execution_time_ms": result.execution_time_ms,
+            "truncated": result.truncated,
+        },
         columns=result.columns,
+        truncated=result.truncated,
         chart_recommendation=new_viz,
         error=result.error,
         connection_id=connection_id,
     )
-
 
 async def toggle_pin_status(
     user_id: str,
@@ -255,9 +300,12 @@ __all__ = [
     "update_session_summary",
     "get_session_messages_response",
     "edit_message_sql",
+    "ChatEditNotFoundError",
+    "ChatEditValidationError",
     "toggle_pin_status",
     "create_session",
     "get_session",
+    "get_message",
     "delete_session",
     "list_sessions",
     "rename_session",

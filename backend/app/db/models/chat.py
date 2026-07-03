@@ -15,6 +15,7 @@ class ChatMessage(BaseModel):
     sql: Optional[str] = None
     results: Optional[Dict] = None
     columns: List[str] = Field(default_factory=list)
+    truncated: bool = False
     chart_recommendation: Optional[Any] = None
     is_pinned: bool = False
     error: Optional[str] = None

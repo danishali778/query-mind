@@ -29,6 +29,7 @@ def _map_message(row: ChatMessageORM) -> ChatMessage:
         sql=row.sql,
         results=row.results,
         columns=row.columns or [],
+        truncated=bool((row.results or {}).get("truncated", False)),
         chart_recommendation=row.chart_recommendation,
         is_pinned=bool(row.is_pinned),
         error=row.error,
@@ -83,6 +84,18 @@ async def get_session(user_id: str, session_id: str) -> Optional[ChatSession]:
         messages = [_map_message(message_row) for message_row in message_rows]
         return _map_session(row, reconstruct_dual_chain(messages))
 
+async def get_message(user_id: str, session_id: str, message_id: str) -> Optional[ChatMessage]:
+    with session_scope() as db:
+        row = (
+            db.query(ChatMessageORM)
+            .filter(
+                ChatMessageORM.id == message_id,
+                ChatMessageORM.session_id == session_id,
+                ChatMessageORM.owner_id == user_id,
+            )
+            .one_or_none()
+        )
+        return _map_message(row) if row else None
 
 async def delete_session(user_id: str, session_id: str) -> bool:
     with session_scope() as db:
@@ -289,6 +302,7 @@ def reconstruct_dual_chain(messages: list[ChatMessage]) -> list[ChatMessage]:
 __all__ = [
     "create_session",
     "get_session",
+    "get_message",
     "delete_session",
     "list_sessions",
     "track_connection",

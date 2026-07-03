@@ -27,6 +27,7 @@ class ChatState(TypedDict):
     rows: list[dict]
     row_count: int
     execution_time_ms: float
+    truncated: bool
     error: str
     retry_count: int
     max_retries: int
@@ -96,6 +97,7 @@ def execute_sql_node(state: ChatState) -> dict:
             "rows": result.rows,
             "row_count": result.row_count,
             "execution_time_ms": result.execution_time_ms,
+            "truncated": result.truncated,
             "error": "",
         }
 
@@ -210,6 +212,7 @@ def run_chat(
         "rows": [],
         "row_count": 0,
         "execution_time_ms": 0.0,
+        "truncated": False,
         "error": "",
         "retry_count": 0,
         "max_retries": 3,

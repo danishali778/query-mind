@@ -1,7 +1,11 @@
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+CHAT_MESSAGE_MAX_LENGTH = 2048
+EDIT_SQL_MAX_LENGTH = 20000
 
 
 class ChartRecommendation(BaseModel):
@@ -22,9 +26,26 @@ class ChartRecommendation(BaseModel):
 class ChatRequest(BaseModel):
     """Request to send a chat message."""
 
-    connection_id: str
+    connection_id: str = Field(min_length=1)
     session_id: Optional[str] = None
-    message: str
+    message: str = Field(min_length=1, max_length=CHAT_MESSAGE_MAX_LENGTH)
+
+    @field_validator("connection_id", "message", mode="before")
+    @classmethod
+    def strip_required_strings(cls, value: str) -> str:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("session_id", mode="before")
+    @classmethod
+    def strip_optional_session_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
+        return value
 
 
 class ChatResponse(BaseModel):
@@ -38,6 +59,7 @@ class ChatResponse(BaseModel):
     columns: list[str] = Field(default_factory=list)
     rows: list[dict] = Field(default_factory=list)
     row_count: int = 0
+    truncated: bool = False
     execution_time_ms: float = 0.0
     chart_recommendation: Optional[ChartRecommendation] = None
     error: Optional[str] = None
@@ -56,6 +78,7 @@ class ChatMessage(BaseModel):
     sql: Optional[str] = None
     results: Optional[dict] = None
     columns: list[str] = Field(default_factory=list)
+    truncated: bool = False
     chart_recommendation: Optional[Any] = None
     is_pinned: bool = False
     error: Optional[str] = None
@@ -107,11 +130,20 @@ class UpdateSessionRequest(BaseModel):
 class EditSqlRequest(BaseModel):
     """Request to edit SQL in a chat message and re-run it."""
 
-    sql: str
-    connection_id: str
+    sql: str = Field(min_length=1, max_length=EDIT_SQL_MAX_LENGTH)
+    connection_id: str = Field(min_length=1)
+
+    @field_validator("sql", "connection_id", mode="before")
+    @classmethod
+    def strip_required_strings(cls, value: str) -> str:
+        if isinstance(value, str):
+            return value.strip()
+        return value
 
 
 __all__ = [
+    "CHAT_MESSAGE_MAX_LENGTH",
+    "EDIT_SQL_MAX_LENGTH",
     "ChartRecommendation",
     "ChatMessage",
     "ChatSession",
