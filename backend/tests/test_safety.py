@@ -697,6 +697,33 @@ class _BrokenSessionScope:
         return False
 
 
+class _EmptyQuery:
+    def filter(self, *args, **kwargs):
+        return self
+
+    def order_by(self, *args, **kwargs):
+        return self
+
+    def one_or_none(self):
+        return None
+
+    def all(self):
+        return []
+
+
+class _EmptySession:
+    def query(self, *args, **kwargs):
+        return _EmptyQuery()
+
+
+class _EmptySessionScope:
+    def __enter__(self):
+        return _EmptySession()
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
 class TestChatPersistenceFailures:
     def test_add_message_raises_on_db_failure(self, monkeypatch):
         from app.db.models.chat import ChatMessage
@@ -715,8 +742,10 @@ class TestChatPersistenceFailures:
         with pytest.raises(RuntimeError, match="database unavailable"):
             asyncio.run(chat_repository.update_message("user-1", "session-1", "message-1", {"content": "x"}))
 
-    def test_update_message_missing_message_returns_false(self):
+    def test_update_message_missing_message_returns_false(self, monkeypatch):
         from app.db.repositories import chat_repository
+
+        monkeypatch.setattr(chat_repository, "session_scope", lambda: _EmptySessionScope())
 
         updated = asyncio.run(
             chat_repository.update_message(
@@ -737,8 +766,10 @@ class TestChatPersistenceFailures:
         with pytest.raises(RuntimeError, match="database unavailable"):
             asyncio.run(chat_repository.get_history_for_llm("user-1", "session-1"))
 
-    def test_get_history_for_llm_empty_history_returns_empty_list(self):
+    def test_get_history_for_llm_empty_history_returns_empty_list(self, monkeypatch):
         from app.db.repositories import chat_repository
+
+        monkeypatch.setattr(chat_repository, "session_scope", lambda: _EmptySessionScope())
 
         history = asyncio.run(
             chat_repository.get_history_for_llm(
