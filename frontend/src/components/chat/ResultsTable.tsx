@@ -44,15 +44,7 @@ export function ResultsTable({ columns, rows, rowCount, executionTime, truncated
           {executionTime != null && ` · ${(executionTime / 1000).toFixed(2)}s`}
           {truncated && ' · limited'}
         </span>
-        <div style={{ display: 'flex', gap: 5 }}>
-          {['CSV', 'JSON'].map(f => (
-            <button key={f} style={{
-              padding: '4px 9px', borderRadius: 5, border: `1px solid ${T.border}`,
-              background: 'transparent', color: T.text3, fontSize: '0.68rem',
-              cursor: 'pointer', fontFamily: T.fontMono,
-            }}>{f}</button>
-          ))}
-        </div>
+
       </div>
 
       <div style={{ overflowX: 'auto', maxHeight: 200 }}>
