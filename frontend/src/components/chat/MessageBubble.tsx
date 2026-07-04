@@ -6,7 +6,7 @@ import { BaseChartContainer } from '../charts/BaseChartContainer';
 import { AddToDashboardModal } from './AddToDashboardModal';
 import { SaveQueryModal } from './SaveQueryModal';
 import { useSmartSave } from '../../hooks/useSmartSave';
-import { Pin, Plus, RotateCcw, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { Pin, Plus } from 'lucide-react';
 import type { ChatMessageView } from '../../types/chat';
 
 export function MessageBubble({
@@ -120,7 +120,7 @@ export function MessageBubble({
               onClick={() => message.sql && navigator.clipboard.writeText(message.sql)}
               style={{ background: 'none', border: 'none', color: T.text, fontSize: '0.65rem', fontWeight: 800, cursor: 'pointer', fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '0.05em' }}
             >
-              COPY LINK
+              COPY SQL
             </button>
           </div>
 
@@ -217,27 +217,6 @@ export function MessageBubble({
                 {message.is_pinned ? 'PINNED' : 'PIN RESULT'}
               </button>
             )}
-
-            <button
-              style={{
-                padding: '8px 16px', borderRadius: 0, border: `1.5px solid rgba(0,0,0,0.1)`,
-                background: 'transparent', color: T.text3,
-                fontSize: '0.7rem', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, transition: 'all 0.2s',
-                fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '0.05em'
-              }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = '#1a1a1a'; e.currentTarget.style.color = '#1a1a1a'; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(0,0,0,0.1)'; e.currentTarget.style.color = T.text3; }}
-            >
-              <RotateCcw size={12} strokeWidth={3} />
-              REGENERATE
-            </button>
-
-            <div style={{ flex: 1 }} />
-
-            <div style={{ display: 'flex', gap: 14, color: T.text3 }}>
-              <ThumbsUp size={16} strokeWidth={2} style={{ cursor: 'pointer', opacity: 0.5 }} />
-              <ThumbsDown size={16} strokeWidth={2} style={{ cursor: 'pointer', opacity: 0.5 }} />
-            </div>
           </div>
         </div>
       )}
