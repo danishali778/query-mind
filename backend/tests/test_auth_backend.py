@@ -369,9 +369,18 @@ def test_unsupported_database_connect_does_not_open_connection(client, monkeypat
 
 
 def test_saved_connection_diagnostic_updates_persistent_health(client, monkeypatch):
+    from cryptography.fernet import Fernet
+
+    from app.core import config as core_config
+    from app.core import secrets, security
     from app.db import connection_manager
     from app.db.models.connection import ConnectionRequest
     from app.db.repositories import connection_repository
+
+    monkeypatch.setenv("ENCRYPTION_KEY", Fernet.generate_key().decode("utf-8"))
+    core_config.get_settings.cache_clear()
+    secrets.settings = core_config.get_settings()
+    security._cipher_suite = None
 
     owner_id = "00000000-0000-0000-0000-000000000001"
     connection_id = asyncio.run(
