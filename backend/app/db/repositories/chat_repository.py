@@ -161,109 +161,85 @@ async def track_connection(user_id: str, session_id: str, connection_id: str | N
 
 
 async def rename_session(user_id: str, session_id: str, title: str) -> bool:
-    try:
-        with session_scope() as db:
-            row = (
-                db.query(ChatSessionORM)
-                .filter(ChatSessionORM.id == session_id, ChatSessionORM.owner_id == user_id)
-                .one_or_none()
-            )
-            if not row:
-                return False
-            row.title = title
-            return True
-    except Exception as exc:
-        logger.warning("Error renaming session %s: %s", session_id, exc)
-        return False
-
+    with session_scope() as db:
+        row = (
+            db.query(ChatSessionORM)
+            .filter(ChatSessionORM.id == session_id, ChatSessionORM.owner_id == user_id)
+            .one_or_none()
+        )
+        if not row:
+            return False
+        row.title = title
+        return True
 
 async def add_message(user_id: str, session_id: str, message: ChatMessage) -> None:
-    try:
-        with session_scope() as db:
-            row = ChatMessageORM(
-                id=message.id,
-                session_id=session_id,
-                owner_id=user_id,
-                role=message.role,
-                content=message.content,
-                connection_id=message.connection_id,
-                sql=message.sql,
-                results=message.results,
-                columns=message.columns or [],
-                chart_recommendation=message.chart_recommendation,
-                is_pinned=message.is_pinned,
-                error=message.error,
-                parent_id=message.parent_id,
-                prev_query_id=message.prev_query_id,
-            )
-            db.add(row)
-    except Exception as exc:
-        logger.error("Error adding message %s to SQLAlchemy storage: %s", message.id, exc)
-
+    with session_scope() as db:
+        row = ChatMessageORM(
+            id=message.id,
+            session_id=session_id,
+            owner_id=user_id,
+            role=message.role,
+            content=message.content,
+            connection_id=message.connection_id,
+            sql=message.sql,
+            results=message.results,
+            columns=message.columns or [],
+            chart_recommendation=message.chart_recommendation,
+            is_pinned=message.is_pinned,
+            error=message.error,
+            parent_id=message.parent_id,
+            prev_query_id=message.prev_query_id,
+        )
+        db.add(row)
 
 async def update_message(user_id: str, session_id: str, message_id: str, updates: dict) -> bool:
-    try:
-        with session_scope() as db:
-            row = (
-                db.query(ChatMessageORM)
-                .filter(
-                    ChatMessageORM.id == message_id,
-                    ChatMessageORM.session_id == session_id,
-                    ChatMessageORM.owner_id == user_id,
-                )
-                .one_or_none()
+    with session_scope() as db:
+        row = (
+            db.query(ChatMessageORM)
+            .filter(
+                ChatMessageORM.id == message_id,
+                ChatMessageORM.session_id == session_id,
+                ChatMessageORM.owner_id == user_id,
             )
-            if not row:
-                return False
-            clean_updates = {key: value for key, value in updates.items() if value is not None}
-            for key, value in clean_updates.items():
-                if hasattr(row, key):
-                    setattr(row, key, value)
-            return True
-    except Exception as exc:
-        logger.error("Error updating message %s in session %s: %s", message_id, session_id, exc)
-        return False
-
+            .one_or_none()
+        )
+        if not row:
+            return False
+        clean_updates = {key: value for key, value in updates.items() if value is not None}
+        for key, value in clean_updates.items():
+            if hasattr(row, key):
+                setattr(row, key, value)
+        return True
 
 async def get_history_for_llm(user_id: str, session_id: str) -> list[dict]:
-    try:
-        with session_scope() as db:
-            rows = (
-                db.query(ChatMessageORM)
-                .filter(ChatMessageORM.session_id == session_id, ChatMessageORM.owner_id == user_id)
-                .order_by(ChatMessageORM.created_at.asc())
-                .all()
-            )
-            history: list[dict] = []
-            for row in rows:
-                content = row.content
-                if row.role == "assistant" and row.sql:
-                    content = f"{content}\n```sql\n{row.sql}\n```"
-                history.append({"role": row.role, "content": content})
-            return history
-    except Exception as exc:
-        logger.warning("Error fetching history for session %s: %s", session_id, exc)
-        return []
-
+    with session_scope() as db:
+        rows = (
+            db.query(ChatMessageORM)
+            .filter(ChatMessageORM.session_id == session_id, ChatMessageORM.owner_id == user_id)
+            .order_by(ChatMessageORM.created_at.asc())
+            .all()
+        )
+        history: list[dict] = []
+        for row in rows:
+            content = row.content
+            if row.role == "assistant" and row.sql:
+                content = f"{content}\n```sql\n{row.sql}\n```"
+            history.append({"role": row.role, "content": content})
+        return history
 
 async def get_latest_user_message_id(user_id: str, session_id: str) -> Optional[str]:
-    try:
-        with session_scope() as db:
-            row = (
-                db.query(ChatMessageORM.id)
-                .filter(
-                    ChatMessageORM.session_id == session_id,
-                    ChatMessageORM.owner_id == user_id,
-                    ChatMessageORM.role == "user",
-                )
-                .order_by(ChatMessageORM.created_at.desc())
-                .first()
+    with session_scope() as db:
+        row = (
+            db.query(ChatMessageORM.id)
+            .filter(
+                ChatMessageORM.session_id == session_id,
+                ChatMessageORM.owner_id == user_id,
+                ChatMessageORM.role == "user",
             )
-            return row.id if row else None
-    except Exception as exc:
-        logger.warning("Error fetching latest user message for session %s: %s", session_id, exc)
-        return None
-
+            .order_by(ChatMessageORM.created_at.desc())
+            .first()
+        )
+        return row.id if row else None
 
 def reconstruct_dual_chain(messages: list[ChatMessage]) -> list[ChatMessage]:
     """Reconstruct conversation order using prev_query_id and parent_id links."""

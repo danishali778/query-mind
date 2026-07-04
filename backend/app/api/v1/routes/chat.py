@@ -35,6 +35,8 @@ async def send_chat_message(
             session_id=request.session_id,
         )
         return ChatResponse.model_validate(result)
+    except chat_service.ChatPersistenceError as exc:
+        raise ServiceUnavailableError("Unable to persist chat state for this request.") from exc
     except ValueError as exc:
         detail = str(exc)
         if "not found" in detail.lower():
@@ -101,6 +103,8 @@ async def edit_chat_sql(
         raise NotFoundError(str(exc)) from exc
     except chat_service.ChatEditValidationError as exc:
         raise BadRequestError(str(exc)) from exc
+    except chat_service.ChatPersistenceError as exc:
+        raise ServiceUnavailableError("Unable to persist chat state for this request.") from exc
     except Exception as exc:
         raise ServiceUnavailableError("Unable to re-run the edited SQL at the moment.") from exc
 

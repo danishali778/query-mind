@@ -1,6 +1,7 @@
 """Chat workflows."""
 
 import functools
+import logging
 
 import anyio
 
@@ -24,11 +25,18 @@ from app.db.repositories.chat_repository import (
 from app.services import connection_service, query_execution_service
 
 
+logger = logging.getLogger(__name__)
+
+
 class ChatEditNotFoundError(ValueError):
     pass
 
 
 class ChatEditValidationError(ValueError):
+    pass
+
+
+class ChatPersistenceError(RuntimeError):
     pass
 
 
@@ -56,14 +64,20 @@ async def send_message(
         schema_context = "No schema available. Please connect to a database first."
 
     is_new_session = False
-    if not session_id:
-        session = await create_session(user_id, connection_id)
-        session_id = session.id
-        is_new_session = True
-    else:
-        session = await get_session(user_id, session_id)
-        if not session:
-            raise ValueError("Session not found.")
+    try:
+        if not session_id:
+            session = await create_session(user_id, connection_id)
+            session_id = session.id
+            is_new_session = True
+        else:
+            session = await get_session(user_id, session_id)
+            if not session:
+                raise ValueError("Session not found.")
+    except ValueError:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to load or create chat session %s", session_id)
+        raise ChatPersistenceError("Unable to persist chat state for this request.") from exc
 
     await track_connection(user_id, session_id, connection_id)
 
@@ -71,17 +85,34 @@ async def send_message(
         title = message[:50].strip()
         if len(message) > 50:
             title += "..."
-        await rename_session(user_id, session_id, title)
+        try:
+            await rename_session(user_id, session_id, title)
+        except Exception:
+            logger.warning("Failed to rename new chat session %s", session_id, exc_info=True)
 
-    prev_query_id = await get_latest_user_message_id(user_id, session_id) if session_id else None
+    try:
+        prev_query_id = await get_latest_user_message_id(user_id, session_id) if session_id else None
+    except Exception as exc:
+        logger.exception("Failed to load latest user message for session %s", session_id)
+        raise ChatPersistenceError("Unable to persist chat state for this request.") from exc
+
     user_msg = ChatMessage(
         role="user",
         content=message,
         connection_id=connection_id,
         prev_query_id=prev_query_id,
     )
-    await add_message(user_id, session_id, user_msg)
-    history = await get_history_for_llm(user_id, session_id)
+    try:
+        await add_message(user_id, session_id, user_msg)
+    except Exception as exc:
+        logger.exception("Failed to persist user chat message %s", user_msg.id)
+        raise ChatPersistenceError("Unable to persist chat state for this request.") from exc
+
+    try:
+        history = await get_history_for_llm(user_id, session_id)
+    except Exception as exc:
+        logger.exception("Failed to load LLM history for session %s", session_id)
+        raise ChatPersistenceError("Unable to persist chat state for this request.") from exc
 
     result = await anyio.to_thread.run_sync(
         functools.partial(
@@ -115,7 +146,11 @@ async def send_message(
         parent_id=user_msg.id,
     )
     assistant_msg_id = assistant_msg.id
-    await add_message(user_id, session_id, assistant_msg)
+    try:
+        await add_message(user_id, session_id, assistant_msg)
+    except Exception as exc:
+        logger.exception("Failed to persist assistant chat message %s", assistant_msg.id)
+        raise ChatPersistenceError("Unable to persist chat state for this request.") from exc
 
     chart_rec = _sanitize_chart_recommendation(result.get("chart_recommendation"))
     error = result.get("error", "")
@@ -260,7 +295,7 @@ async def edit_message_sql(
 
     updated = await update_message(user_id, session_id, message_id, updates)
     if not updated:
-        raise RuntimeError("Edited SQL executed, but the chat message could not be updated.")
+        raise ChatPersistenceError("Edited SQL executed, but the chat message could not be updated.")
 
     return ChatMessage(
         id=message_id,
@@ -302,6 +337,7 @@ __all__ = [
     "edit_message_sql",
     "ChatEditNotFoundError",
     "ChatEditValidationError",
+    "ChatPersistenceError",
     "toggle_pin_status",
     "create_session",
     "get_session",
