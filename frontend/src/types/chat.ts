@@ -82,10 +82,6 @@ export interface ChatResultsTableProps {
   truncated?: boolean;
 }
 
-export interface ChatSchemaPanelProps {
-  connectionId: string;
-  visible: boolean;
-}
 
 export interface AddToDashboardModalProps {
   isOpen: boolean;
