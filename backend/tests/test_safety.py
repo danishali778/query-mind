@@ -684,6 +684,163 @@ class TestChatTruncatedMetadata:
         assert assistant_message.results["row_count"] == 500
         assert assistant_message.results["execution_time_ms"] == 12.5
 
+
+# ---------------------------------------------------------------------------
+# chat persistence failure handling
+# ---------------------------------------------------------------------------
+
+class _BrokenSessionScope:
+    def __enter__(self):
+        raise RuntimeError("database unavailable")
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+class TestChatPersistenceFailures:
+    def test_add_message_raises_on_db_failure(self, monkeypatch):
+        from app.db.models.chat import ChatMessage
+        from app.db.repositories import chat_repository
+
+        monkeypatch.setattr(chat_repository, "session_scope", lambda: _BrokenSessionScope())
+
+        with pytest.raises(RuntimeError, match="database unavailable"):
+            asyncio.run(chat_repository.add_message("user-1", "session-1", ChatMessage(role="user", content="hi")))
+
+    def test_update_message_raises_on_db_failure(self, monkeypatch):
+        from app.db.repositories import chat_repository
+
+        monkeypatch.setattr(chat_repository, "session_scope", lambda: _BrokenSessionScope())
+
+        with pytest.raises(RuntimeError, match="database unavailable"):
+            asyncio.run(chat_repository.update_message("user-1", "session-1", "message-1", {"content": "x"}))
+
+    def test_update_message_missing_message_returns_false(self):
+        from app.db.repositories import chat_repository
+
+        updated = asyncio.run(
+            chat_repository.update_message(
+                "00000000-0000-0000-0000-00000000ffff",
+                "00000000-0000-0000-0000-00000000aaa1",
+                "00000000-0000-0000-0000-00000000aaa2",
+                {"content": "x"},
+            )
+        )
+
+        assert updated is False
+
+    def test_get_history_for_llm_raises_on_db_failure(self, monkeypatch):
+        from app.db.repositories import chat_repository
+
+        monkeypatch.setattr(chat_repository, "session_scope", lambda: _BrokenSessionScope())
+
+        with pytest.raises(RuntimeError, match="database unavailable"):
+            asyncio.run(chat_repository.get_history_for_llm("user-1", "session-1"))
+
+    def test_get_history_for_llm_empty_history_returns_empty_list(self):
+        from app.db.repositories import chat_repository
+
+        history = asyncio.run(
+            chat_repository.get_history_for_llm(
+                "00000000-0000-0000-0000-00000000ffff",
+                "00000000-0000-0000-0000-00000000aaa1",
+            )
+        )
+
+        assert history == []
+
+    def test_send_message_does_not_call_llm_when_user_message_persistence_fails(self, monkeypatch):
+        called_run_chat = False
+
+        async def fake_get_engine(user_id, connection_id):
+            return object()
+
+        async def fake_get_schema_for_ai(user_id, connection_id):
+            return "schema"
+
+        async def fake_create_session(user_id, connection_id):
+            return SimpleNamespace(id="session-1")
+
+        async def fake_noop(*args, **kwargs):
+            return True
+
+        async def fake_get_latest_user_message_id(user_id, session_id):
+            return None
+
+        async def fake_add_message(*args, **kwargs):
+            raise RuntimeError("write failed")
+
+        def fake_run_chat(*args, **kwargs):
+            nonlocal called_run_chat
+            called_run_chat = True
+            return {}
+
+        monkeypatch.setattr(chat_service.connection_service, "get_engine", fake_get_engine)
+        monkeypatch.setattr(chat_service.connection_service, "get_schema_for_ai", fake_get_schema_for_ai)
+        monkeypatch.setattr(chat_service, "create_session", fake_create_session)
+        monkeypatch.setattr(chat_service, "rename_session", fake_noop)
+        monkeypatch.setattr(chat_service, "track_connection", fake_noop)
+        monkeypatch.setattr(chat_service, "get_latest_user_message_id", fake_get_latest_user_message_id)
+        monkeypatch.setattr(chat_service, "add_message", fake_add_message)
+        monkeypatch.setattr(chat_service, "run_chat", fake_run_chat)
+
+        with pytest.raises(chat_service.ChatPersistenceError):
+            asyncio.run(chat_service.send_message("user-1", "connection-1", "show rows"))
+
+        assert called_run_chat is False
+
+    def test_send_message_fails_if_assistant_message_persistence_fails_after_llm(self, monkeypatch):
+        add_calls = 0
+
+        async def fake_get_engine(user_id, connection_id):
+            return object()
+
+        async def fake_get_schema_for_ai(user_id, connection_id):
+            return "schema"
+
+        async def fake_create_session(user_id, connection_id):
+            return SimpleNamespace(id="session-1")
+
+        async def fake_noop(*args, **kwargs):
+            return True
+
+        async def fake_get_latest_user_message_id(user_id, session_id):
+            return None
+
+        async def fake_get_history_for_llm(user_id, session_id):
+            return []
+
+        async def fake_add_message(*args, **kwargs):
+            nonlocal add_calls
+            add_calls += 1
+            if add_calls == 2:
+                raise RuntimeError("assistant write failed")
+
+        def fake_run_chat(*args, **kwargs):
+            return {
+                "explanation": "done",
+                "sql": "SELECT 1",
+                "columns": ["id"],
+                "rows": [{"id": 1}],
+                "row_count": 1,
+                "execution_time_ms": 1.0,
+                "truncated": False,
+            }
+
+        monkeypatch.setattr(chat_service.connection_service, "get_engine", fake_get_engine)
+        monkeypatch.setattr(chat_service.connection_service, "get_schema_for_ai", fake_get_schema_for_ai)
+        monkeypatch.setattr(chat_service, "create_session", fake_create_session)
+        monkeypatch.setattr(chat_service, "rename_session", fake_noop)
+        monkeypatch.setattr(chat_service, "track_connection", fake_noop)
+        monkeypatch.setattr(chat_service, "get_latest_user_message_id", fake_get_latest_user_message_id)
+        monkeypatch.setattr(chat_service, "get_history_for_llm", fake_get_history_for_llm)
+        monkeypatch.setattr(chat_service, "add_message", fake_add_message)
+        monkeypatch.setattr(chat_service, "run_chat", fake_run_chat)
+
+        with pytest.raises(chat_service.ChatPersistenceError):
+            asyncio.run(chat_service.send_message("user-1", "connection-1", "show rows"))
+
+        assert add_calls == 2
 # ---------------------------------------------------------------------------
 # edit-SQL preflight validation
 # ---------------------------------------------------------------------------
@@ -877,5 +1034,5 @@ class TestEditSqlPreflight:
         monkeypatch.setattr(chat_service, "get_history_for_llm", fake_get_history_for_llm)
         monkeypatch.setattr(chat_service, "update_message", fake_update_message)
 
-        with pytest.raises(RuntimeError):
+        with pytest.raises(chat_service.ChatPersistenceError):
             asyncio.run(chat_service.edit_message_sql("user-1", "session-1", "msg-1", "SELECT 2", "conn-1"))
