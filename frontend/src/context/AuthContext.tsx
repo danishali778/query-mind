@@ -109,18 +109,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     void refreshSession().finally(() => setLoading(false));
   }, []);
 
-  const signIn = async (email: string, password: string) => {
-    const session = await signInRequest({ email, password });
-    setUser(session.authenticated ? session.user : null);
-    return session;
-  };
-
-  const signUp = async (email: string, password: string) => {
-    const session = await signUpRequest({ email, password });
-    setUser(session.authenticated ? session.user : null);
-    return session;
-  };
-
   const signOut = async () => {
     if (DEV_MODE) {
       setUser(MOCK_USER);
@@ -132,6 +120,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setUser(null);
     }
+  };
+
+  const signIn = async (email: string, password: string) => {
+    const session = await signInRequest({ email, password });
+    setUser(session.authenticated ? session.user : null);
+    return session;
+  };
+
+  const signUp = async (email: string, password: string) => {
+    const session = await signUpRequest({ email, password });
+    setUser(session.authenticated ? session.user : null);
+    return session;
   };
 
   return (
