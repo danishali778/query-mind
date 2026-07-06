@@ -2,9 +2,10 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List
 
+from langchain_core.messages import HumanMessage, SystemMessage
+
 from app.agents._prompt_loader import load_prompt
-from app.core.config import settings
-from app.integrations.groq_client import get_groq_client
+from app.integrations.llm_client import invoke_chat_llm
 
 _PROMPT_PATH = Path(__file__).with_name("prompts") / "widget_insight_prompt.md"
 
@@ -27,15 +28,13 @@ def generate_widget_insight(
     )
 
     try:
-        completion = get_groq_client().chat.completions.create(
-            messages=[
-                {"role": "system", "content": "You provide short, professional data insights."},
-                {"role": "user", "content": prompt},
+        return invoke_chat_llm(
+            [
+                SystemMessage(content="You provide short, professional data insights."),
+                HumanMessage(content=prompt),
             ],
-            model=settings.groq_model,
             temperature=0.3,
             max_tokens=150,
         )
-        return completion.choices[0].message.content.strip()
     except Exception:
         return "Analysis momentarily unavailable. Please try again shortly."

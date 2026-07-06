@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from datetime import date, datetime, time
 from decimal import Decimal
@@ -6,8 +7,11 @@ from pathlib import Path
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from app.agents._llm_content import log_llm_output
 from app.agents._prompt_loader import load_prompt
 from app.agents.nl_to_sql.llm import get_llm
+
+logger = logging.getLogger("query-mind.visualization")
 
 _PROMPT_PATH = Path(__file__).with_name("prompts") / "blueprint_prompt.md"
 
@@ -56,7 +60,7 @@ def generate_visualization_blueprint(
             HumanMessage(content=human_message),
         ]
     )
-    content = response.content
+    content = log_llm_output(logger, "visualization blueprint", response.content)
 
     match = re.search(r"```json\s*(.*?)\s*```", content, re.DOTALL | re.IGNORECASE)
     if match:
