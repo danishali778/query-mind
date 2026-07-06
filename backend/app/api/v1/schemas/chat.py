@@ -66,6 +66,8 @@ class ChatResponse(BaseModel):
     column_metadata: dict = Field(default_factory=dict)
     is_pinned: bool = False
     prev_query_id: Optional[str] = None
+    agent_trace: Optional[list] = None
+    agent_tier: Optional[str] = None
 
 
 class ChatMessage(BaseModel):
@@ -84,6 +86,8 @@ class ChatMessage(BaseModel):
     error: Optional[str] = None
     parent_id: Optional[str] = None
     prev_query_id: Optional[str] = None
+    agent_trace: Optional[list] = None
+    agent_tier: Optional[str] = None
     created_at: str
 
 
