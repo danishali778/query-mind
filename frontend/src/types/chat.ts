@@ -16,6 +16,17 @@ export interface ChatMessageView {
   is_pinned?: boolean;
   parent_id?: string;
   prev_query_id?: string;
+  agent_trace?: Array<{
+    tool: string;
+    args_summary: string;
+    duration_ms: number;
+    outcome: string;
+    output_summary?: string;
+    output_row_count?: number;
+    error_class?: string;
+    retry_count?: number;
+  }>;
+  agent_tier?: string;
 }
 
 export interface ChatSidebarProps {
