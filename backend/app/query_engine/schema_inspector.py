@@ -1,7 +1,9 @@
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
+from app.core.config import settings
 from app.db.models.connection import ColumnInfo, ForeignKeyInfo, TableInfo
+from app.query_engine.schema_exclusions import is_schema_excluded, merge_excluded_schemas
 
 _ENUM_KEYWORDS = {
     "type",
@@ -65,14 +67,18 @@ def _display_table_name(schema_name: str | None, table_name: str) -> str:
     return f"{schema_name}.{table_name}"
 
 
+def _excluded_schemas() -> frozenset[str]:
+    return merge_excluded_schemas(settings.catalog_excluded_schemas_extra)
+
+
 def _get_user_schema_names(inspector) -> list[str | None]:
     try:
         schema_names = inspector.get_schema_names()
     except Exception:
         return [None]
 
-    excluded = {"information_schema", "pg_catalog"}
-    user_schemas = [schema for schema in schema_names if schema not in excluded and not schema.startswith("pg_toast")]
+    excluded = _excluded_schemas()
+    user_schemas = [schema for schema in schema_names if not is_schema_excluded(schema, excluded)]
     return user_schemas or [None]
 
 
@@ -85,10 +91,42 @@ def get_table_names(engine: Engine) -> list[str]:
     return table_names
 
 
+def _get_row_estimates(engine: Engine) -> dict[str, int]:
+    """Fetch approximate row counts from pg_class (Postgres only)."""
+    estimates: dict[str, int] = {}
+    excluded = _excluded_schemas()
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT n.nspname AS schema_name, c.relname AS table_name,
+                           GREATEST(c.reltuples, 0)::bigint AS row_estimate
+                    FROM pg_class c
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE c.relkind = 'r'
+                      AND n.nspname NOT IN ('information_schema', 'pg_catalog')
+                      AND n.nspname NOT LIKE 'pg_toast%'
+                    """
+                )
+            ).fetchall()
+            for schema_name, table_name, row_estimate in rows:
+                if is_schema_excluded(schema_name, excluded):
+                    continue
+                display = _display_table_name(schema_name, table_name)
+                estimates[display] = int(row_estimate)
+                estimates[table_name] = int(row_estimate)
+    except Exception:
+        return {}
+    return estimates
+
+
 def get_schema(engine: Engine) -> list[TableInfo]:
     """Discover full schema: tables, columns, PKs, FKs, and approximate row counts."""
     inspector = inspect(engine)
     tables: list[TableInfo] = []
+    row_estimates = _get_row_estimates(engine)
+    excluded = _excluded_schemas()
 
     for schema_name in _get_user_schema_names(inspector):
         for table_name in inspector.get_table_names(schema=schema_name):
@@ -123,6 +161,8 @@ def get_schema(engine: Engine) -> list[TableInfo]:
                 for fk in inspector.get_foreign_keys(table_name, schema=schema_name):
                     referred_table = fk.get("referred_table", "")
                     referred_schema = fk.get("referred_schema")
+                    if referred_schema and is_schema_excluded(referred_schema, excluded):
+                        continue
                     display_referred_table = _display_table_name(referred_schema, referred_table) if referred_table else ""
                     constrained_cols = fk.get("constrained_columns", [])
                     referred_cols = fk.get("referred_columns", [])
@@ -137,13 +177,9 @@ def get_schema(engine: Engine) -> list[TableInfo]:
             except Exception:
                 pass
 
-            row_count = None
-            try:
-                with engine.connect() as conn:
-                    result = conn.execute(text(f"SELECT COUNT(*) FROM {qualified_table}"))
-                    row_count = result.scalar()
-            except Exception:
-                pass
+            row_count = row_estimates.get(display_name)
+            if row_count is None:
+                row_count = row_estimates.get(table_name)
 
             tables.append(
                 TableInfo(
