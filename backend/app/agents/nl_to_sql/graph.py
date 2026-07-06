@@ -35,10 +35,6 @@ class ChatState(TypedDict):
     readonly: bool
 
 
-def build_context(state: ChatState) -> dict:
-    return {}
-
-
 _DESTRUCTIVE_KEYWORDS = {"delete", "update", "insert", "drop", "truncate", "alter"}
 
 
@@ -155,15 +151,13 @@ def should_finish_or_retry(state: ChatState) -> str:
 
 def build_chat_graph() -> StateGraph:
     graph = StateGraph(ChatState)
-    graph.add_node("build_context", build_context)
     graph.add_node("generate_sql", generate_sql_node)
     graph.add_node("validate_sql", validate_sql_node)
     graph.add_node("execute_sql", execute_sql_node)
     graph.add_node("analyze_results", analyze_results_node)
     graph.add_node("handle_error", handle_error_node)
 
-    graph.set_entry_point("build_context")
-    graph.add_edge("build_context", "generate_sql")
+    graph.set_entry_point("generate_sql")
     graph.add_edge("generate_sql", "validate_sql")
     graph.add_conditional_edges(
         "validate_sql",

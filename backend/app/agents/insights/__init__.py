@@ -1,5 +1,5 @@
-"""Insight-generation agent package."""
+"""Backward-compatible exports."""
 
-from app.agents.insights.generator import generate_widget_insight, get_groq_client
+from app.agents.insights.generator import generate_widget_insight
 
-__all__ = ["get_groq_client", "generate_widget_insight"]
+__all__ = ["generate_widget_insight"]

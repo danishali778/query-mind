@@ -1,9 +1,13 @@
 import json
+import logging
 import re
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
+from app.agents._llm_content import content_to_text, log_llm_output
 from app.agents.nl_to_sql.llm import get_llm
+
+logger = logging.getLogger("query-mind.nl_to_sql")
 
 
 def generate_sql(messages: list[dict]) -> tuple[str, dict, str]:
@@ -19,7 +23,7 @@ def generate_sql(messages: list[dict]) -> tuple[str, dict, str]:
             lc_messages.append(AIMessage(content=msg["content"]))
 
     response = llm.invoke(lc_messages)
-    response_text = response.content
+    response_text = log_llm_output(logger, "pipeline generate_sql", response.content)
 
     return (
         extract_explanation(response_text),
