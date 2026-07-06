@@ -47,8 +47,33 @@ class Settings(BaseSettings):
     auth_cookie_domain: str | None = None
     auth_cookie_samesite: str = "lax"
 
+    llm_provider: str = "groq"
     groq_api_key: str | None = None
     groq_model: str = "llama-3.3-70b-versatile"
+    google_api_key: str | None = None
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-2.0-flash"
+
+    agent_mode: str = "pipeline"
+    agent_model: str | None = None
+    agent_max_tool_calls: int = 20
+    agent_wall_clock_seconds: int = 120
+    agent_preview_rows: int = 20
+    agent_max_tables_per_call: int = 5
+    agent_tool_output_chars: int = 12000
+    agent_max_tables_listed: int = 100
+    agent_max_columns_per_table: int = 80
+    agent_max_cell_chars: int = 500
+    agent_compaction_token_threshold: int = 6000
+    agent_max_live_queries: int = 10
+    agent_max_notes: int = 20
+    agent_query_timeout_seconds: int = 10
+    agent_profile_max_columns: int = 15
+    agent_profile_row_estimate_cap: int = 5_000_000
+    catalog_excluded_schemas_raw: str = Field(
+        default="",
+        validation_alias="CATALOG_EXCLUDED_SCHEMAS",
+    )
 
     lemon_squeezy_webhook_secret: str | None = None
     lemon_squeezy_api_key: str | None = None
@@ -98,6 +123,37 @@ class Settings(BaseSettings):
             return self.is_production
         return self.auth_cookie_secure
 
+    @property
+    def resolved_google_api_key(self) -> str | None:
+        return self.google_api_key or self.gemini_api_key
+
+    @property
+    def resolved_llm_provider(self) -> str:
+        provider = (self.llm_provider or "groq").strip().lower()
+        if provider == "gemini":
+            return "gemini"
+        if self.groq_api_key:
+            return "groq"
+        if self.resolved_google_api_key:
+            return "gemini"
+        return "groq"
+
+    @property
+    def resolved_llm_model(self) -> str:
+        if self.agent_model:
+            return self.agent_model
+        if self.resolved_llm_provider == "gemini":
+            return self.gemini_model
+        return self.groq_model
+
+    @property
+    def resolved_agent_model(self) -> str:
+        return self.resolved_llm_model
+
+    @property
+    def catalog_excluded_schemas_extra(self) -> list[str]:
+        return [name.strip() for name in self.catalog_excluded_schemas_raw.split(",") if name.strip()]
+
     def require(self, field_name: str) -> str:
         value = getattr(self, field_name)
         if not value:
@@ -133,8 +189,24 @@ class Settings(BaseSettings):
             "auth_cookie_secure": self.resolved_auth_cookie_secure,
             "auth_cookie_domain": bool(self.auth_cookie_domain),
             "auth_cookie_samesite": self.auth_cookie_samesite,
+            "llm_provider": self.resolved_llm_provider,
             "has_groq_api_key": bool(self.groq_api_key),
+            "has_google_api_key": bool(self.resolved_google_api_key),
             "groq_model": self.groq_model,
+            "gemini_model": self.gemini_model,
+            "resolved_llm_model": self.resolved_llm_model,
+            "agent_mode": self.agent_mode,
+            "agent_model": self.resolved_agent_model,
+            "agent_max_tool_calls": self.agent_max_tool_calls,
+            "agent_wall_clock_seconds": self.agent_wall_clock_seconds,
+            "agent_tool_output_chars": self.agent_tool_output_chars,
+            "agent_max_tables_listed": self.agent_max_tables_listed,
+            "agent_max_columns_per_table": self.agent_max_columns_per_table,
+            "agent_max_cell_chars": self.agent_max_cell_chars,
+            "agent_compaction_token_threshold": self.agent_compaction_token_threshold,
+            "agent_max_live_queries": self.agent_max_live_queries,
+            "agent_max_notes": self.agent_max_notes,
+            "agent_query_timeout_seconds": self.agent_query_timeout_seconds,
             "has_lemon_squeezy_webhook_secret": bool(self.lemon_squeezy_webhook_secret),
             "has_lemon_squeezy_api_key": bool(self.lemon_squeezy_api_key),
         }

@@ -9,6 +9,7 @@ from app.integrations.supabase_auth import (
 )
 from app.integrations.email import EmailDeliveryResult, EmailMessage, send_email
 from app.integrations.groq_client import get_chat_groq, get_groq_client
+from app.integrations.llm_client import get_chat_llm, get_chat_llm_with_tools, invoke_chat_llm
 from app.integrations.lemon_squeezy import (
     get_event_name,
     get_user_id,
@@ -26,6 +27,9 @@ __all__ = [
     "get_user_no_check",
     "get_groq_client",
     "get_chat_groq",
+    "get_chat_llm",
+    "get_chat_llm_with_tools",
+    "invoke_chat_llm",
     "has_webhook_secret",
     "verify_webhook_signature",
     "parse_webhook_payload",
