@@ -21,6 +21,8 @@ class ChatMessage(BaseModel):
     error: Optional[str] = None
     parent_id: Optional[str] = None
     prev_query_id: Optional[str] = None
+    agent_trace: Optional[list] = None
+    agent_tier: Optional[str] = None
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
 
     def __init__(self, **data):

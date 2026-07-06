@@ -311,6 +311,8 @@ class ChatMessageORM(Base):
         ForeignKey("chat_messages.id", ondelete="SET NULL"),
         comment="References the previous USER message in this session to maintain the trunk of the conversation.",
     )
+    agent_trace: Mapped[list | dict | None] = mapped_column(JsonType, nullable=True)
+    agent_tier: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     session: Mapped[ChatSessionORM] = relationship(
         back_populates="messages",
