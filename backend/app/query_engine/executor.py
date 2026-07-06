@@ -24,19 +24,23 @@ def execute_query(
     row_limit: int = 500,
     connection_id: Optional[str] = None,
     readonly: bool = True,
+    *,
+    skip_row_limit_wrap: bool = False,
+    timeout_seconds: int | None = None,
 ) -> QueryExecutionResult:
     is_safe, error_msg = validate_query(sql)
     if not is_safe:
         return QueryExecutionResult(success=False, error=error_msg)
 
-    safe_sql = sanitize_row_limit(sql, row_limit)
+    safe_sql = sql if skip_row_limit_wrap else sanitize_row_limit(sql, row_limit)
+    effective_timeout = timeout_seconds if timeout_seconds is not None else QUERY_TIMEOUT
     start_time = time.time()
 
     try:
         with engine.connect() as conn:
             transaction = conn.begin()
             try:
-                conn.execute(text(f"SET statement_timeout = '{QUERY_TIMEOUT * 1000}'"))
+                conn.execute(text(f"SET statement_timeout = '{effective_timeout * 1000}'"))
             except Exception:
                 pass
 
@@ -91,7 +95,7 @@ def execute_query(
         elif "syntax error" in lowered:
             friendly = f"SQL syntax error. {error_text.split(chr(10))[0]}"
         elif "timeout" in lowered or "cancel" in lowered:
-            friendly = f"Query timed out after {QUERY_TIMEOUT} seconds. Try a simpler query or add filters."
+            friendly = f"Query timed out after {effective_timeout} seconds. Try a simpler query or add filters."
         elif "permission" in lowered or "denied" in lowered:
             friendly = "Permission denied. Your database user may not have access to this table."
         else:
