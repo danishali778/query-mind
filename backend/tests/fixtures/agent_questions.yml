@@ -1,0 +1,49 @@
+- question: "How many customers do we have?"
+  difficulty: direct
+  expected_tables: [customers]
+  forbidden_tables: [audit_logs, schema_migrations]
+
+- question: "Total revenue by customer"
+  difficulty: join
+  expected_tables: [customers, orders, payments]
+  forbidden_tables: [audit_logs]
+
+- question: "Which products sold the most units?"
+  difficulty: join
+  expected_tables: [products, order_items]
+  forbidden_tables: [audit_logs]
+
+- question: "Top customers by revenue"
+  difficulty: aggregate
+  expected_tables: [customers, payments]
+  forbidden_tables: [audit_logs, schema_migrations]
+
+- question: "Show clients who stopped purchasing recently"
+  difficulty: paraphrase
+  expected_tables: [customers, orders]
+  forbidden_tables: [audit_logs]
+
+- question: "Count paid orders this month"
+  difficulty: aggregate
+  expected_tables: [orders]
+  forbidden_tables: [audit_logs]
+
+- question: "Average order value"
+  difficulty: aggregate
+  expected_tables: [orders, order_items]
+  forbidden_tables: [audit_logs]
+
+- question: "List product categories"
+  difficulty: direct
+  expected_tables: [products]
+  forbidden_tables: [audit_logs]
+
+- question: "Revenue trend by month"
+  difficulty: aggregate
+  expected_tables: [payments, orders]
+  forbidden_tables: [audit_logs]
+
+- question: "Customers with more than one order"
+  difficulty: join
+  expected_tables: [customers, orders]
+  forbidden_tables: [audit_logs]
