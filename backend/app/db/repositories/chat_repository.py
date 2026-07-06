@@ -35,6 +35,8 @@ def _map_message(row: ChatMessageORM) -> ChatMessage:
         error=row.error,
         parent_id=row.parent_id,
         prev_query_id=row.prev_query_id,
+        agent_trace=row.agent_trace if isinstance(row.agent_trace, list) else None,
+        agent_tier=row.agent_tier,
         created_at=_iso(row.created_at),
     )
 
@@ -189,6 +191,8 @@ async def add_message(user_id: str, session_id: str, message: ChatMessage) -> No
             error=message.error,
             parent_id=message.parent_id,
             prev_query_id=message.prev_query_id,
+            agent_trace=message.agent_trace,
+            agent_tier=message.agent_tier,
         )
         db.add(row)
 
