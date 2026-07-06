@@ -95,7 +95,7 @@ export function ConnectionDetail({ connection, schema, schemaState = 'idle', sch
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '32px' }} className="cd-body">
-        {activeTab === 'overview' && <OverviewTab connection={connection} schema={schema ?? null} queryHistory={queryHistory || []} onTabSwitch={setActiveTab} />}
+        {activeTab === 'overview' && <OverviewTab connection={connection} schema={schema ?? null} schemaState={schemaState} queryHistory={queryHistory || []} onTabSwitch={setActiveTab} />}
         {activeTab === 'credentials' && <CredentialsTab connection={connection} onConnectionUpdated={onConnectionUpdated} />}
         {activeTab === 'schema' && <SchemaTab schema={schema ?? null} state={schemaState} error={schemaError} onRefresh={onRefreshSchema} />}
         {activeTab === 'security' && <SecurityTab />}
@@ -139,9 +139,10 @@ function Tab({ active, onClick, label, icon }: { active: boolean, onClick: () =>
   );
 }
 
-function OverviewTab({ connection, schema, queryHistory, onTabSwitch }: { connection: ConnectionListItem, schema: SchemaResponse | null, queryHistory: QueryRecord[], onTabSwitch: (t: ConnectionDetailTab) => void }) {
+function OverviewTab({ connection, schema, schemaState = 'idle', queryHistory, onTabSwitch }: { connection: ConnectionListItem, schema: SchemaResponse | null, schemaState?: LoadState, queryHistory: QueryRecord[], onTabSwitch: (t: ConnectionDetailTab) => void }) {
   const tables = schema?.tables || [];
-  const tableCount = tables.length;
+  const tableCount = schemaState === 'loading' ? '…' : String(tables.length);
+  const tableSub = schemaState === 'loading' ? 'LOADING' : 'SCHEMA MAPPED';
   const recentQueries = queryHistory.slice(0, 5);
   const bridgeLabel = connection.health_state.toUpperCase();
   const bridgeColor = connection.status === 'live' ? T.green : connection.status === 'offline' ? T.red : T.yellow;
@@ -156,16 +157,17 @@ function OverviewTab({ connection, schema, queryHistory, onTabSwitch }: { connec
   return (
     <>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 32 }}>
-        <KpiCard val={String(tableCount)} label="TABLES DISCOVERED" sub="SCHEMA MAPPED" valColor={T.accent} />
+        <KpiCard val={tableCount} label="TABLES DISCOVERED" sub={tableSub} valColor={T.accent} />
         <KpiCard val={connection.type} label="ENGINE" sub={connection.host || 'LOCAL'} valColor={T.text} />
         <KpiCard val={bridgeLabel} label="BRIDGE STATUS" sub={bridgeSub} valColor={bridgeColor} />
         <KpiCard val={String(connection.port || 'N/A')} label="PORT" sub={connection.database || 'PRIMARY'} valColor={T.purple} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 24, marginBottom: 24 }}>
-        <SectionCard title="SCHEMA LEDGER" badge={{ text: `${tableCount} TABLES`, color: T.green }} onAction={() => onTabSwitch('schema')}>
+        <SectionCard title="SCHEMA LEDGER" badge={{ text: schemaState === 'loading' ? 'LOADING' : `${tables.length} TABLES`, color: T.green }} onAction={() => onTabSwitch('schema')}>
           <div style={{ padding: '8px 12px' }}>
-            {tables.slice(0, 4).map((t: TableSchema, i: number) => (
+            {schemaState === 'loading' && <div style={{ color: T.text3, fontSize: '0.68rem', padding: 12, fontFamily: T.fontMono }}>LOADING SCHEMA LEDGER...</div>}
+            {schemaState !== 'loading' && tables.slice(0, 4).map((t: TableSchema, i: number) => (
               <SchemaTableComponent key={i} name={t.name} rows={t.row_count != null ? `${t.row_count.toLocaleString()} ROWS` : 'N/A'}
                 defaultExpanded={i === 0}
                 cols={t.columns?.map((c: SchemaColumn) => ({
@@ -175,7 +177,7 @@ function OverviewTab({ connection, schema, queryHistory, onTabSwitch }: { connec
                   isFk: t.foreign_keys.some((fk) => fk.column === c.name),
                 })) || []} />
             ))}
-            {tables.length === 0 && <div style={{ color: T.text3, fontSize: '0.68rem', padding: 12, fontFamily: T.fontMono }}>NO TABLES DISCOVERED</div>}
+            {schemaState !== 'loading' && tables.length === 0 && <div style={{ color: T.text3, fontSize: '0.68rem', padding: 12, fontFamily: T.fontMono }}>NO TABLES DISCOVERED</div>}
           </div>
         </SectionCard>
 

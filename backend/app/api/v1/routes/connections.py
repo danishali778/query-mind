@@ -107,24 +107,54 @@ async def disconnect_database(connection_id: str, current_user: CurrentUserDep):
     return {"message": f"Disconnected {connection_id}", "status": "disconnected"}
 
 
+def _schema_response(connection_id: str, database: str, tables) -> SchemaResponse:
+    return SchemaResponse(
+        connection_id=connection_id,
+        database=database,
+        tables=tables,
+    )
+
+
 @router.get("/connections/{connection_id}/schema", response_model=SchemaResponse)
 async def get_database_schema(connection_id: str, current_user: CurrentUserDep):
+    """Return the last synced schema snapshot for UI display."""
+    try:
+        tables = await connection_service.get_connection_schema(current_user.id, connection_id)
+        if tables is None:
+            raise HTTPException(status_code=404, detail="Connection not found")
+
+        connection = await connection_service.get_connection(current_user.id, connection_id)
+        return _schema_response(
+            connection_id,
+            connection.database if connection else "unknown",
+            tables,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Schema load failed for connection %s", connection_id, exc_info=True)
+        raise ServiceUnavailableError("Schema could not be loaded for this connection.") from exc
+
+
+@router.post("/connections/{connection_id}/schema/refresh", response_model=SchemaResponse)
+async def refresh_database_schema(connection_id: str, current_user: CurrentUserDep):
+    """Force a live schema re-introspection and rebuild the persisted catalog."""
     try:
         tables = await connection_service.refresh_schema(current_user.id, connection_id)
         if tables is None:
             raise HTTPException(status_code=404, detail="Connection not found")
 
         connection = await connection_service.get_connection(current_user.id, connection_id)
-        return SchemaResponse(
-            connection_id=connection_id,
-            database=connection.database if connection else "unknown",
-            tables=tables,
+        return _schema_response(
+            connection_id,
+            connection.database if connection else "unknown",
+            tables,
         )
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("Schema inspection failed for connection %s", connection_id, exc_info=True)
-        raise ServiceUnavailableError("Schema inspection failed for this connection.") from exc
+        logger.error("Schema refresh failed for connection %s", connection_id, exc_info=True)
+        raise ServiceUnavailableError("Schema refresh failed for this connection.") from exc
 
 
 @router.get("/connections/{connection_id}/erd/mermaid", response_model=MermaidErdResponse)

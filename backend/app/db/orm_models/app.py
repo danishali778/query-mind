@@ -54,6 +54,29 @@ class DatabaseConnectionORM(Base):
         Index("idx_database_connections_owner_id_created_at", "owner_id", desc("created_at")),
     )
 
+class SchemaSnapshotORM(Base):
+    __tablename__ = "schema_snapshots"
+
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    connection_id: Mapped[str] = mapped_column(
+        GUID(),
+        ForeignKey("database_connections.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    owner_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    schema_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    db_type: Mapped[str] = mapped_column(Text, nullable=False)
+    catalog_json: Mapped[dict] = mapped_column(JsonType, nullable=False)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_utcnow, server_default=func.now(), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, server_default=func.now(), nullable=True)
+
+    __table_args__ = (
+        Index("idx_schema_snapshots_connection_id", "connection_id", unique=True),
+        Index("idx_schema_snapshots_owner_id", "owner_id"),
+    )
+
+
 class ConnectionAttemptORM(Base):
     __tablename__ = "connection_attempts"
 
@@ -348,6 +371,7 @@ class UserSubscriptionORM(Base):
 
 __all__ = [
     "DatabaseConnectionORM",
+    "SchemaSnapshotORM",
     "ConnectionAttemptORM",
     "DashboardORM",
     "DashboardWidgetORM",

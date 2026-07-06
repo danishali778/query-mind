@@ -97,6 +97,10 @@ export function getSchema(connectionId: string) {
   return request<SchemaResponse>(`/database/connections/${connectionId}/schema`);
 }
 
+export function refreshSchema(connectionId: string) {
+  return request<SchemaResponse>(`/database/connections/${connectionId}/schema/refresh`, { method: 'POST' });
+}
+
 export async function getQueryHistory(connectionId?: string, limit: number = 20) {
   const params = new URLSearchParams();
   if (connectionId) params.set('connection_id', connectionId);

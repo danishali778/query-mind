@@ -19,6 +19,8 @@ from app.core.db_connection_guardrails import (
     validate_supported_database_type,
 )
 from app.db.models.connection import ConnectionRequest, TableInfo
+from app.agents.schema_context.catalog import build_catalog
+from app.agents.schema_context.types import SchemaCatalog
 import app.query_engine.schema_inspector as schema_inspector
 
 
@@ -28,6 +30,7 @@ _engines: dict[tuple[str, str], Engine] = {}
 _tunnels: dict[tuple[str, str], SSHTunnelForwarder] = {}
 _engine_access_times: dict[tuple[str, str], float] = {}
 _schema_cache: dict[tuple[str, str], tuple[list[TableInfo], float]] = {}
+_catalog_cache: dict[tuple[str, str], tuple[SchemaCatalog, float]] = {}
 
 MAX_CACHED_ENGINES = 50
 SCHEMA_CACHE_TTL_SECONDS = 600
@@ -150,6 +153,7 @@ def release_connection(user_id: str, connection_id: str) -> None:
     tunnel = _tunnels.pop(key, None)
     _engine_access_times.pop(key, None)
     _schema_cache.pop(key, None)
+    _catalog_cache.pop(key, None)
     if engine:
         engine.dispose()
     if tunnel:
@@ -181,6 +185,45 @@ async def get_cached_schema(
     return schema
 
 
+def invalidate_schema_cache(user_id: str, connection_id: str) -> None:
+    key = (user_id, connection_id)
+    _schema_cache.pop(key, None)
+    _catalog_cache.pop(key, None)
+
+
+def cache_schema(user_id: str, connection_id: str, schema: list[TableInfo]) -> None:
+    _schema_cache[(user_id, connection_id)] = (schema, time.monotonic())
+
+
+def peek_cached_schema(user_id: str, connection_id: str) -> list[TableInfo] | None:
+    """Return in-memory schema cache only; never introspect the live database."""
+    key = (user_id, connection_id)
+    cached = _schema_cache.get(key)
+    if not cached:
+        return None
+    schema, ts = cached
+    if time.monotonic() - ts >= SCHEMA_CACHE_TTL_SECONDS:
+        _schema_cache.pop(key, None)
+        return None
+    return schema
+
+
+def cache_catalog(user_id: str, connection_id: str, catalog: SchemaCatalog) -> None:
+    _catalog_cache[(user_id, connection_id)] = (catalog, time.monotonic())
+
+
+def get_cached_catalog_entry(user_id: str, connection_id: str) -> SchemaCatalog | None:
+    key = (user_id, connection_id)
+    cached = _catalog_cache.get(key)
+    if not cached:
+        return None
+    catalog, ts = cached
+    if time.monotonic() - ts >= SCHEMA_CACHE_TTL_SECONDS:
+        _catalog_cache.pop(key, None)
+        return None
+    return catalog
+
+
 def build_schema_prompt_text(schema: list[TableInfo]) -> str:
     lines = []
     for table in schema:
@@ -207,5 +250,10 @@ __all__ = [
     "get_cached_engine",
     "release_connection",
     "get_cached_schema",
+    "invalidate_schema_cache",
+    "cache_schema",
+    "peek_cached_schema",
+    "cache_catalog",
+    "get_cached_catalog_entry",
     "build_schema_prompt_text",
 ]

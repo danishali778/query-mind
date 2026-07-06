@@ -6,11 +6,12 @@ import { ConnectionDetail } from '../components/connections/ConnectionDetail';
 import { DisconnectConnectionModal } from '../components/connections/DisconnectConnectionModal';
 import { NewConnectionModal } from '../components/connections/NewConnectionModal';
 import { T } from '../components/dashboard/tokens';
-import { listConnections, disconnectDatabase, getSchema, getQueryHistory } from '../services/api';
+import { listConnections, disconnectDatabase, getSchema, refreshSchema, getQueryHistory } from '../services/api';
 import { ApiRequestError } from '../services/http';
 import type { QueryRecord, SchemaResponse } from '../types/api';
 import type { ConnectionListItem, LoadState } from '../types/connections';
 import { mapConnectionRecord } from '../mappers/connections';
+import { useAuth } from '../context/AuthContext';
 
 function stableMessage(error: unknown, fallback: string) {
   if (error instanceof ApiRequestError) {
@@ -23,6 +24,7 @@ function stableMessage(error: unknown, fallback: string) {
 }
 
 export function ConnectionsPage() {
+  const { user } = useAuth();
   const [connections, setConnections] = useState<ConnectionListItem[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<LoadState>('loading');
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -59,8 +61,15 @@ export function ConnectionsPage() {
   }, []);
 
   useEffect(() => {
-    fetchConnections();
-  }, [fetchConnections]);
+    if (!user?.id) {
+      setConnections([]);
+      setConnectionStatus('loading');
+      setConnectionError(null);
+      setActiveId(null);
+      return;
+    }
+    void fetchConnections();
+  }, [user?.id, fetchConnections]);
 
   useEffect(() => {
     let cancelled = false;
@@ -119,7 +128,7 @@ export function ConnectionsPage() {
     setSchemaStatus('loading');
     setSchemaError(null);
     try {
-      const refreshedSchema = await getSchema(activeId);
+      const refreshedSchema = await refreshSchema(activeId);
       setSchema(refreshedSchema);
       setSchemaStatus(refreshedSchema.tables.length > 0 ? 'ready' : 'empty');
     } catch (err) {
