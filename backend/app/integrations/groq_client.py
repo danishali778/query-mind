@@ -1,29 +1,24 @@
+"""Backward-compatible Groq client exports (delegates to llm_client)."""
+
 from groq import Groq
-from langchain_groq import ChatGroq
 
 from app.core.config import settings
+from app.integrations.llm_client import get_chat_llm, invoke_chat_llm
 
 _groq_client: Groq | None = None
-_chat_groq: ChatGroq | None = None
 
 
 def get_groq_client() -> Groq:
+    if settings.resolved_llm_provider != "groq":
+        raise RuntimeError("get_groq_client() is only available when LLM_PROVIDER=groq")
     global _groq_client
     if _groq_client is None:
         _groq_client = Groq(api_key=settings.require("groq_api_key"))
     return _groq_client
 
 
-def get_chat_groq() -> ChatGroq:
-    global _chat_groq
-    if _chat_groq is None:
-        _chat_groq = ChatGroq(
-            api_key=settings.require("groq_api_key"),
-            model=settings.groq_model,
-            temperature=0,
-            max_tokens=4096,
-        )
-    return _chat_groq
+def get_chat_groq():
+    return get_chat_llm()
 
 
-__all__ = ["get_groq_client", "get_chat_groq"]
+__all__ = ["get_groq_client", "get_chat_groq", "invoke_chat_llm"]

@@ -6,6 +6,7 @@ from app.core.middleware import configure_cors
 from app.core.secrets import (
     get_encryption_key,
     require_app_database_url,
+    require_llm_api_key,
     require_groq_api_key,
     require_lemon_squeezy_webhook_secret,
     validate_core_credentials,
@@ -20,6 +21,7 @@ __all__ = [
     "configure_cors",
     "get_encryption_key",
     "require_app_database_url",
+    "require_llm_api_key",
     "require_groq_api_key",
     "require_lemon_squeezy_webhook_secret",
     "validate_core_credentials",
