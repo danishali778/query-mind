@@ -18,8 +18,20 @@ def execute_query(
     row_limit: int = 500,
     connection_id: str | None = None,
     readonly: bool = True,
+    *,
+    skip_row_limit_wrap: bool = False,
+    timeout_seconds: int | None = None,
 ) -> QueryExecutionResult:
-    result = _execute_query(user_id, engine, sql, row_limit, connection_id, True)
+    result = _execute_query(
+        user_id,
+        engine,
+        sql,
+        row_limit,
+        connection_id,
+        True,
+        skip_row_limit_wrap=skip_row_limit_wrap,
+        timeout_seconds=timeout_seconds,
+    )
     connection_service.record_query_execution_health_sync(user_id, connection_id, result)
     return result
 
