@@ -25,11 +25,12 @@ export function MessageBubble({
   const [saveLabel, setSaveLabel] = useState<string | null>(null);
   const [isSavingSql, setIsSavingSql] = useState(false);
   const [isPinning, setIsPinning] = useState(false);
+  const [traceOpen, setTraceOpen] = useState(false);
 
   const { smartAddToDashboard, smartSaveToLibrary, isSaving: isSmartSaving } = useSmartSave();
 
   const handleSaved = (created: boolean) => {
-    setSaveLabel(created ? '✅ Saved!' : '📌 Already saved');
+    setSaveLabel(created ? 'Saved!' : 'Already saved');
     setTimeout(() => setSaveLabel(null), 3000);
   };
 
@@ -46,7 +47,7 @@ export function MessageBubble({
       message.chart_recommendation?.title || 'Saved from Chat',
       () => setSaveModalOpen(true),
       () => {
-        setSaveLabel('✅ Saved!');
+        setSaveLabel('Saved!');
         setTimeout(() => setSaveLabel(null), 3000);
       }
     );
@@ -92,6 +93,58 @@ export function MessageBubble({
         </div>
       </div>
 
+      {message.agent_trace && message.agent_trace.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <button
+            type="button"
+            onClick={() => setTraceOpen((open) => !open)}
+            style={{
+              background: 'transparent',
+              border: `1px solid ${T.border}`,
+              color: T.text3,
+              fontFamily: T.fontMono,
+              fontSize: '0.62rem',
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              padding: '8px 12px',
+              cursor: 'pointer',
+            }}
+          >
+            {traceOpen ? 'Hide' : 'Show'} agent steps ({message.agent_trace.length})
+          </button>
+          {traceOpen && (
+            <div style={{
+              marginTop: 8,
+              border: `1px solid ${T.border}`,
+              background: T.s1,
+              padding: '12px 16px',
+              fontFamily: T.fontMono,
+              fontSize: '0.72rem',
+              color: T.text2,
+            }}>
+              {message.agent_trace.map((step, index) => (
+                <div key={`${step.tool}-${index}`} style={{ marginBottom: 8 }}>
+                  <div><strong>{step.tool}</strong> - {step.outcome} - {step.duration_ms}ms</div>
+                  <div style={{ color: T.text3, marginTop: 2 }}>Input: {step.args_summary || '{}'}</div>
+                  {step.output_summary && (
+                    <div style={{ color: T.text3, marginTop: 2 }}>Output: {step.output_summary}</div>
+                  )}
+                  {typeof step.output_row_count === 'number' && (
+                    <div style={{ color: T.text3, marginTop: 2 }}>Rows: {step.output_row_count}</div>
+                  )}
+                  {step.error_class && (
+                    <div style={{ color: T.text3, marginTop: 2 }}>Error class: {step.error_class}</div>
+                  )}
+                  {typeof step.retry_count === 'number' && step.retry_count > 0 && (
+                    <div style={{ color: T.text3, marginTop: 2 }}>Retry: {step.retry_count}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Technical Result Box (SQL, Table, Charts) */}
       {(message.sql || message.rows) && !message.error && (
         <div style={{
@@ -114,7 +167,7 @@ export function MessageBubble({
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.62rem', color: T.text3, fontWeight: 700, fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
               <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#1a1a1a' }} />
-              {message.sql ? `SQL GENERATED — ${message.sql.length} CHARS` : 'DATA OBSERVATIONS'}
+              {message.sql ? `SQL GENERATED - ${message.sql.length} CHARS` : 'DATA OBSERVATIONS'}
             </div>
             <button
               onClick={() => message.sql && navigator.clipboard.writeText(message.sql)}
@@ -186,7 +239,7 @@ export function MessageBubble({
                 transition: 'all 0.2s', fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '0.05em'
               }}
             >
-              {isSmartSaving ? '⏳...' : (
+              {isSmartSaving ? 'Saving...' : (
                 <>
                   <Plus size={12} strokeWidth={3} />
                   ADD TO DASHBOARD

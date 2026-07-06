@@ -7,6 +7,7 @@ import { MessageBubble } from '../components/chat/MessageBubble';
 import { ConnectionModal } from '../components/chat/ConnectionModal';
 import { T } from '../components/dashboard/tokens';
 import * as api from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import type { ChatMessageView } from '../types/chat';
 import type { DatabaseConnection, SessionMessagesResponse, SessionSummary } from '../types/api';
 
@@ -35,6 +36,8 @@ function mapSessionMessages(data: SessionMessagesResponse): ChatMessageView[] {
     is_pinned: message.is_pinned ?? false,
     parent_id: message.parent_id || undefined,
     prev_query_id: message.prev_query_id || undefined,
+    agent_trace: message.agent_trace || undefined,
+    agent_tier: message.agent_tier || undefined,
   }));
 }
 
@@ -104,6 +107,7 @@ function StatePanel({
 }
 
 export function ChatPage() {
+  const { user } = useAuth();
   const [connections, setConnections] = useState<DatabaseConnection[]>([]);
   const [connectionsState, setConnectionsState] = useState<LoadState>('loading');
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -116,6 +120,7 @@ export function ChatPage() {
   const [messagesState, setMessagesState] = useState<MessageLoadState>('idle');
   const [messagesError, setMessagesError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState('Analyzing question…');
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [showPaywall, setShowPaywall] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -185,9 +190,23 @@ export function ChatPage() {
   }, [connections]);
 
   useEffect(() => {
+    if (!user?.id) {
+      setConnections([]);
+      setConnectionsState('loading');
+      setConnectionError(null);
+      setActiveConnectionId('');
+      setSessions([]);
+      setSessionsState('loading');
+      setSessionsError(null);
+      setActiveSessionId(null);
+      setMessages([]);
+      setMessagesState('idle');
+      setMessagesError(null);
+      return;
+    }
     void loadConnections();
     void loadSessions();
-  }, [loadConnections, loadSessions]);
+  }, [user?.id, loadConnections, loadSessions]);
 
   useEffect(() => {
     if (!activeSessionId) {
@@ -222,15 +241,15 @@ export function ChatPage() {
 
       setMessages(prev => prev.map(m => m.id === messageId ? {
         ...m,
-        sql: (updatedMsg as any).sql || undefined,
-        rows: (updatedMsg as any).rows || (updatedMsg as any).results?.rows || undefined,
-        columns: (updatedMsg as any).columns || (updatedMsg as any).results?.columns || undefined,
-        chart_recommendation: (updatedMsg as any).chart_recommendation || undefined,
-        truncated: (updatedMsg as any).truncated ?? (updatedMsg as any).results?.truncated ?? undefined,
-        execution_time_ms: (updatedMsg as any).execution_time_ms || (updatedMsg as any).results?.execution_time_ms || undefined,
-        error: (updatedMsg as any).error || undefined,
-        content: (updatedMsg as any).content || m.content,
-        is_pinned: (updatedMsg as any).is_pinned ?? m.is_pinned,
+        sql: updatedMsg.sql || undefined,
+        rows: updatedMsg.rows || updatedMsg.results?.rows || undefined,
+        columns: updatedMsg.columns || updatedMsg.results?.columns || undefined,
+        chart_recommendation: updatedMsg.chart_recommendation || undefined,
+        truncated: updatedMsg.truncated ?? updatedMsg.results?.truncated ?? undefined,
+        execution_time_ms: updatedMsg.execution_time_ms || updatedMsg.results?.execution_time_ms || undefined,
+        error: updatedMsg.error || undefined,
+        content: updatedMsg.content || m.content,
+        is_pinned: updatedMsg.is_pinned ?? m.is_pinned,
       } : m));
     } catch (err) {
       console.error('Failed to save SQL:', err);
@@ -246,6 +265,23 @@ export function ChatPage() {
       console.error('Failed to toggle pin:', err);
     }
   };
+
+  useEffect(() => {
+    if (!loading) return;
+    const statuses = [
+      'Analyzing question…',
+      'Searching schema…',
+      'Inspecting tables…',
+      'Running query…',
+    ];
+    let index = 0;
+    setLoadingStatus(statuses[0]);
+    const timer = window.setInterval(() => {
+      index = (index + 1) % statuses.length;
+      setLoadingStatus(statuses[index]);
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [loading]);
 
   const handleSend = async (message: string) => {
     if (!activeConnectionId) {
@@ -276,6 +312,8 @@ export function ChatPage() {
         is_pinned: r.is_pinned ?? false,
         parent_id: userMsg.id,
         prev_query_id: r.prev_query_id || undefined,
+        agent_trace: r.agent_trace || undefined,
+        agent_tier: r.agent_tier || undefined,
       };
       setMessages(prev => {
         const updated = [...prev];
@@ -486,12 +524,10 @@ export function ChatPage() {
                 ))}
 
                 {loading && (
-                  <div style={{ padding: '24px 12px', display: 'flex', gap: 14 }}>
+                  <div style={{ padding: '24px 12px', display: 'flex', gap: 14, alignItems: 'center' }}>
                     <div style={{ width: 20, height: 20, borderRadius: 0, background: '#1a1a1a', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '0.7rem', fontWeight: 900, fontStyle: 'italic' }}>Q</div>
-                    <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                      <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#1a1a1a', animation: 'thinkbounce 1.2s 0s infinite' }} />
-                      <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#1a1a1a', animation: 'thinkbounce 1.2s 0.2s infinite' }} />
-                      <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#1a1a1a', animation: 'thinkbounce 1.2s 0.4s infinite' }} />
+                    <div style={{ fontFamily: T.fontMono, fontSize: '0.72rem', color: T.text3, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                      {loadingStatus}
                     </div>
                   </div>
                 )}

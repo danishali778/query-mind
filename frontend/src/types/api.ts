@@ -168,6 +168,17 @@ export interface ChatMessageRecord {
   is_pinned?: boolean;
   parent_id?: string | null;
   prev_query_id?: string | null;
+  agent_trace?: Array<{
+    tool: string;
+    args_summary: string;
+    duration_ms: number;
+    outcome: string;
+    output_summary?: string;
+    output_row_count?: number;
+    error_class?: string;
+    retry_count?: number;
+  }> | null;
+  agent_tier?: string | null;
   timestamp: string;
 }
 
@@ -210,6 +221,17 @@ export interface ChatResponse {
   yLabel?: string;
   is_pinned?: boolean;
   prev_query_id?: string | null;
+  agent_trace?: Array<{
+    tool: string;
+    args_summary: string;
+    duration_ms: number;
+    outcome: string;
+    output_summary?: string;
+    output_row_count?: number;
+    error_class?: string;
+    retry_count?: number;
+  }> | null;
+  agent_tier?: string | null;
 }
 
 export interface ChatUiMessage {
@@ -305,7 +327,7 @@ export interface SaveQueryResponse extends SavedQuery {
   created: boolean;
 }
 
-export interface UpdateSavedQueryRequest extends Partial<SaveQueryRequest> {}
+export type UpdateSavedQueryRequest = Partial<SaveQueryRequest>;
 
 export interface RunSavedQueryResponse {
   query_id: string;
@@ -371,7 +393,7 @@ export interface DashboardSummary {
   owner_id?: string;
   name: string;
   icon: string;
-  filters: Record<string, any>;
+  filters: Record<string, unknown>;
   is_public?: boolean;
   share_token?: string | null;
   created_at: string;
@@ -381,7 +403,7 @@ export interface DashboardSummary {
 export interface UpdateDashboardRequest {
   name?: string;
   icon?: string;
-  filters?: Record<string, any>;
+  filters?: Record<string, unknown>;
   is_public?: boolean;
 }
 
