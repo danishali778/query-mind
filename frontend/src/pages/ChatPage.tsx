@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Pin } from 'lucide-react';
+import { Menu, Pin } from 'lucide-react';
 import { MainShell } from '../components/common/MainShell';
 import { Sidebar as ChatSidebar } from '../components/chat/Sidebar';
 import { ChatInput } from '../components/chat/ChatInput';
 import { MessageBubble } from '../components/chat/MessageBubble';
 import { ConnectionModal } from '../components/chat/ConnectionModal';
 import { T } from '../components/dashboard/tokens';
+import { BREAKPOINTS, useMediaQuery } from '../hooks/useMediaQuery';
 import * as api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import type { ChatMessageView } from '../types/chat';
@@ -126,6 +127,8 @@ export function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const skipNextFetch = useRef(false);
   const messageLoadRequestRef = useRef(0);
+  const isMobile = useMediaQuery(BREAKPOINTS.lg);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const loadConnections = useCallback(async (options: { preferLast?: boolean; preferredId?: string } = {}) => {
     setConnectionsState('loading');
@@ -188,6 +191,17 @@ export function ChatPage() {
       setMessagesError(MESSAGE_LOAD_ERROR);
     }
   }, [connections]);
+
+  useEffect(() => {
+    if (!isMobile) setSidebarOpen(false);
+  }, [isMobile]);
+
+  useEffect(() => {
+    document.body.style.overflow = sidebarOpen && isMobile ? 'hidden' : '';
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [sidebarOpen, isMobile]);
 
   useEffect(() => {
     if (!user?.id) {
@@ -396,7 +410,17 @@ export function ChatPage() {
       } : undefined}
     >
       <div style={{ display: 'flex', width: '100%', height: '100%', overflow: 'hidden', position: 'relative' }}>
+        {isMobile && sidebarOpen && (
+          <button
+            type="button"
+            className="app-shell-backdrop"
+            aria-label="Close conversations"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
         <ChatSidebar
+          className={sidebarOpen ? 'drawer-panel drawer-panel--open responsive-panel responsive-panel--overlay' : 'drawer-panel responsive-panel responsive-panel--overlay'}
+          onNavigate={() => setSidebarOpen(false)}
           sessions={sessions} activeSessionId={activeSessionId}
           sessionsState={sessionsState} sessionsError={sessionsError} onRetrySessions={() => { void loadSessions(); }}
           onSelectSession={setActiveSessionId} onNewChat={handleNewChat}
@@ -413,9 +437,39 @@ export function ChatPage() {
           background: 'transparent',
           position: 'relative'
         }}>
+          {isMobile && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              padding: '12px clamp(16px, 4vw, 24px)',
+              borderBottom: '1px solid rgba(0,0,0,0.08)',
+              background: T.bg,
+              flexShrink: 0,
+            }}>
+              <button
+                type="button"
+                className="mobile-menu-btn"
+                aria-label="Open conversations"
+                onClick={() => setSidebarOpen(true)}
+                style={{ display: 'inline-flex' }}
+              >
+                <Menu size={18} />
+              </button>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontFamily: T.fontHead, fontWeight: 900, fontSize: '0.95rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {activeSession?.title || 'New Chat'}
+                </div>
+                <div style={{ fontFamily: T.fontMono, fontSize: '0.62rem', color: T.text3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {activeConn ? `${activeConn.db_type} · ${activeConn.database}` : 'Select a connection'}
+                </div>
+              </div>
+            </div>
+          )}
           <div style={{ flex: 1, display: 'flex', justifyContent: 'center', minWidth: 0, overflow: 'hidden' }}>
             <div
               id="chat-messages-scroll"
+              className="responsive-inset"
               style={{
                 width: '100%',
                 minWidth: 0,
@@ -424,7 +478,8 @@ export function ChatPage() {
                 flexDirection: 'column',
                 overflowY: 'auto',
                 overflowX: 'hidden',
-                padding: '0 80px 40px',
+                paddingTop: 0,
+                paddingBottom: 40,
                 scrollBehavior: 'smooth'
               }}
             >
@@ -489,7 +544,7 @@ export function ChatPage() {
                       marginBottom: 12, fontFamily: T.fontHead, fontStyle: 'italic'
                     }}>Q</div>
                     <div style={{
-                      fontFamily: T.fontHead, fontWeight: 900, fontSize: '2.8rem',
+                      fontFamily: T.fontHead, fontWeight: 900, fontSize: 'clamp(1.8rem, 6vw, 2.8rem)',
                       color: T.text, letterSpacing: -1.2, fontStyle: 'italic',
                       textAlign: 'center', lineHeight: 1
                     }}>
@@ -538,7 +593,7 @@ export function ChatPage() {
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'center', background: 'transparent', flexShrink: 0, paddingBottom: 24 }}>
-            <div style={{ width: '100%', maxWidth: 1200, padding: '0 80px' }}>
+            <div className="responsive-inset" style={{ width: '100%', maxWidth: 1200 }}>
               <ChatInput
                 connections={connections} activeConnectionId={activeConnectionId}
                 onConnectionChange={setActiveConnectionId} onSend={handleSend} loading={loading}

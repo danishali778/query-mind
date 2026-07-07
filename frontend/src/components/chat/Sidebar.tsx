@@ -3,7 +3,7 @@ import { T } from '../dashboard/tokens';
 import type { ChatSidebarProps } from '../../types/chat';
 import { DeleteSessionModal } from './DeleteSessionModal';
 
-export function Sidebar({ sessions, activeSessionId, sessionsState = 'ready', sessionsError, onRetrySessions, onSelectSession, onNewChat, onDeleteSession, onRenameSession, connections, activeConnectionId }: ChatSidebarProps) {
+export function Sidebar({ sessions, activeSessionId, sessionsState = 'ready', sessionsError, onRetrySessions, onSelectSession, onNewChat, onDeleteSession, onRenameSession, connections, activeConnectionId, className = 'drawer-panel responsive-panel responsive-panel--overlay', onNavigate }: ChatSidebarProps) {
   const [search, setSearch] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
@@ -46,7 +46,7 @@ export function Sidebar({ sessions, activeSessionId, sessionsState = 'ready', se
   const activeConn = connections.find(c => c.id === activeConnectionId);
 
   return (
-    <aside style={{ 
+    <aside className={className} style={{ 
       width: 280, 
       flexShrink: 0, 
       background: '#fdfcfb', 
@@ -54,7 +54,8 @@ export function Sidebar({ sessions, activeSessionId, sessionsState = 'ready', se
       display: 'flex', 
       flexDirection: 'column', 
       height: '100%', 
-      overflow: 'hidden' 
+      overflow: 'hidden',
+      zIndex: 160,
     }}>
       {/* Logo + Active Connection */}
       <div style={{ padding: '24px 20px 10px' }}>
@@ -81,7 +82,7 @@ export function Sidebar({ sessions, activeSessionId, sessionsState = 'ready', se
           </span>
         </div>
 
-        <button onClick={onNewChat} style={{
+        <button onClick={() => { onNewChat(); onNavigate?.(); }} style={{
           width: '100%', padding: '12px 14px',
           background: '#fff',
           border: `1.5px solid #1a1a1a`, borderRadius: 0, color: '#1a1a1a',
@@ -120,7 +121,7 @@ export function Sidebar({ sessions, activeSessionId, sessionsState = 'ready', se
               .map(s => {
                 const isActive = s.id === activeSessionId;
                 return (
-                  <div key={s.id} onClick={() => onSelectSession(s.id)}
+                  <div key={s.id} onClick={() => { onSelectSession(s.id); onNavigate?.(); }}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 12, padding: '12px 12px',
                       cursor: 'pointer', marginBottom: 2, 

@@ -41,6 +41,8 @@ export interface ChatSidebarProps {
   onRenameSession: (id: string, title: string) => void;
   connections: DatabaseConnection[];
   activeConnectionId: string;
+  className?: string;
+  onNavigate?: () => void;
 }
 
 export interface ChatInputProps {

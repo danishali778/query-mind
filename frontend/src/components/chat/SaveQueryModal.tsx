@@ -42,7 +42,9 @@ export function SaveQueryModal({ isOpen, onClose, sql, defaultTitle, connectionI
   const [newFolderName, setNewFolderName] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -51,16 +53,13 @@ export function SaveQueryModal({ isOpen, onClose, sql, defaultTitle, connectionI
     setNewFolderMode(false);
     setNewFolderName('');
     setError('');
+    setIsDropdownOpen(false);
     listLibraryFolders().then(setFolders).catch(() => {});
     setTimeout(() => titleRef.current?.select(), 50);
   }, [isOpen, defaultTitle]);
 
-  if (!isOpen) return null;
-
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
+    if (!isOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setIsDropdownOpen(false);
@@ -68,7 +67,9 @@ export function SaveQueryModal({ isOpen, onClose, sql, defaultTitle, connectionI
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, [isOpen]);
+
+  if (!isOpen) return null;
 
   const handleFolderChange = (value: string) => {
     if (value === '__new__') {
@@ -96,7 +97,7 @@ export function SaveQueryModal({ isOpen, onClose, sql, defaultTitle, connectionI
         connection_id: connectionId,
         folder_name: folderName,
       });
-      onSaved(result.created);
+      onSaved(result.created || result.folder_name === folderName);
       localStorage.setItem('lastUsedFolder', folderName);
       onClose();
     } catch {
@@ -128,7 +129,7 @@ export function SaveQueryModal({ isOpen, onClose, sql, defaultTitle, connectionI
           background: 'rgba(255, 255, 255, 0.85)',
           backdropFilter: 'blur(24px) saturate(160%)',
           border: `1px solid rgba(255, 255, 255, 0.4)`,
-          borderRadius: 24, overflow: 'hidden',
+          borderRadius: 24, overflow: 'visible',
           boxShadow: '0 32px 80px rgba(0,0,0,0.15), 0 0 0 1px rgba(255,255,255,0.5)',
           position: 'relative',
         }}
@@ -215,14 +216,15 @@ export function SaveQueryModal({ isOpen, onClose, sql, defaultTitle, connectionI
               <div style={{
                 position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 8,
                 background: 'rgba(255, 255, 255, 0.95)', backdropFilter: 'blur(16px)',
-                border: `1px solid ${T.border}`, borderRadius: 16, overflow: 'hidden',
-                boxShadow: T.shadow.lg, zIndex: 10, padding: 6,
+                border: `1px solid ${T.border}`, borderRadius: 16,
+                boxShadow: T.shadow.lg, zIndex: 20, padding: 6,
+                maxHeight: 220, overflowY: 'auto',
               }}>
                 {/* Options */}
                 {[
+                  { id: '__new__', label: 'Create new folder...', isAction: true },
                   { id: 'Uncategorized', label: 'Uncategorized' },
                   ...folders.filter(f => f.name !== 'Uncategorized' && f.name !== 'Public Library').map(f => ({ id: f.name, label: f.name })),
-                  { id: '__new__', label: 'Create new folder...', isAction: true }
                 ].map((opt) => (
                   <div
                     key={opt.id}
