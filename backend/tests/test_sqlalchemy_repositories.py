@@ -137,6 +137,35 @@ def test_saved_query_lookup_requires_owner():
     assert asyncio.run(query_library_repository.delete_query(user_a, saved.id)) is True
 
 
+def test_save_query_duplicate_updates_folder_and_title():
+    user_id = _user_id()
+
+    first, created = asyncio.run(
+        query_library_repository.save_query(
+            user_id,
+            SaveQueryInput(title="Revenue", sql="select 1", folder_name="Uncategorized"),
+        )
+    )
+    assert created is True
+    assert first.folder_name == "Uncategorized"
+
+    second, created_again = asyncio.run(
+        query_library_repository.save_query(
+            user_id,
+            SaveQueryInput(title="Revenue v2", sql="select 1", folder_name="Folder 1"),
+        )
+    )
+    assert created_again is False
+    assert second.id == first.id
+    assert second.folder_name == "Folder 1"
+    assert second.title == "Revenue v2"
+
+    folders = asyncio.run(query_library_repository.list_folders(user_id))
+    folder_names = {folder["name"] for folder in folders}
+    assert "Folder 1" in folder_names
+    assert asyncio.run(query_library_repository.delete_query(user_id, first.id)) is True
+
+
 def test_chat_session_lookup_and_history_require_owner():
     user_a = _user_id()
     user_b = _user_id()

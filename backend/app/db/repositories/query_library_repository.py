@@ -98,6 +98,20 @@ async def find_duplicate(user_id: str, sql: str, connection_id: Optional[str] = 
 async def save_query(user_id: str, req: SaveQueryInput) -> tuple[SavedQuery, bool]:
     existing = await find_duplicate(user_id, req.sql, req.connection_id)
     if existing:
+        update_fields: dict = {}
+        if req.title and req.title != existing.title:
+            update_fields["title"] = req.title
+        if req.folder_name and req.folder_name != existing.folder_name:
+            update_fields["folder_name"] = req.folder_name
+        if req.description and req.description != existing.description:
+            update_fields["description"] = req.description
+        if req.tags and req.tags != existing.tags:
+            update_fields["tags"] = req.tags
+
+        if update_fields:
+            updated = await update_query(user_id, existing.id, UpdateQueryInput(**update_fields))
+            if updated:
+                return updated, False
         return existing, False
 
     metadata = {
