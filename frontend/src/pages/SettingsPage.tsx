@@ -43,7 +43,7 @@ export function SettingsPage() {
         icon: <Zap size={10} fill={T.accent} />
       }}
     >
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', background: T.bg, position: 'relative' }}>
+      <div className="responsive-split responsive-split-stack-detail" style={{ flex: 1, overflow: 'hidden', background: T.bg, position: 'relative' }}>
         {/* Faint Grid Background */}
         <div style={{ 
           position: 'absolute', inset: 0, 
@@ -52,12 +52,12 @@ export function SettingsPage() {
         }} />
 
         {/* Sidebar */}
-        <aside style={{
+        <aside className="responsive-panel" style={{
           width: 240, flexShrink: 0, background: T.s1,
           borderRight: `1px solid ${T.border}`,
           padding: '40px 0', display: 'flex', flexDirection: 'column',
           zIndex: 10,
-          backdropFilter: 'blur(8px)'
+          backdropFilter: 'blur(8px)', minWidth: 0,
         }}>
           <div style={{ fontSize: '0.62rem', fontWeight: 950, letterSpacing: 3, color: T.text3, textTransform: 'uppercase', fontFamily: T.fontMono, padding: '0 32px 24px', opacity: 0.6 }}>
             SYSTEM_MANIFEST
@@ -96,7 +96,7 @@ export function SettingsPage() {
         </aside>
 
         {/* Content Area */}
-        <main style={{ flex: 1, overflowY: 'auto', padding: '64px 80px', position: 'relative', zIndex: 1 }} className="settings-scroll">
+        <main style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: 'clamp(32px, 5vw, 64px) clamp(20px, 5vw, 80px)', position: 'relative', zIndex: 1 }} className="settings-scroll">
           <div style={{ maxWidth: 900, animation: 'fadeInScale 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards' }}>
             {section === 'profile'       && <ProfileSection />}
             {section === 'billing'       && <BillingSection />}

@@ -83,7 +83,7 @@ export function AuthPage() {
       <div
         style={{
           flex: 1, position: 'relative', overflow: 'hidden', background: T.text,
-          display: 'flex', flexDirection: 'column', padding: 60, color: T.bg
+          display: 'flex', flexDirection: 'column', padding: 'clamp(24px, 5vw, 60px)', color: T.bg
         }}
         className="auth-visual"
       >
@@ -109,9 +109,11 @@ export function AuthPage() {
           </div>
 
           <h2
+            className="auth-visual-headline"
             style={{
-              fontFamily: T.fontHead, fontWeight: 950, fontSize: '4.5rem',
-              letterSpacing: -3, lineHeight: 0.9, textTransform: 'uppercase', fontStyle: 'italic'
+              fontFamily: T.fontHead, fontWeight: 950, fontSize: 'clamp(2.5rem, 6vw, 4.5rem)',
+              letterSpacing: -3, lineHeight: 0.9, textTransform: 'uppercase', fontStyle: 'italic',
+              maxWidth: '100%', overflowWrap: 'anywhere',
             }}
           >
             PROTECTING_YOUR_<br />

@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { AppSidebar } from './AppSidebar';
 import { AppHeader } from './AppHeader';
 import { T } from '../dashboard/tokens';
 import { DashboardBackground } from '../layout/DashboardBackground';
+import { BREAKPOINTS, useMediaQuery } from '../../hooks/useMediaQuery';
 
 interface MainShellProps {
   title: string;
@@ -31,22 +33,52 @@ export function MainShell({
   activeId,
   hideHeader = false
 }: MainShellProps) {
+  const isMobileNav = useMediaQuery(BREAKPOINTS.lg);
+  const [navOpen, setNavOpen] = useState(false);
+  const location = useLocation();
+
+  useEffect(() => {
+    setNavOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    document.body.style.overflow = navOpen && isMobileNav ? 'hidden' : '';
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [navOpen, isMobileNav]);
+
   return (
     <div style={{
       display: 'flex',
       height: '100vh',
-      width: '100vw',
+      width: '100%',
+      maxWidth: '100vw',
       overflow: 'hidden',
-      background: 'transparent', // Let mesh background show through
+      background: 'transparent',
       fontFamily: T.fontBody,
       color: T.text,
       position: 'relative'
     }}>
       <DashboardBackground />
-      {/* Main Sidebar */}
-      {!hideSidebar && <AppSidebar activeId={activeId} onDashboardHover={onDashboardHover} />}
+      {isMobileNav && navOpen && !hideSidebar && (
+        <button
+          type="button"
+          className="app-shell-backdrop"
+          aria-label="Close navigation"
+          onClick={() => setNavOpen(false)}
+        />
+      )}
 
-      {/* Page Container */}
+      {!hideSidebar && (
+        <AppSidebar
+          activeId={activeId}
+          onDashboardHover={onDashboardHover}
+          className={navOpen ? 'app-sidebar app-sidebar--open' : 'app-sidebar'}
+          onNavigate={() => setNavOpen(false)}
+        />
+      )}
+
       <main
         style={{
           flex: 1,
@@ -57,18 +89,18 @@ export function MainShell({
           transition: 'padding-left 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
         }}
       >
-        {/* Universal Header */}
         {!hideHeader && (
           <AppHeader
             title={title}
             subtitle={subtitle}
             badge={badge}
+            onMenuClick={() => setNavOpen(true)}
+            showMenuButton={isMobileNav && !hideSidebar}
           >
             {headerActions}
           </AppHeader>
         )}
 
-        {/* Page Content */}
         <main style={{
           flex: 1,
           minWidth: 0,

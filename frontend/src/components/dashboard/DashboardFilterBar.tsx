@@ -24,22 +24,19 @@ export function DashboardFilterBar({ filters, onFiltersChange, onApply }: Dashbo
 
   return (
     <div className="dash-filter-glass" style={{
-      background: 'rgba(255, 255, 255, 0.5)',
-      backdropFilter: 'blur(16px) saturate(180%)',
-      border: `1px solid rgba(255, 255, 255, 0.5)`,
-      borderRadius: 22,
-      padding: '16px 24px',
-      marginBottom: 32,
+      background: '#fff',
+      border: `1px solid rgba(0, 0, 0, 0.08)`,
+      borderRadius: 0,
+      padding: '14px 20px',
+      marginBottom: 24,
       display: 'flex',
       flexDirection: 'column',
-      gap: 16,
-      transition: 'all 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
-      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.6), 0 12px 48px rgba(0,0,0,0.05)',
+      gap: 14,
+      boxShadow: 'none',
       position: 'relative'
     }}>
       <div style={{
         position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-        borderRadius: 22, border: '1px solid rgba(0,0,0,0.03)',
         pointerEvents: 'none'
       }} />
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

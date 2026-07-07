@@ -450,6 +450,27 @@ interface GridLayoutItem {
 
 /* ── Dashboard Canvas ─────────────────────────────────────────── */
 
+function StatChip({ label, muted = false, accent = false }: { label: string; muted?: boolean; accent?: boolean }) {
+  return (
+    <span style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      padding: '5px 10px',
+      background: accent ? T.accentDim : T.s2,
+      border: `1px solid ${accent ? `${T.accent}33` : T.border}`,
+      color: muted ? T.text3 : accent ? T.accent : T.text2,
+      fontSize: '0.62rem',
+      fontFamily: T.fontMono,
+      fontWeight: 700,
+      letterSpacing: '0.04em',
+      textTransform: 'uppercase',
+      whiteSpace: 'nowrap',
+    }}>
+      {label}
+    </span>
+  );
+}
+
 function DashboardCanvas({
   activeDash,
   stats,
@@ -538,120 +559,88 @@ function DashboardCanvas({
 
   return (
     <>
-      <div className="dash-hero-editorial" style={{
-        display: 'flex', 
+      <div className="dash-command-bar" style={{
+        display: 'flex',
         justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        gap: 40, 
-        padding: '60px 0 40px 0',
-        position: 'relative',
-        borderBottom: `1px solid rgba(0, 0, 0, 0.05)`,
-        marginBottom: 40
+        alignItems: 'center',
+        gap: 24,
+        flexWrap: 'wrap',
+        padding: 'clamp(20px, 3vw, 28px) clamp(20px, 4vw, 40px)',
+        margin: '0 clamp(20px, 4vw, 40px) 24px',
+        background: '#fff',
+        border: `1px solid rgba(0, 0, 0, 0.08)`,
+        boxShadow: '0 1px 0 rgba(0,0,0,0.03)',
       }}>
-        <div style={{ display: 'flex', gap: 32, alignItems: 'flex-start' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 20, minWidth: 0, flex: 1 }}>
           <div style={{
-            width: 80, height: 80, borderRadius: 16, flexShrink: 0,
-            background: '#fff',
-            border: '1px solid rgba(0,0,0,0.08)',
+            width: 52, height: 52, flexShrink: 0,
+            background: T.s2,
+            border: `1px solid ${T.border}`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: '2rem',
-            boxShadow: '0 10px 30px rgba(0,0,0,0.03)',
+            fontSize: '1.4rem',
           }}>
             {activeDash.icon || '📊'}
           </div>
-          
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
+
+          <div style={{ minWidth: 0 }}>
             <div style={{
-              fontSize: '0.62rem', 
-              color: T.text3, 
-              fontFamily: T.fontMono, 
-              letterSpacing: '0.2em',
-              textTransform: 'uppercase',
-              marginBottom: 12,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8
-            }}>
-              <span style={{ color: T.text }}>#</span>
-              Live Dashboard
-            </div>
-            
-            <div style={{
-              fontFamily: T.fontHead, 
+              fontFamily: T.fontHead,
               fontStyle: 'italic',
-              fontWeight: 900, 
-              fontSize: '4.5rem',
-              color: T.text, 
-              letterSpacing: '-0.02em', 
-              lineHeight: 0.9,
-              marginBottom: 20,
-            }}>{activeDash.name}</div>
-            
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 20,
+              fontWeight: 900,
+              fontSize: 'clamp(1.5rem, 3vw, 2.25rem)',
+              color: T.text,
+              letterSpacing: '-0.02em',
+              lineHeight: 1,
+              marginBottom: 10,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
             }}>
-              <div style={{
-                fontSize: '0.7rem', color: T.text2, fontFamily: T.fontMono,
-                letterSpacing: '0.05em', fontWeight: 600
-              }}>
-                <span style={{ color: T.text, fontWeight: 800 }}>{stats.total_widgets}</span> WIDGETS
-              </div>
+              {activeDash.name}
+            </div>
 
-              <div style={{
-                fontSize: '0.7rem', color: T.text3, fontFamily: T.fontMono,
-                opacity: 0.7
-              }}>
-                CREATED {new Date(activeDash.created_at).toLocaleDateString().toUpperCase()}
-              </div>
-
-              <button 
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <StatChip label={`${stats.total_widgets} widgets`} />
+              <StatChip label={`Created ${new Date(activeDash.created_at).toLocaleDateString()}`} muted />
+              <button
+                type="button"
                 onClick={() => setRefreshInterval(refreshInterval ? null : 60000)}
                 style={{
-                  background: 'transparent', border: 'none', 
-                  color: refreshInterval ? T.accent : T.text3,
-                  fontSize: '0.68rem', fontFamily: T.fontMono, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  padding: 0, fontWeight: 700, letterSpacing: '0.05em'
+                  background: refreshInterval ? T.accentDim : T.s2,
+                  border: `1px solid ${refreshInterval ? `${T.accent}33` : T.border}`,
+                  color: refreshInterval ? T.accent : T.text2,
+                  fontSize: '0.62rem',
+                  fontFamily: T.fontMono,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '5px 10px',
+                  fontWeight: 700,
+                  letterSpacing: '0.04em',
+                  textTransform: 'uppercase',
                 }}
               >
-                <div style={{ 
-                  width: 6, height: 6, borderRadius: '50%', 
+                <span style={{
+                  width: 6, height: 6, borderRadius: '50%',
                   background: refreshInterval ? T.accent : T.text3,
-                  boxShadow: refreshInterval ? `0 0 10px ${T.accent}40` : 'none',
                 }} />
-                LIVE REFRESH: {refreshInterval ? 'ON' : 'OFF'}
+                Auto refresh {refreshInterval ? 'on' : 'off'}
               </button>
             </div>
           </div>
         </div>
 
-        {/* Breakdown Pills on the Right */}
-        <div style={{
-          display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'flex-end',
-          maxWidth: 400, paddingTop: 60
-        }}>
-          {Object.entries(stats.viz_breakdown || {}).map(([key, value]) => (
-            <div key={key} style={{
-              display: 'flex', alignItems: 'center', gap: 10,
-              background: '#fff', 
-              border: `1px solid rgba(0,0,0,0.08)`,
-              borderRadius: 30, padding: '6px 18px',
-              fontSize: '0.7rem', fontFamily: T.fontMono,
-              transition: 'all 0.2s ease',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.02)',
-              cursor: 'default',
-            }}>
-              <div style={{ 
-                width: 5, height: 5, borderRadius: '50%', 
-                background: key.toLowerCase() === 'table' ? T.accent : T.purple
-              }} />
-              <span style={{ color: T.text, fontWeight: 800 }}>{String(value)}</span>
-              <span style={{ color: T.text3, letterSpacing: '0.05em', fontWeight: 600 }}>{key.toUpperCase()}</span>
-            </div>
-          ))}
-        </div>
+        {Object.keys(stats.viz_breakdown || {}).length > 0 && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            {Object.entries(stats.viz_breakdown || {}).map(([key, value]) => (
+              <StatChip key={key} label={`${value} ${key}`} accent />
+            ))}
+          </div>
+        )}
       </div>
 
+      <div style={{ padding: '0 clamp(20px, 4vw, 40px)' }}>
       <DashboardFilterBar
         filters={localFilters}
         onFiltersChange={setLocalFilters}
@@ -733,6 +722,7 @@ function DashboardCanvas({
           </div>
         </div>
       )}
+      </div>
     </>
   );
 }

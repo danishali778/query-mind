@@ -62,8 +62,8 @@ export function ConnectionDetail({ connection, schema, schemaState = 'idle', sch
   const sc = getStatusColor();
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: T.bg, fontFamily: T.fontBody }}>
-      <div style={{ padding: '24px 32px 20px', background: T.s1, borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 20 }}>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: T.bg, fontFamily: T.fontBody, minWidth: 0 }}>
+      <div className="connection-detail-header" style={{ padding: '24px clamp(16px, 3vw, 32px) 20px', background: T.s1, borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
         <div style={{ width: 56, height: 56, borderRadius: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.8rem', flexShrink: 0, background: connection.color }}>
           {connection.icon}
         </div>
@@ -78,7 +78,7 @@ export function ConnectionDetail({ connection, schema, schemaState = 'idle', sch
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div className="connection-detail-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <HeaderBtn icon={<RefreshCw size={12} />} label="RE-DISCOVER" onClick={onRefreshSchema} />
           <HeaderBtn icon={<Edit3 size={12} />} label="CONFIG" onClick={() => setActiveTab('credentials')} />
           <HeaderBtn icon={<Share2 size={12} />} label="SHARE" />
@@ -86,7 +86,7 @@ export function ConnectionDetail({ connection, schema, schemaState = 'idle', sch
         </div>
       </div>
 
-      <div style={{ display: 'flex', background: T.s1, borderBottom: `1px solid ${T.border}`, padding: '0 32px' }}>
+      <div className="connection-detail-tabs" style={{ display: 'flex', background: T.s1, borderBottom: `1px solid ${T.border}`, padding: '0 clamp(16px, 3vw, 32px)', overflowX: 'auto' }}>
         <Tab active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} label="OVERVIEW" icon={<Layout size={12} />} />
         <Tab active={activeTab === 'credentials'} onClick={() => setActiveTab('credentials')} label="CREDENTIALS" icon={<Shield size={12} />} />
         <Tab active={activeTab === 'schema'} onClick={() => setActiveTab('schema')} label="SCHEMA" icon={<Database size={12} />} />
@@ -94,7 +94,7 @@ export function ConnectionDetail({ connection, schema, schemaState = 'idle', sch
         <Tab active={activeTab === 'activity'} onClick={() => setActiveTab('activity')} label="ACTIVITY LOG" icon={<Activity size={12} />} />
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '32px' }} className="cd-body">
+      <div style={{ flex: 1, overflowY: 'auto', padding: 'clamp(20px, 3vw, 32px)' }} className="cd-body">
         {activeTab === 'overview' && <OverviewTab connection={connection} schema={schema ?? null} schemaState={schemaState} queryHistory={queryHistory || []} onTabSwitch={setActiveTab} />}
         {activeTab === 'credentials' && <CredentialsTab connection={connection} onConnectionUpdated={onConnectionUpdated} />}
         {activeTab === 'schema' && <SchemaTab schema={schema ?? null} state={schemaState} error={schemaError} onRefresh={onRefreshSchema} />}

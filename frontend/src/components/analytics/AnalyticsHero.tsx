@@ -36,8 +36,8 @@ export function AnalyticsHero() {
           </div>
           
           <h1 style={{ 
-            margin: 0, color: T.text, fontFamily: T.fontHead, fontSize: '3.8rem', 
-            letterSpacing: -2, fontWeight: 900, lineHeight: 0.95
+            margin: 0, color: T.text, fontFamily: T.fontHead, fontSize: 'clamp(2rem, 6vw, 3.8rem)', 
+            letterSpacing: -2, fontWeight: 900, lineHeight: 0.95, maxWidth: '100%', overflowWrap: 'anywhere',
           }}>
             Usage, health, and output <br />
             <span style={{ fontStyle: 'italic', fontWeight: 400, color: T.text2 }}>across the entire engine</span>
