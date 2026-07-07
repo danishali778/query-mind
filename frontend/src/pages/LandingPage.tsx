@@ -24,9 +24,9 @@ export function LandingPage() {
         <Stats />
         
         {/* Features Section (Feature Nodes) */}
-        <section id="features" style={{ padding: '160px 60px', background: T.bg, borderBottom: `1px solid ${T.border}` }}>
+        <section id="features" className="landing-section" style={{ padding: '160px 60px', background: T.bg, borderBottom: `1px solid ${T.border}` }}>
           <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 100, alignItems: 'center' }}>
+            <div className="landing-features-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 100, alignItems: 'center' }}>
               <div>
                 <div style={{ fontFamily: T.fontMono, fontSize: '0.65rem', color: T.accent, letterSpacing: 4, fontWeight: 950, marginBottom: 24 }}>[ 01_CAPABILITIES ]</div>
                 <h2 style={{ fontFamily: T.fontHead, fontWeight: 950, fontSize: 'clamp(3rem, 6vw, 5rem)', letterSpacing: -3, lineHeight: 0.95, textTransform: 'uppercase', fontStyle: 'italic', marginBottom: 40 }}>
@@ -46,7 +46,7 @@ export function LandingPage() {
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32 }}>
+              <div className="landing-feature-cards" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32 }}>
                 {features.map((f, i) => (
                   <div key={i} style={{ padding: '40px', background: T.s1, border: `1px solid ${T.border}`, transition: 'transform 0.3s' }}>
                     <div style={{ color: T.accent, marginBottom: 24 }}>{f.icon}</div>
@@ -62,7 +62,7 @@ export function LandingPage() {
         <Integrations />
 
         {/* Final CTA Section */}
-        <section style={{ padding: '160px 60px', textAlign: 'center', background: T.text, color: T.bg, position: 'relative', overflow: 'hidden' }}>
+        <section className="landing-section" style={{ padding: '160px 60px', textAlign: 'center', background: T.text, color: T.bg, position: 'relative', overflow: 'hidden' }}>
           <div style={{ 
             position: 'absolute', inset: 0, 
             backgroundImage: `radial-gradient(${T.accent} 2px, transparent 2px)`, 
@@ -85,7 +85,7 @@ export function LandingPage() {
         </section>
       </main>
 
-      <footer style={{ padding: '80px 60px', background: T.bg, borderTop: `1px solid ${T.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+      <footer className="landing-footer" style={{ padding: '80px 60px', background: T.bg, borderTop: `1px solid ${T.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
         <div>
           <div style={{ fontFamily: T.fontHead, fontWeight: 950, fontSize: '1.2rem', letterSpacing: '-1px', color: T.text, textTransform: 'uppercase', marginBottom: 24 }}>
             QUERY<span style={{ color: T.accent }}>MIND</span>

@@ -51,8 +51,8 @@ export function Hero() {
     return (
         <section style={{ 
             minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', 
-            padding: '160px 60px 100px', position: 'relative', overflow: 'hidden',
-            background: T.bg
+            padding: '160px clamp(20px, 5vw, 60px) 100px', position: 'relative', overflow: 'clip',
+            background: T.bg, width: '100%', boxSizing: 'border-box',
         }}>
             {/* Background Grid */}
             <div style={{ 
@@ -75,7 +75,7 @@ export function Hero() {
             </div>
 
             {/* Content Container */}
-            <div style={{ position: 'relative', zIndex: 2, textAlign: 'center', maxWidth: 1100 }}>
+            <div style={{ position: 'relative', zIndex: 2, textAlign: 'center', maxWidth: 1100, width: '100%', minWidth: 0 }}>
                 {/* Status Badge */}
                 <div style={{ 
                     display: 'inline-flex', alignItems: 'center', gap: 12, 
@@ -89,10 +89,11 @@ export function Hero() {
                 </div>
 
                 {/* Main Heading (Editorial Style) */}
-                <h1 style={{ 
-                    fontFamily: T.fontHead, fontWeight: 950, fontSize: 'clamp(3.5rem, 9vw, 7.5rem)', 
-                    lineHeight: 1.05, letterSpacing: '-4px', marginBottom: 48, color: T.text, 
-                    textTransform: 'uppercase', fontStyle: 'italic'
+                <h1 className="hero-headline" style={{ 
+                    fontFamily: T.fontHead, fontWeight: 950, fontSize: 'clamp(2rem, 7vw, 7.5rem)', 
+                    lineHeight: 1.05, letterSpacing: '-0.04em', marginBottom: 48, color: T.text, 
+                    textTransform: 'uppercase', fontStyle: 'italic',
+                    maxWidth: '100%', overflowWrap: 'anywhere', wordBreak: 'break-word',
                 }}>
                     STOP_WRITING_SQL.<br />
                     <span style={{ 
@@ -196,6 +197,9 @@ export function Hero() {
                 }
                 @media (max-width: 1200px) {
                   .hero-audit { display: none; }
+                }
+                @media (max-width: 640px) {
+                  .hero-headline { font-size: clamp(1.75rem, 11vw, 2.75rem) !important; letter-spacing: -0.02em !important; }
                 }
             `}</style>
         </section>

@@ -119,9 +119,9 @@ export function ConnectionListPanel({
   };
 
   return (
-    <div style={{
+    <div className="responsive-panel" style={{
       width: 320, borderRight: `1px solid ${T.border}`, display: 'flex', flexDirection: 'column',
-      background: T.s1, flexShrink: 0, height: '100%', overflow: 'hidden'
+      background: T.s1, flexShrink: 0, height: '100%', overflow: 'hidden', minWidth: 0,
     }}>
       <div style={{ padding: '20px 20px 16px', borderBottom: `1px solid ${T.border}` }}>
         <div style={{ position: 'relative' }}>

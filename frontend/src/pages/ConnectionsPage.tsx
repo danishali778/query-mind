@@ -220,11 +220,11 @@ export function ConnectionsPage() {
             e.currentTarget.style.borderColor = T.accent;
           }}
         >
-          <HeaderIcons.Plus width={14} height={14} strokeWidth={3} /> New Connection
+          <HeaderIcons.Plus width={14} height={14} strokeWidth={3} /> <span className="header-action-label">New Connection</span>
         </button>
       }
     >
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+      <div className="responsive-split responsive-split-stack-detail">
         <ConnectionListPanel
           connections={connections}
           activeId={activeId}

@@ -113,7 +113,7 @@ export function AnalyticsPage() {
         icon: <div style={{ width: 6, height: 6, borderRadius: 0, background: T.text }} />
       }}
     >
-      <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', overflowX: 'hidden', padding: '0 2px 40px' }} className="custom-scroll">
+      <div className="custom-scroll responsive-page-padding" style={{ flex: 1, minWidth: 0, overflowY: 'auto', overflowX: 'hidden', paddingBottom: 40 }}>
         <AnalyticsHero />
 
         {loading ? (
@@ -128,16 +128,16 @@ export function AnalyticsPage() {
           <AnalyticsEmptyState />
         ) : overview ? (
           <>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 16, marginBottom: 24 }}>
+            <div className="responsive-grid-4" style={{ marginBottom: 24 }}>
               <AnalyticsStatCard label="Active Nodes" value={String(overview.active_connections)} hint="Synchronized databases" />
               <AnalyticsStatCard label="Execution Volume" value={String(overview.total_queries)} hint={`${overview.success_rate}% success threshold`} tone="green" />
               <AnalyticsStatCard label="Asset Density" value={String(overview.saved_queries)} hint={`${overview.scheduled_queries} automated tasks`} tone="purple" />
               <AnalyticsStatCard label="Interface Assets" value={String(overview.dashboards)} hint={`${overview.total_widgets} active components`} tone="yellow" />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 24 }}>
+            <div className="responsive-grid-2-wide">
               <AnalyticsSectionCard eyebrow="Reliability metrics" title="Execution Quality">
-                <div style={{ height: 260, width: '100%', display: 'flex', alignItems: 'center' }}>
+                <div className="analytics-quality-chart" style={{ height: 260, width: '100%', display: 'flex', alignItems: 'center' }}>
                   <ResponsiveContainer width="45%" height="100%">
                     <PieChart>
                       <Pie data={healthData} innerRadius={60} outerRadius={85} paddingAngle={0} dataKey="value" stroke="none">

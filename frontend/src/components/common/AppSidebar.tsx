@@ -21,13 +21,18 @@ interface NavItemProps {
   onMouseLeave?: (e: React.MouseEvent) => void;
 }
 
-function NavItem({ icon, label, path, active, onMouseEnter, onMouseLeave }: NavItemProps) {
+function NavItem({ icon, label, path, active, onMouseEnter, onMouseLeave, onNavigate }: NavItemProps & { onNavigate?: () => void }) {
   const navigate = useNavigate();
   const clickable = Boolean(path);
 
   return (
     <div
-      onClick={() => { if (path) navigate(path); }}
+      onClick={() => {
+        if (path) {
+          navigate(path);
+          onNavigate?.();
+        }
+      }}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -95,14 +100,14 @@ const sectionLabel: React.CSSProperties = {
 };
 
 /** Just the nav items — usable inside other sidebars (e.g. Chat) */
-export function NavSection({ onDashboardHover }: { onDashboardHover?: (hovering: boolean) => void }) {
+export function NavSection({ onDashboardHover, onNavigate }: { onDashboardHover?: (hovering: boolean) => void; onNavigate?: () => void }) {
   const location = useLocation();
   const p = location.pathname;
 
   return (
     <div style={{ padding: '0 8px' }}>
       <div style={sectionLabel}>General</div>
-      <NavItem icon={<MessageSquare size={16} />} label="Chat" path="/chat" active={p === '/chat'} />
+      <NavItem icon={<MessageSquare size={16} />} label="Chat" path="/chat" active={p === '/chat'} onNavigate={onNavigate} />
       <NavItem 
         icon={<LayoutDashboard size={16} />} 
         label="Dashboards" 
@@ -110,32 +115,42 @@ export function NavSection({ onDashboardHover }: { onDashboardHover?: (hovering:
         active={p === '/dashboard'} 
         onMouseEnter={() => onDashboardHover?.(true)}
         onMouseLeave={() => onDashboardHover?.(false)}
+        onNavigate={onNavigate}
       />
-      <NavItem icon={<Library size={16} />} label="Library" path="/library" active={p === '/library'} />
-      <NavItem icon={<BarChart3 size={16} />} label="Analytics" path="/analytics" active={p === '/analytics'} />
+      <NavItem icon={<Library size={16} />} label="Library" path="/library" active={p === '/library'} onNavigate={onNavigate} />
+      <NavItem icon={<BarChart3 size={16} />} label="Analytics" path="/analytics" active={p === '/analytics'} onNavigate={onNavigate} />
 
       <div style={{ ...sectionLabel, paddingTop: 32 }}>Infrastructure</div>
-      <NavItem icon={<Database size={16} />} label="Connections" path="/connections" active={p === '/connections'} />
-      <NavItem icon={<Settings size={16} />} label="Settings" path="/settings" active={p === '/settings'} />
+      <NavItem icon={<Database size={16} />} label="Connections" path="/connections" active={p === '/connections'} onNavigate={onNavigate} />
+      <NavItem icon={<Settings size={16} />} label="Settings" path="/settings" active={p === '/settings'} onNavigate={onNavigate} />
     </div>
   );
 }
 
 /** Full app sidebar — used by Dashboard, Library, Connections, Analytics */
-export function AppSidebar({ onDashboardHover }: { onDashboardHover?: (hovering: boolean) => void, activeId?: string }) {
+export function AppSidebar({
+  onDashboardHover,
+  className = 'app-sidebar',
+  onNavigate,
+}: {
+  onDashboardHover?: (hovering: boolean) => void;
+  activeId?: string;
+  className?: string;
+  onNavigate?: () => void;
+}) {
   const { settings } = useSettingsStore();
   const displayName = settings?.full_name || 'User';
   const avatarInitials = displayName.substring(0, 1).toUpperCase();
 
   return (
-    <aside style={{
+    <aside className={className} style={{
       width: 260, flexShrink: 0,
       background: T.bg, 
       borderRight: `1px solid rgba(0,0,0,0.08)`,
       display: 'flex', flexDirection: 'column',
       height: '100vh', overflow: 'hidden',
       fontFamily: T.fontBody,
-      zIndex: 100,
+      zIndex: 200,
     }}>
       {/* Logo Section */}
       <div style={{ padding: '32px 20px 12px' }}>
@@ -157,7 +172,7 @@ export function AppSidebar({ onDashboardHover }: { onDashboardHover?: (hovering:
           query-mind
         </div>
 
-        <NavSection onDashboardHover={onDashboardHover} />
+        <NavSection onDashboardHover={onDashboardHover} onNavigate={onNavigate} />
       </div>
 
       {/* User Footer - Editorial Style */}

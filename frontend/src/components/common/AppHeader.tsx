@@ -1,4 +1,5 @@
 import React from 'react';
+import { Menu } from 'lucide-react';
 import { T } from '../dashboard/tokens';
 
 interface AppHeaderProps {
@@ -9,56 +10,74 @@ interface AppHeaderProps {
     color: string;
     icon?: React.ReactNode;
   };
-  children?: React.ReactNode; // For page-specific actions/filters
+  children?: React.ReactNode;
+  onMenuClick?: () => void;
+  showMenuButton?: boolean;
 }
 
-export function AppHeader({ title, children }: AppHeaderProps) {
+export function AppHeader({ title, children, onMenuClick, showMenuButton }: AppHeaderProps) {
   return (
     <header style={{
-      height: 64,
+      minHeight: 64,
       flexShrink: 0,
       background: T.bg,
       borderBottom: `1px solid rgba(0, 0, 0, 0.1)`,
       display: 'flex',
       alignItems: 'center',
-      padding: '0 32px',
-      gap: 20,
+      padding: '12px clamp(16px, 3vw, 32px)',
+      gap: 12,
       zIndex: 50,
-      position: 'relative'
+      position: 'relative',
+      flexWrap: 'wrap',
     }}>
-      {/* Left: Editorial Breadcrumbs */}
-      <div style={{ 
+      {showMenuButton && (
+        <button
+          type="button"
+          className="mobile-menu-btn"
+          aria-label="Open navigation menu"
+          onClick={onMenuClick}
+          style={{ display: 'inline-flex' }}
+        >
+          <Menu size={18} />
+        </button>
+      )}
+
+      <div className="header-breadcrumbs" style={{ 
         display: 'flex', 
         alignItems: 'center', 
         gap: 12, 
         flex: 1, 
+        minWidth: 0,
         fontFamily: T.fontMono,
         fontSize: '0.68rem',
         letterSpacing: '0.15em',
         color: T.text3,
         textTransform: 'uppercase'
       }}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.6 }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.6, flexShrink: 0 }}>
           <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/>
         </svg>
         
-        <span>Workspace</span>
-        <span style={{ opacity: 0.3 }}>/</span>
-        <span>Operations</span>
+        <span className="hide-below-lg">Workspace</span>
+        <span className="hide-below-lg" style={{ opacity: 0.3 }}>/</span>
+        <span className="hide-below-lg">Operations</span>
         <span style={{ opacity: 0.3 }}>/</span>
         <span style={{ 
           fontFamily: T.fontHead, 
           color: T.text, 
           letterSpacing: '0.05em',
           fontWeight: 700,
-          fontSize: '0.85rem',
-          textTransform: 'none'
+          fontSize: 'clamp(0.75rem, 2vw, 0.85rem)',
+          textTransform: 'none',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
         }}>
           {typeof title === 'string' ? title : 'Dashboard'}
         </span>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, marginLeft: 'auto' }}>
+      <div className="header-actions-wrap">
         {children}
       </div>
     </header>
