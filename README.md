@@ -24,7 +24,7 @@
 
 ## 🎥 Demo Video
 
-▶️ **[Watch the full product demo](demos/video.mp4)** — natural-language questions turning into SQL, live results, auto-selected charts, saved queries, and dashboards.
+▶️ **[Watch the full product demo](https://youtu.be/X7novGZY15E)** — natural-language questions turning into SQL, live results, auto-selected charts, saved queries, and dashboards.
 
 ---
 
