@@ -69,7 +69,7 @@ export function LibraryPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               style={{
-                width: 220, padding: '8px 12px 8px 32px', borderRadius: 0,
+                width: 'min(220px, 36vw)', padding: '8px 12px 8px 32px', borderRadius: 0,
                 background: '#fff', border: `1px solid rgba(0,0,0,0.1)`,
                 fontSize: '0.78rem', outline: 'none', fontFamily: T.fontBody, color: T.text,
                 transition: 'all 0.2s ease',
@@ -88,12 +88,12 @@ export function LibraryPage() {
             style={{...headerActionBtnStyle, borderRadius: 0, background: T.text, color: '#fff', border: 'none'}} 
             title="Import"
           >
-            <HeaderIcons.Download /> Import
+            <HeaderIcons.Download /> <span className="header-action-label">Import</span>
           </button>
         </div>
       }
     >
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+      <div className="responsive-split">
         <FolderSidebar
           folders={folders}
           tags={tags}

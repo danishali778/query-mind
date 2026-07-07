@@ -35,7 +35,7 @@ export function MessageBubble({
   };
 
   const handleDashboardClick = () => {
-    if (!connectionId) return;
+    if (!connectionId || !message.sql) return;
     smartAddToDashboard(message, connectionId, () => setModalOpen(true));
   };
 
@@ -44,7 +44,7 @@ export function MessageBubble({
     smartSaveToLibrary(
       message.sql,
       connectionId,
-      message.chart_recommendation?.title || 'Saved from Chat',
+      message.chart_recommendation?.title || message.content?.slice(0, 80) || 'Saved from Chat',
       () => setSaveModalOpen(true),
       () => {
         setSaveLabel('Saved!');
@@ -52,6 +52,17 @@ export function MessageBubble({
       }
     );
   };
+
+  const canSaveSql = Boolean(message.sql && connectionId);
+  const actionBtnStyle = (enabled: boolean): React.CSSProperties => ({
+    padding: '8px 16px', borderRadius: 0, border: `1.5px solid ${enabled ? '#1a1a1a' : 'rgba(0,0,0,0.12)'}`,
+    background: enabled ? '#fff' : 'rgba(0,0,0,0.03)', color: enabled ? '#1a1a1a' : T.text3,
+    fontSize: '0.7rem', fontWeight: 900,
+    cursor: enabled ? 'pointer' : 'not-allowed',
+    display: 'flex', alignItems: 'center', gap: 8,
+    fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '0.05em',
+    opacity: enabled ? 1 : 0.65,
+  });
 
   if (message.role === 'user') {
     return (
@@ -171,7 +182,8 @@ export function MessageBubble({
             </div>
             <button
               onClick={() => message.sql && navigator.clipboard.writeText(message.sql)}
-              style={{ background: 'none', border: 'none', color: T.text, fontSize: '0.65rem', fontWeight: 800, cursor: 'pointer', fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '0.05em' }}
+              disabled={!message.sql}
+              style={{ background: 'none', border: 'none', color: message.sql ? T.text : T.text3, fontSize: '0.65rem', fontWeight: 800, cursor: message.sql ? 'pointer' : 'not-allowed', fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '0.05em', opacity: message.sql ? 1 : 0.5 }}
             >
               COPY SQL
             </button>
@@ -214,30 +226,27 @@ export function MessageBubble({
           )}
 
           {/* Assistant Action Bar (Inside Box) */}
-          <div style={{ padding: '16px 20px', borderTop: `1px solid rgba(0,0,0,0.05)`, display: 'flex', alignItems: 'center', gap: 12, background: '#fff' }}>
-            <button
-              onClick={handleLibraryClick}
-              disabled={!!saveLabel || !message.sql || isSmartSaving}
-              style={{
-                padding: '8px 16px', borderRadius: 0, border: `1.5px solid #1a1a1a`,
-                background: '#fff', color: '#1a1a1a',
-                fontSize: '0.7rem', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
-                fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '0.05em'
-              }}
-            >
-              {saveLabel ? 'SAVED' : 'SAVE TO LIBRARY'}
-            </button>
+          <div style={{ padding: '16px 20px', borderTop: `1px solid rgba(0,0,0,0.05)`, display: 'flex', alignItems: 'center', gap: 12, background: '#fff', flexWrap: 'wrap' }}>
+            {canSaveSql ? (
+              <button
+                onClick={handleLibraryClick}
+                disabled={!!saveLabel || isSmartSaving}
+                style={actionBtnStyle(!saveLabel && !isSmartSaving)}
+                title="Save this SQL query to your library"
+              >
+                {saveLabel ? 'SAVED' : isSmartSaving ? 'SAVING…' : 'SAVE TO LIBRARY'}
+              </button>
+            ) : (
+              <span style={{ fontSize: '0.65rem', color: T.text3, fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Schema listings cannot be saved to Library
+              </span>
+            )}
 
             <button
               onClick={handleDashboardClick}
-              disabled={isSmartSaving}
-              style={{
-                padding: '8px 16px', borderRadius: 0, border: `1.5px solid #1a1a1a`,
-                background: isSmartSaving ? 'rgba(0,0,0,0.05)' : '#fff',
-                color: '#1a1a1a',
-                fontSize: '0.7rem', fontWeight: 900, cursor: isSmartSaving ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 8,
-                transition: 'all 0.2s', fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '0.05em'
-              }}
+              disabled={!canSaveSql || isSmartSaving}
+              style={actionBtnStyle(canSaveSql && !isSmartSaving)}
+              title={canSaveSql ? 'Add this query result to a dashboard' : 'Run a SQL query first to add results to a dashboard'}
             >
               {isSmartSaving ? 'Saving...' : (
                 <>

@@ -31,7 +31,7 @@ export function QueryList({ queries, stats, selectedId, onSelect, onDelete, onRe
   }
 
   return (
-    <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+    <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minWidth: 0 }}>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: T.bg }}>
 
         {/* Toolbar */}

@@ -59,9 +59,9 @@ export function FolderSidebar({ folders, tags, stats, activeFolder, activeTag, s
   ];
 
   return (
-    <div style={{
+    <div className="responsive-panel" style={{
       width: 230, flexShrink: 0, background: T.bg, borderRight: `1px solid rgba(0,0,0,0.08)`,
-      display: 'flex', flexDirection: 'column', overflow: 'hidden', fontFamily: T.fontBody
+      display: 'flex', flexDirection: 'column', overflow: 'hidden', fontFamily: T.fontBody, minWidth: 0,
     }}>
       {/* Header & Search */}
       <div style={{ padding: '24px 16px 12px', borderBottom: `1px solid rgba(0,0,0,0.05)` }}>

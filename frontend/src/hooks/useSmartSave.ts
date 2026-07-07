@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useToast } from '../components/common/ToastProvider';
-import { saveQuery, addDashboardWidget, listDashboards, listLibraryFolders } from '../services/api';
+import { saveQuery, addDashboardWidget, listDashboards } from '../services/api';
 import { inferViz, autoTitle, layoutDims } from '../utils/dashboardUtils';
 import type { ChatMessageView } from '../types/chat';
 import type { WidgetSize } from '../types/dashboard';
@@ -90,10 +90,8 @@ export function useSmartSave() {
     setIsSaving(true);
 
     try {
-      // 1. Check if folder exists
-      const folders = await listLibraryFolders();
-      const folderExists = folders.some(f => f.name === lastFolder);
-      const targetFolder = folderExists ? lastFolder : 'Uncategorized';
+      // 1. Use last folder if set; folders are created implicitly when a query is saved there.
+      const targetFolder = lastFolder || 'Uncategorized';
 
       // 2. Save query immediately
       await saveQuery({
