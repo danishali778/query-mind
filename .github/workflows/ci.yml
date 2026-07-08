@@ -6,13 +6,18 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # ------------------------------------------------------------------ #
-  # Backend: Lint + Type Check + Tests                                  #
+  # Backend: Required tests + blocking error lint, advisory style/type  #
   # ------------------------------------------------------------------ #
   backend:
     name: Backend CI
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: backend
@@ -27,25 +32,120 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt flake8 mypy pytest httpx
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt flake8 mypy pytest httpx
 
-      - name: Lint (flake8)
+      - name: Blocking lint (flake8 - errors only)
+        run: flake8 . --select=E9,F63,F7,F82 --exclude=__pycache__,.venv
+
+      - name: Advisory lint (flake8 - full style)
         continue-on-error: true
         run: flake8 . --max-line-length=100 --exclude=__pycache__,.venv
 
-      - name: Type check (mypy)
+      - name: Advisory type check (mypy)
         continue-on-error: true
         run: mypy . --ignore-missing-imports --exclude tests
 
-      - name: Run unit tests (pytest)
-        run: pytest tests/ -v -m "not integration"
+      - name: Run backend tests (pytest)
+        run: python -m pytest tests/ -v -m "not integration" --tb=short
 
   # ------------------------------------------------------------------ #
-  # Frontend: Lint + Type Check                                         #
+  # Database: Alembic migration smoke test                             #
+  # ------------------------------------------------------------------ #
+  database-migrations:
+    name: Database Migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: query_mind_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d query_mind_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      APP_DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/query_mind_ci
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Bootstrap Supabase auth schema
+        run: |
+          python - <<'PY'
+          import os
+
+          from sqlalchemy import create_engine, text
+
+          engine = create_engine(os.environ["APP_DATABASE_URL"])
+          with engine.begin() as connection:
+              connection.execute(text("""
+                  CREATE SCHEMA IF NOT EXISTS auth;
+                  CREATE TABLE IF NOT EXISTS auth.users (
+                      id uuid PRIMARY KEY,
+                      email text,
+                      created_at timestamptz DEFAULT now()
+                  );
+                  CREATE OR REPLACE FUNCTION auth.uid()
+                  RETURNS uuid
+                  LANGUAGE sql
+                  STABLE
+                  AS $$
+                      SELECT NULL::uuid;
+                  $$;
+              """))
+          PY
+
+      - name: Check Alembic revision graph
+        run: |
+          python - <<'PY'
+          from alembic.config import Config
+          from alembic.script import ScriptDirectory
+
+          script = ScriptDirectory.from_config(Config("alembic.ini"))
+          heads = script.get_heads()
+          if len(heads) != 1:
+              raise SystemExit(f"Expected exactly one Alembic head, found {heads}")
+          print(f"Alembic head: {heads[0]}")
+          PY
+
+      - name: Run migrations to head
+        run: |
+          python -m alembic upgrade head
+          python -m alembic current
+
+      - name: Check ORM schema drift
+        run: python -m alembic check
+
+  # ------------------------------------------------------------------ #
+  # Frontend: Advisory lint + required tests/build                      #
   # ------------------------------------------------------------------ #
   frontend:
     name: Frontend CI
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend
@@ -63,9 +163,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Lint (eslint)
+      - name: Advisory lint (eslint)
         continue-on-error: true
-        run: npx eslint src --ext .ts,.tsx --max-warnings 0
+        run: npm run lint
 
-      - name: Type check (tsc)
-        run: npx tsc --noEmit
+      - name: Run frontend tests (vitest)
+        run: npm test
+
+      - name: Build frontend
+        run: npm run build

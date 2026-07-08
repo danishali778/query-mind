@@ -16,6 +16,17 @@ const apiMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../src/services/api', () => apiMocks);
+vi.mock('../src/context/AuthContext', () => ({
+  useAuth: () => ({
+    user: { id: 'test-user', email: 'test@example.com' },
+    loading: false,
+    signIn: async () => ({ authenticated: true, user: { id: 'test-user', email: 'test@example.com' } }),
+    signUp: async () => ({ authenticated: true, user: { id: 'test-user', email: 'test@example.com' } }),
+    signOut: async () => undefined,
+    refreshSession: async () => ({ authenticated: true, user: { id: 'test-user', email: 'test@example.com' } }),
+    isDevMode: true,
+  }),
+}));
 vi.mock('../src/components/common/MainShell', () => ({
   MainShell: ({ children }: { children: React.ReactNode }) => <main>{children}</main>,
 }));
