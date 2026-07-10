@@ -1,5 +1,7 @@
 from functools import lru_cache
+import ipaddress
 from pathlib import Path
+from urllib.parse import urlparse
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -46,6 +48,9 @@ class Settings(BaseSettings):
     auth_cookie_secure: bool | None = None
     auth_cookie_domain: str | None = None
     auth_cookie_samesite: str = "lax"
+    auth_rate_limit_attempts: int = 5
+    auth_rate_limit_window_seconds: int = 900
+    trusted_proxy_cidrs_raw: str = Field(default="", validation_alias="TRUSTED_PROXY_CIDRS")
 
     llm_provider: str = "groq"
     groq_api_key: str | None = None
@@ -118,10 +123,56 @@ class Settings(BaseSettings):
         return [cidr.strip() for cidr in self.db_connect_allowed_cidrs_raw.split(",") if cidr.strip()]
 
     @property
+    def trusted_proxy_cidrs(self) -> list[str]:
+        return [cidr.strip() for cidr in self.trusted_proxy_cidrs_raw.split(",") if cidr.strip()]
+
+    @property
     def resolved_auth_cookie_secure(self) -> bool:
         if self.auth_cookie_secure is None:
             return self.is_production
         return self.auth_cookie_secure
+
+    def validate_security_configuration(self) -> None:
+        samesite = self.auth_cookie_samesite.strip().lower()
+        if samesite not in {"lax", "strict", "none"}:
+            raise RuntimeError("AUTH_COOKIE_SAMESITE must be one of: lax, strict, none.")
+
+        if self.auth_rate_limit_attempts < 1 or self.auth_rate_limit_window_seconds < 1:
+            raise RuntimeError("Authentication rate-limit settings must be positive.")
+
+        for cidr in self.trusted_proxy_cidrs:
+            try:
+                ipaddress.ip_network(cidr, strict=False)
+            except ValueError as exc:
+                raise RuntimeError(f"Invalid TRUSTED_PROXY_CIDRS entry: {cidr}") from exc
+
+        if not self.is_production:
+            return
+
+        if self.backend_dev_mode:
+            raise RuntimeError("BACKEND_DEV_MODE cannot be enabled in production.")
+        if not self.supabase_jwt_secret:
+            raise RuntimeError("SUPABASE_JWT_SECRET is required in production.")
+        if not self.resolved_auth_cookie_secure:
+            raise RuntimeError("AUTH_COOKIE_SECURE cannot be disabled in production.")
+        if samesite == "none":
+            raise RuntimeError("AUTH_COOKIE_SAMESITE=none is not supported in production.")
+
+        origins = self.allowed_origins
+        if not origins:
+            raise RuntimeError("ALLOWED_ORIGINS must contain at least one HTTPS origin in production.")
+        for origin in origins:
+            parsed = urlparse(origin)
+            host = parsed.hostname
+            if origin == "*" or parsed.scheme != "https" or not host:
+                raise RuntimeError("ALLOWED_ORIGINS must contain only explicit HTTPS origins in production.")
+            if host.lower() == "localhost":
+                raise RuntimeError("ALLOWED_ORIGINS cannot include loopback origins in production.")
+            try:
+                if ipaddress.ip_address(host).is_loopback:
+                    raise RuntimeError("ALLOWED_ORIGINS cannot include loopback origins in production.")
+            except ValueError:
+                pass
 
     @property
     def resolved_google_api_key(self) -> str | None:
@@ -189,6 +240,9 @@ class Settings(BaseSettings):
             "auth_cookie_secure": self.resolved_auth_cookie_secure,
             "auth_cookie_domain": bool(self.auth_cookie_domain),
             "auth_cookie_samesite": self.auth_cookie_samesite,
+            "auth_rate_limit_attempts": self.auth_rate_limit_attempts,
+            "auth_rate_limit_window_seconds": self.auth_rate_limit_window_seconds,
+            "trusted_proxy_cidrs_count": len(self.trusted_proxy_cidrs),
             "llm_provider": self.resolved_llm_provider,
             "has_groq_api_key": bool(self.groq_api_key),
             "has_google_api_key": bool(self.resolved_google_api_key),
