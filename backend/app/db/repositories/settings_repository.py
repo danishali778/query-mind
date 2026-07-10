@@ -86,6 +86,16 @@ def _new_subscription_row(owner_id: str) -> UserSubscriptionORM:
     )
 
 
+def is_user_active(user_id: str) -> bool:
+    try:
+        with session_scope() as session:
+            row = session.get(UserSettingsORM, user_id)
+            return bool(row and row.is_active)
+    except Exception as exc:
+        logger.error("Failed to verify account status for %s", user_id, exc_info=True)
+        raise RuntimeError("Account storage is unavailable.") from exc
+
+
 def get_user_settings(user_id: str) -> UserSettings:
     """Fetch user settings, falling back to defaults if the row is missing."""
     try:
@@ -106,8 +116,7 @@ def update_user_settings(user_id: str, updates: dict) -> UserSettings:
         with session_scope() as session:
             row = session.get(UserSettingsORM, user_id)
             if not row:
-                row = _new_settings_row(user_id)
-                session.add(row)
+                raise RuntimeError("Account settings are unavailable for this user.")
 
             if updates:
                 for key, value in updates.items():
@@ -214,6 +223,7 @@ def onboard_user(user_id: str) -> bool:
 
 __all__ = [
     "get_user_settings",
+    "is_user_active",
     "update_user_settings",
     "get_user_subscription",
     "increment_usage",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from typing import Any
 
 import httpx
@@ -14,8 +15,12 @@ from app.core.supabase_auth import (
     supabase_refresh_url,
     supabase_signup_url,
 )
+from app.db.repositories import settings_repository
 from app.integrations.supabase_auth.jwt import JWTError, decode_supabase_jwt
 from app.services import billing_service
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -98,6 +103,11 @@ def ensure_onboarded(user_id: str) -> None:
         raise ServiceUnavailableError("Failed to initialize user session.")
 
 
+def require_active_account(user_id: str) -> None:
+    if not settings_repository.is_user_active(user_id):
+        raise AuthServiceError("User account has been deactivated or deleted.", status_code=status.HTTP_401_UNAUTHORIZED)
+
+
 def signup(email: str, password: str) -> AuthSessionResult:
     payload = _request_supabase(
         supabase_signup_url(),
@@ -107,6 +117,7 @@ def signup(email: str, password: str) -> AuthSessionResult:
     user_id, resolved_email = _user_details_from_payload(payload)
     if user_id:
         ensure_onboarded(user_id)
+        require_active_account(user_id)
 
     access_token = payload.get("access_token") if isinstance(payload.get("access_token"), str) else None
     refresh_token = payload.get("refresh_token") if isinstance(payload.get("refresh_token"), str) else None
@@ -133,7 +144,7 @@ def login(email: str, password: str) -> AuthSessionResult:
     user_id, resolved_email = _user_details_from_payload(payload)
     if not user_id:
         raise ServiceUnavailableError("Authentication service returned an incomplete session.")
-    ensure_onboarded(user_id)
+    require_active_account(user_id)
 
     access_token = payload.get("access_token") if isinstance(payload.get("access_token"), str) else None
     refresh_token = payload.get("refresh_token") if isinstance(payload.get("refresh_token"), str) else None
@@ -160,7 +171,7 @@ def refresh_session(refresh_token: str) -> AuthSessionResult:
     user_id, resolved_email = _user_details_from_payload(payload)
     if not user_id:
         raise ServiceUnavailableError("Authentication service returned an incomplete session.")
-    ensure_onboarded(user_id)
+    require_active_account(user_id)
 
     access_token = payload.get("access_token") if isinstance(payload.get("access_token"), str) else None
     next_refresh_token = payload.get("refresh_token") if isinstance(payload.get("refresh_token"), str) else None
@@ -178,22 +189,26 @@ def refresh_session(refresh_token: str) -> AuthSessionResult:
     )
 
 
-def logout(access_token: str | None) -> None:
+def logout(access_token: str | None) -> bool:
     if not access_token:
-        return
+        return True
 
     try:
-        httpx.post(
+        response = httpx.post(
             supabase_logout_url(),
             headers=supabase_auth_headers(access_token),
             timeout=15.0,
         )
-    except httpx.HTTPError:
-        return
+    except httpx.HTTPError as exc:
+        logger.warning("event=auth_logout_remote_revocation_failed failure=network error=%s", exc)
+        return False
+    if not response.is_success:
+        logger.warning("event=auth_logout_remote_revocation_failed failure=http status=%s", response.status_code)
+        return False
+    return True
 
 
 def build_active_session(user_id: str, email: str | None) -> AuthSessionResult:
-    ensure_onboarded(user_id)
     return AuthSessionResult(
         authenticated=True,
         user_id=user_id,
@@ -206,6 +221,7 @@ __all__ = [
     "AuthSessionResult",
     "build_active_session",
     "ensure_onboarded",
+    "require_active_account",
     "login",
     "logout",
     "refresh_session",

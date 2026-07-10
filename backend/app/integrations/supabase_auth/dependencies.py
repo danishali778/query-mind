@@ -25,7 +25,8 @@ class User(BaseModel):
 async def assert_user_exists(user_id: str) -> None:
     try:
         with session_scope() as session:
-            exists = session.get(UserSettingsORM, user_id) is not None
+            row = session.get(UserSettingsORM, user_id)
+            exists = bool(row and row.is_active)
     except Exception as exc:
         logger.error("Authentication database error: %s", exc, exc_info=True)
         raise HTTPException(
@@ -85,7 +86,7 @@ async def authenticate_credentials(
 
         user_id: str | None = payload.get("sub")
         email: str | None = payload.get("email")
-        if user_id is None:
+        if not isinstance(user_id, str) or not user_id.strip():
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token payload",

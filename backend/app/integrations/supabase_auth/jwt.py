@@ -24,13 +24,18 @@ def get_jwt_key() -> object:
     return secret
 
 
+def get_jwt_issuer() -> str:
+    return f"{settings.require('supabase_url').rstrip('/')}/auth/v1"
+
+
 def decode_supabase_jwt(token: str) -> dict:
     return jwt.decode(
         token,
         get_jwt_key(),
         algorithms=["HS256", "ES256"],
         audience="authenticated",
+        issuer=get_jwt_issuer(),
     )
 
 
-__all__ = ["JWTError", "decode_supabase_jwt", "get_jwt_key"]
+__all__ = ["JWTError", "decode_supabase_jwt", "get_jwt_key", "get_jwt_issuer"]

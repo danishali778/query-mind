@@ -18,6 +18,13 @@ const AUTH_RETRY_EXCLUDED_PATHS = new Set([
   '/auth/session',
 ]);
 
+type AuthRefreshOutcome = {
+  response: Response;
+  payload: unknown;
+};
+
+let refreshInFlight: Promise<AuthRefreshOutcome> | null = null;
+
 export class ApiRequestError extends Error {
   status: number;
   code: string;
@@ -106,19 +113,33 @@ async function fetchApi(path: string, init?: ApiRequestInit): Promise<{ response
   return { response, payload };
 }
 
+function refreshAuthRequest(): Promise<AuthRefreshOutcome> {
+  if (!refreshInFlight) {
+    refreshInFlight = fetchApi(AUTH_REFRESH_PATH, {
+      method: 'POST',
+      skipAuthRedirect: true,
+      skipAuthRefresh: true,
+    }).finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
+}
+
 async function tryRefreshAuth(): Promise<boolean> {
   try {
-    const response = await fetch(`${API_BASE}${AUTH_REFRESH_PATH}`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
-    return response.ok;
+    return (await refreshAuthRequest()).response.ok;
   } catch {
     return false;
   }
+}
+
+export async function refreshAuthSession<T>(): Promise<T> {
+  const { response, payload } = await refreshAuthRequest();
+  if (!response.ok) {
+    throw requestErrorFromResponse(response, payload);
+  }
+  return payload as T;
 }
 
 function handleAuthRedirect(skipAuthRedirect?: boolean) {

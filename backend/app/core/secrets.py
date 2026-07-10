@@ -31,6 +31,7 @@ def require_app_database_url() -> str:
 
 def validate_core_credentials() -> None:
     """Fail fast when required core runtime credentials are missing."""
+    settings.validate_security_configuration()
     missing: list[str] = []
 
     for name in ("encryption_key", "app_database_url"):

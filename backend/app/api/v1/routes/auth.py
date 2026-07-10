@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 
-from app.api.deps import UncheckedUserDep
+from app.api.deps import CurrentUserDep
 from app.api.v1.schemas.auth import (
     AuthCredentialsRequest,
     AuthSessionResponse,
     AuthUserResponse,
 )
 from app.api.v1.schemas.common import StatusMessageResponse
+from app.core.auth_rate_limit import enforce_auth_attempt_rate_limit
 from app.core.supabase_auth import (
     ACCESS_TOKEN_COOKIE_NAME,
     REFRESH_TOKEN_COOKIE_NAME,
@@ -54,7 +56,8 @@ def _request_access_token(request: Request) -> str | None:
 
 
 @router.post("/signup", response_model=AuthSessionResponse)
-def signup(payload: AuthCredentialsRequest, response: Response):
+def signup(payload: AuthCredentialsRequest, response: Response, request: Request):
+    enforce_auth_attempt_rate_limit(request, payload.email)
     try:
         result = auth_service.signup(payload.email, payload.password)
     except auth_service.AuthServiceError as exc:
@@ -65,7 +68,8 @@ def signup(payload: AuthCredentialsRequest, response: Response):
 
 
 @router.post("/login", response_model=AuthSessionResponse)
-def login(payload: AuthCredentialsRequest, response: Response):
+def login(payload: AuthCredentialsRequest, response: Response, request: Request):
+    enforce_auth_attempt_rate_limit(request, payload.email)
     try:
         result = auth_service.login(payload.email, payload.password)
     except auth_service.AuthServiceError as exc:
@@ -84,6 +88,13 @@ def refresh_session(request: Request, response: Response):
     try:
         result = auth_service.refresh_session(refresh_token)
     except auth_service.AuthServiceError as exc:
+        if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+            error_response = JSONResponse(
+                status_code=exc.status_code,
+                content={"error": {"code": "http_401", "message": exc.message, "details": None}},
+            )
+            clear_auth_cookies(error_response)
+            return error_response
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
     _maybe_set_auth_cookies(response, result)
@@ -98,7 +109,7 @@ def logout(request: Request, response: Response):
 
 
 @router.get("/session", response_model=AuthSessionResponse)
-def get_session(current_user: UncheckedUserDep):
+def get_session(current_user: CurrentUserDep):
     result = auth_service.build_active_session(current_user.id, current_user.email)
     return _session_response(result)
 

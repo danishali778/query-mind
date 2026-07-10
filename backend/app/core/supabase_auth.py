@@ -9,6 +9,8 @@ ACCESS_TOKEN_COOKIE_NAME = "qm_access_token"
 REFRESH_TOKEN_COOKIE_NAME = "qm_refresh_token"
 DEFAULT_ACCESS_TOKEN_MAX_AGE = 3600
 DEFAULT_REFRESH_TOKEN_MAX_AGE = 60 * 60 * 24 * 30
+ACCESS_TOKEN_COOKIE_PATH = "/"
+REFRESH_TOKEN_COOKIE_PATH = "/api/auth"
 
 
 def supabase_auth_base_url() -> str:
@@ -45,12 +47,12 @@ def supabase_auth_headers(access_token: str | None = None) -> dict[str, str]:
     return headers
 
 
-def auth_cookie_settings() -> dict[str, object]:
+def auth_cookie_settings(path: str) -> dict[str, object]:
     cookie_settings: dict[str, object] = {
         "httponly": True,
         "secure": settings.resolved_auth_cookie_secure,
         "samesite": settings.auth_cookie_samesite.lower(),
-        "path": "/",
+        "path": path,
     }
     if settings.auth_cookie_domain:
         cookie_settings["domain"] = settings.auth_cookie_domain
@@ -64,25 +66,25 @@ def set_auth_cookies(
     refresh_token: str,
     expires_in: int | None = None,
 ) -> None:
-    cookie_kwargs = auth_cookie_settings()
+    access_cookie_kwargs = auth_cookie_settings(ACCESS_TOKEN_COOKIE_PATH)
+    refresh_cookie_kwargs = auth_cookie_settings(REFRESH_TOKEN_COOKIE_PATH)
     response.set_cookie(
         ACCESS_TOKEN_COOKIE_NAME,
         access_token,
         max_age=expires_in or DEFAULT_ACCESS_TOKEN_MAX_AGE,
-        **cookie_kwargs,
+        **access_cookie_kwargs,
     )
     response.set_cookie(
         REFRESH_TOKEN_COOKIE_NAME,
         refresh_token,
         max_age=DEFAULT_REFRESH_TOKEN_MAX_AGE,
-        **cookie_kwargs,
+        **refresh_cookie_kwargs,
     )
 
 
 def clear_auth_cookies(response: Response) -> None:
-    cookie_kwargs = auth_cookie_settings()
-    response.delete_cookie(ACCESS_TOKEN_COOKIE_NAME, **cookie_kwargs)
-    response.delete_cookie(REFRESH_TOKEN_COOKIE_NAME, **cookie_kwargs)
+    response.delete_cookie(ACCESS_TOKEN_COOKIE_NAME, **auth_cookie_settings(ACCESS_TOKEN_COOKIE_PATH))
+    response.delete_cookie(REFRESH_TOKEN_COOKIE_NAME, **auth_cookie_settings(REFRESH_TOKEN_COOKIE_PATH))
 
 
 __all__ = [
@@ -90,6 +92,8 @@ __all__ = [
     "REFRESH_TOKEN_COOKIE_NAME",
     "DEFAULT_ACCESS_TOKEN_MAX_AGE",
     "DEFAULT_REFRESH_TOKEN_MAX_AGE",
+    "ACCESS_TOKEN_COOKIE_PATH",
+    "REFRESH_TOKEN_COOKIE_PATH",
     "supabase_signup_url",
     "supabase_password_login_url",
     "supabase_refresh_url",

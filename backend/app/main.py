@@ -4,7 +4,7 @@ from fastapi import FastAPI
 
 from app.api.router import api_router
 from app.api.v1.schemas.common import HealthResponse
-from app.core.config import ALLOWED_ORIGINS
+from app.core.config import settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import configure_cors
@@ -23,7 +23,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-origins = configure_cors(app, ALLOWED_ORIGINS)
+origins = configure_cors(app, settings.allowed_origins, is_production=settings.is_production)
 logger.info("[startup] CORS allowed origins: %s", origins)
 
 register_exception_handlers(app)
