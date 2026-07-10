@@ -124,6 +124,9 @@ def test_auth_rate_limit_trusts_forwarded_ip_only_from_configured_proxy(monkeypa
 
 
 def test_logout_reports_remote_revocation_failure(monkeypatch):
+    monkeypatch.setattr(settings, "supabase_url", "https://project.supabase.co", raising=False)
+    monkeypatch.setattr(settings, "supabase_anon_key", "test-anon-key", raising=False)
+
     class FailedResponse:
         is_success = False
         status_code = 503
