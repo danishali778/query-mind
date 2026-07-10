@@ -6,7 +6,12 @@ from datetime import datetime
 from pathlib import Path
 
 
-LOG_FILE = "startup_debug.log"
+# Anchor logs under backend/logs/ regardless of the process working directory,
+# so debug logs never land next to source files.
+_BACKEND_DIR = Path(__file__).resolve().parents[2]
+LOG_DIR = _BACKEND_DIR / "logs"
+LOG_FILE = str(LOG_DIR / "startup_debug.log")
+MAX_QUARANTINED_LOGS = 5
 DEFAULT_LOG_LEVEL = os.getenv("APP_LOG_LEVEL", "INFO").upper()
 NOISY_LOGGERS = (
     "httpx",
@@ -78,8 +83,25 @@ def _quarantine_existing_log(log_path: Path) -> None:
         pass
 
 
+def _prune_quarantined_logs(log_path: Path) -> None:
+    """Keep only the newest MAX_QUARANTINED_LOGS quarantined logs."""
+    pattern = f"{log_path.stem}.compromised.*{log_path.suffix}"
+    quarantined = sorted(log_path.parent.glob(pattern))
+    for stale in quarantined[: max(0, len(quarantined) - MAX_QUARANTINED_LOGS)]:
+        try:
+            stale.unlink()
+        except OSError:
+            pass
+
+
 def _build_file_handler(base_log_path: Path, formatter: logging.Formatter) -> logging.Handler:
+    try:
+        base_log_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+
     _quarantine_existing_log(base_log_path)
+    _prune_quarantined_logs(base_log_path)
 
     handler_path = base_log_path
     try:
@@ -133,7 +155,9 @@ def configure_logging() -> None:
 
 __all__ = [
     "DEFAULT_LOG_LEVEL",
+    "LOG_DIR",
     "LOG_FILE",
+    "MAX_QUARANTINED_LOGS",
     "NOISY_LOGGERS",
     "SecretRedactionFilter",
     "configure_logging",

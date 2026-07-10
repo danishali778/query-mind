@@ -97,6 +97,7 @@ backend/pip_list.txt
 backend/test_*.py
 test_*.py
 !backend/tests/test_*.py
+!backend/app/tests/**/test_*.py
 CHAT_TEST_GUIDE.md
 BACKEND_STRUCTURE_PROPOSAL.md
 *.seed.sql
