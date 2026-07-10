@@ -1,0 +1,6 @@
+# NOTE: .env is intentionally NOT ignored — Vite needs it at build time to
+# bake VITE_* values (all public client-side config) into the bundle.
+node_modules/
+dist/
+Dockerfile
+.dockerignore

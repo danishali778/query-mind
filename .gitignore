@@ -110,6 +110,7 @@ docs/
 .agents/skills/
 .codex/
 .cursor/
+CLAUDE.md
 
 # Celery beat local schedule state
 backend/celerybeat-schedule.dat
