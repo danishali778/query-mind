@@ -48,7 +48,7 @@ jobs:
         run: mypy . --ignore-missing-imports --exclude tests
 
       - name: Run backend tests (pytest)
-        run: python -m pytest tests/ -v -m "not integration" --tb=short
+        run: python -m pytest -v -m "not integration" --tb=short
 
   # ------------------------------------------------------------------ #
   # Database: Alembic migration smoke test                             #
