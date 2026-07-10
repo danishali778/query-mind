@@ -15,7 +15,9 @@ from app.core.config import settings
 from app.core.errors import register_exception_handlers
 from app.core.supabase_auth import ACCESS_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_NAME
 from app.db.base import Base
+from app.db.orm_models import UserSettingsORM
 from app.db.repositories import settings_repository
+from app.db.session import session_scope
 from app.integrations.supabase_auth import dependencies as auth_dependencies
 from app.services.auth import AuthSessionResult
 
@@ -83,6 +85,9 @@ def test_login_sets_auth_cookies_and_returns_user(client, monkeypatch):
     set_cookie = "\n".join(response.headers.get_list("set-cookie"))
     assert ACCESS_TOKEN_COOKIE_NAME in set_cookie
     assert REFRESH_TOKEN_COOKIE_NAME in set_cookie
+    assert "HttpOnly" in set_cookie
+    assert "SameSite=lax" in set_cookie
+    assert "Path=/api/auth" in set_cookie
 
 
 def test_refresh_sets_rotated_auth_cookies(client, monkeypatch):
@@ -117,7 +122,7 @@ def test_logout_clears_cookies(client, monkeypatch):
     assert f"{REFRESH_TOKEN_COOKIE_NAME}=" in set_cookie
 
 
-def test_session_bootstraps_user_rows_from_valid_cookie(client, monkeypatch):
+def test_session_rejects_missing_local_account(client, monkeypatch):
     user_id = str(uuid.uuid4())
 
     def decode(_token: str):
@@ -128,14 +133,7 @@ def test_session_bootstraps_user_rows_from_valid_cookie(client, monkeypatch):
 
     response = client.get("/api/auth/session")
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["authenticated"] is True
-    assert body["user"]["id"] == user_id
-    user_settings = settings_repository.get_user_settings(user_id)
-    subscription = settings_repository.get_user_subscription(user_id)
-    assert user_settings.owner_id == user_id
-    assert subscription.owner_id == user_id
+    assert response.status_code == 401
 
 
 def test_session_returns_401_without_auth(client):
@@ -419,3 +417,41 @@ def test_saved_connection_diagnostic_updates_persistent_health(client, monkeypat
     assert row["last_status"] == "failed"
     assert row["last_error"] == "Database authentication failed. Verify the connection credentials."
     assert row["latency_ms"] is not None
+
+
+def test_disabled_local_account_is_rejected(client, monkeypatch):
+    user_id = str(uuid.uuid4())
+    settings_repository.onboard_user(user_id)
+    with session_scope() as session:
+        row = session.get(UserSettingsORM, user_id)
+        assert row is not None
+        row.is_active = False
+
+    monkeypatch.setattr(
+        auth_dependencies,
+        "decode_supabase_jwt",
+        lambda _token: {"sub": user_id, "email": "disabled@example.com"},
+    )
+    client.cookies.set(ACCESS_TOKEN_COOKIE_NAME, "valid-token")
+
+    response = client.get("/protected")
+
+    assert response.status_code == 401
+
+def test_refresh_auth_failure_clears_cookies(client, monkeypatch):
+    from app.api.v1.routes import auth as auth_route
+    from app.services import auth as auth_service
+
+    monkeypatch.setattr(
+        auth_route.auth_service,
+        "refresh_session",
+        lambda _token: (_ for _ in ()).throw(auth_service.AuthServiceError("expired", status_code=401)),
+    )
+    client.cookies.set(REFRESH_TOKEN_COOKIE_NAME, "stale-refresh")
+
+    response = client.post("/api/auth/refresh")
+
+    assert response.status_code == 401
+    set_cookie = "\n".join(response.headers.get_list("set-cookie"))
+    assert f"{ACCESS_TOKEN_COOKIE_NAME}=" in set_cookie
+    assert f"{REFRESH_TOKEN_COOKIE_NAME}=" in set_cookie
