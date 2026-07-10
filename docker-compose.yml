@@ -1,0 +1,81 @@
+# query-mind — full local stack.
+#
+# Prerequisites (bring your own accounts, see README):
+#   1. backend/.env  — copied from backend/.env.example with your Supabase,
+#      Gemini/Groq, and encryption keys filled in.
+#   2. frontend/.env — copied from frontend/.env.example with your Supabase
+#      URL/anon key (baked into the bundle at build time).
+#
+# Then: docker compose up --build
+#   Frontend: http://localhost:5173   API: http://localhost:8000
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: ./backend/.env
+    environment:
+      # Inside the compose network, Redis is reachable by service name,
+      # overriding any localhost value in backend/.env.
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      APP_HOST: 0.0.0.0
+      APP_PORT: "8000"
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    build: ./backend
+    restart: unless-stopped
+    command: celery -A app.workers.worker:app worker --loglevel=info --queues default,scheduled,templates
+    env_file: ./backend/.env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        # Backend runs Alembic migrations on startup; wait for it so the
+        # worker never touches a half-migrated schema.
+        condition: service_healthy
+
+  beat:
+    build: ./backend
+    restart: unless-stopped
+    command: celery -A app.workers.beat:app beat --loglevel=info
+    env_file: ./backend/.env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
