@@ -1,4 +1,4 @@
-import { jsonRequest, request } from './http';
+import { jsonRequest, refreshAuthSession as refreshHttpAuthSession, request } from './http';
 import type { AuthCredentialsRequest, AuthSessionResponse } from '../types/api';
 
 export function signUp(data: AuthCredentialsRequest) {
@@ -14,7 +14,7 @@ export function signOut() {
 }
 
 export function refreshAuthSession() {
-  return request<AuthSessionResponse>('/auth/refresh', { method: 'POST', skipAuthRedirect: true, skipAuthRefresh: true });
+  return refreshHttpAuthSession<AuthSessionResponse>();
 }
 
 export function getAuthSession() {
