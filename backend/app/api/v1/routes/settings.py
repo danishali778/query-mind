@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 
-from app.api.deps import CurrentUserDep, UncheckedUserDep
+from app.api.deps import CurrentUserDep
 from app.api.v1.schemas.settings import (
     BillingInfoResponse,
     CurrentUserResponse,
@@ -55,8 +55,8 @@ def trigger_mock_upgrade(current_user: CurrentUserDep):
 
 
 @router.post("/onboard", response_model=OnboardResponse)
-def onboard_user(current_user: UncheckedUserDep):
-    """Register the user in the database (Source of Truth)."""
+def onboard_user(current_user: CurrentUserDep):
+    """Idempotently repair subscription state for an active account."""
     try:
         success = billing_service.onboard_user(current_user.id)
     except Exception as exc:
