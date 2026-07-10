@@ -332,6 +332,7 @@ class UserSettingsORM(Base):
     __tablename__ = "user_settings"
 
     owner_id: Mapped[str] = mapped_column(GUID(), primary_key=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     full_name: Mapped[str | None] = mapped_column(Text)
     job_title: Mapped[str | None] = mapped_column(Text)
     timezone: Mapped[str | None] = mapped_column(Text, default="UTC", nullable=True)
