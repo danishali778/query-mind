@@ -90,7 +90,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt pytest
 
       - name: Bootstrap Supabase auth schema
         run: |
@@ -138,6 +138,12 @@ jobs:
 
       - name: Check ORM schema drift
         run: python -m alembic check
+
+      - name: Verify read engine rejects writes
+        run: >-
+          python -m pytest
+          app/tests/unit/test_read_session_scope.py::test_postgres_read_engine_rejects_raw_writes
+          -v --tb=short
 
   # ------------------------------------------------------------------ #
   # Frontend: Advisory lint + required tests/build                      #

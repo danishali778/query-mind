@@ -55,6 +55,14 @@ class Settings(BaseSettings):
     auth_user_cache_ttl_seconds: int = Field(default=60, ge=0, le=300)
     trusted_proxy_cidrs_raw: str = Field(default="", validation_alias="TRUSTED_PROXY_CIDRS")
 
+    # App-owned database pool limits. Read and write engines are separate;
+    # these defaults preserve SQLAlchemy's former combined ceiling of 15.
+    app_db_write_pool_size: int = Field(default=5, ge=1, le=20)
+    app_db_write_max_overflow: int = Field(default=5, ge=0, le=20)
+    app_db_read_pool_size: int = Field(default=5, ge=1, le=20)
+    app_db_read_max_overflow: int = Field(default=0, ge=0, le=20)
+    app_db_pool_timeout_seconds: int = Field(default=30, ge=1, le=120)
+
     llm_provider: str = "groq"
     groq_api_key: str | None = None
     groq_model: str = "llama-3.3-70b-versatile"

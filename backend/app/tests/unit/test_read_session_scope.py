@@ -1,14 +1,16 @@
 """Regression tests for the session round-trip reductions in app.db.session.
 
-Covers: dropping pool_pre_ping, the AUTOCOMMIT read_session_scope (no
-COMMIT/ROLLBACK round trip), and that session_scope's commit/rollback
-behavior on the write path is unchanged.
+Covers: pool liveness and bounds, the guarded AUTOCOMMIT read session,
+and that session_scope's commit/rollback behavior on the write path is
+unchanged.
 """
 
 from __future__ import annotations
 
 import pytest
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import DBAPIError, InvalidRequestError
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.db import session as db_session
 
@@ -33,14 +35,14 @@ def _use_sqlite_engine(monkeypatch) -> None:
     monkeypatch.setattr(db_session, "_read_session_factory", None)
 
 
-def test_engine_has_no_pre_ping(monkeypatch):
-    """pool_pre_ping must be dropped from create_engine (fix 3a)."""
-    _use_sqlite_engine(monkeypatch)
+def test_engines_keep_pre_ping():
+    """Both pools must detect stale connections before serving work."""
     engine = db_session.get_engine()
-    assert hasattr(engine.pool, "_pre_ping"), (
-        "SQLAlchemy Pool no longer exposes _pre_ping; update this assertion"
-    )
-    assert engine.pool._pre_ping is False
+    read_engine = db_session.get_read_engine()
+    assert engine.pool._pre_ping is True
+    assert read_engine.pool._pre_ping is True
+    assert engine.pool.size() == db_session.settings.app_db_write_pool_size
+    assert read_engine.pool.size() == db_session.settings.app_db_read_pool_size
 
 
 def test_read_session_scope_yields_working_session(monkeypatch):
@@ -74,14 +76,14 @@ def test_read_factory_uses_dedicated_autocommit_engine():
             f"(got {isolation!r}); if SQLAlchemy renamed this attribute, "
             "update the assertion rather than deleting it"
         )
+        assert read_engine.pool._pre_ping is True
+        assert read_engine.pool.size() == db_session.settings.app_db_read_pool_size
     finally:
         db_session.reset_engine_for_tests()
 
 
-def test_read_session_scope_never_commits(monkeypatch):
-    """The whole point of fix 3b: no COMMIT/ROLLBACK round trip on the read
-    path. Use a recording fake session to prove commit is never invoked and
-    close always is."""
+def test_read_session_scope_never_commits_directly(monkeypatch):
+    """The scope never requests commit/rollback and always closes."""
 
     calls: list[str] = []
 
@@ -197,3 +199,53 @@ def test_reset_engine_for_tests_clears_read_factory(monkeypatch):
     second_factory = db_session.get_read_session_factory()
 
     assert first_factory is not second_factory
+
+
+def test_postgres_read_only_connection_setup():
+    calls: list[str] = []
+
+    class _Cursor:
+        def execute(self, statement):
+            calls.append(statement)
+
+        def close(self):
+            calls.append("close")
+
+    class _Connection:
+        autocommit = False
+
+        def cursor(self):
+            return _Cursor()
+
+    connection = _Connection()
+    db_session._configure_postgres_read_only(connection, None)
+
+    assert connection.autocommit is True
+    assert calls == ["SET default_transaction_read_only = on", "close"]
+
+
+def test_read_only_session_rejects_orm_writes(monkeypatch):
+    class _Base(DeclarativeBase):
+        pass
+
+    class _Widget(_Base):
+        __tablename__ = "widgets"
+        id: Mapped[int] = mapped_column(primary_key=True)
+
+    engine = create_engine("sqlite:///:memory:", future=True)
+    _Base.metadata.create_all(engine)
+    monkeypatch.setattr(db_session, "_read_engine", engine)
+    monkeypatch.setattr(db_session, "_read_session_factory", None)
+
+    with db_session.read_session_scope() as session:
+        session.add(_Widget(id=1))
+        with pytest.raises(InvalidRequestError, match="Read-only session"):
+            session.flush()
+
+
+@pytest.mark.integration
+def test_postgres_read_engine_rejects_raw_writes():
+    """The database, not only the ORM session, must reject raw writes."""
+    with db_session.read_session_scope() as session:
+        with pytest.raises(DBAPIError, match="(?i)read.only"):
+            session.execute(text("CREATE TABLE qm_readonly_probe (id integer)"))
