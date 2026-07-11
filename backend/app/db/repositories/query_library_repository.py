@@ -1,9 +1,9 @@
-import functools
 from datetime import datetime, timezone
 from typing import Optional
 
 import anyio
 from sqlalchemy import desc
+from sqlalchemy.orm import Session
 
 from app.db.models.query_library import (
     QueryRunRecord,
@@ -83,31 +83,36 @@ def _map_to_run_record(row: QueryExecutionORM) -> QueryRunRecord:
 
 
 async def find_duplicate(user_id: str, sql: str, connection_id: Optional[str] = None) -> Optional[SavedQuery]:
-    return await anyio.to_thread.run_sync(
-        functools.partial(_find_duplicate_sync, user_id, sql, connection_id)
-    )
+    def _run() -> Optional[SavedQuery]:
+        with read_session_scope() as session:
+            return _find_duplicate_sync(session, user_id, sql, connection_id)
+    return await anyio.to_thread.run_sync(_run)
 
 
-def _find_duplicate_sync(user_id: str, sql: str, connection_id: Optional[str] = None) -> Optional[SavedQuery]:
-    with read_session_scope() as session:
-        query = session.query(SavedQueryORM).filter(SavedQueryORM.owner_id == user_id)
-        if connection_id:
-            query = query.filter(SavedQueryORM.connection_id == connection_id)
-        else:
-            query = query.filter(SavedQueryORM.connection_id.is_(None))
-        normalized_input = _normalize_sql(sql)
-        for row in query.all():
-            if _normalize_sql(row.sql) == normalized_input:
-                return _map_to_saved_query(row)
+def _find_duplicate_sync(
+    session: Session, user_id: str, sql: str, connection_id: Optional[str] = None
+) -> Optional[SavedQuery]:
+    query = session.query(SavedQueryORM).filter(SavedQueryORM.owner_id == user_id)
+    if connection_id:
+        query = query.filter(SavedQueryORM.connection_id == connection_id)
+    else:
+        query = query.filter(SavedQueryORM.connection_id.is_(None))
+    normalized_input = _normalize_sql(sql)
+    for row in query.all():
+        if _normalize_sql(row.sql) == normalized_input:
+            return _map_to_saved_query(row)
     return None
 
 
 async def save_query(user_id: str, req: SaveQueryInput) -> tuple[SavedQuery, bool]:
-    return await anyio.to_thread.run_sync(functools.partial(_save_query_sync, user_id, req))
+    def _run() -> tuple[SavedQuery, bool]:
+        with session_scope() as session:
+            return _save_query_sync(session, user_id, req)
+    return await anyio.to_thread.run_sync(_run)
 
 
-def _save_query_sync(user_id: str, req: SaveQueryInput) -> tuple[SavedQuery, bool]:
-    existing = _find_duplicate_sync(user_id, req.sql, req.connection_id)
+def _save_query_sync(session: Session, user_id: str, req: SaveQueryInput) -> tuple[SavedQuery, bool]:
+    existing = _find_duplicate_sync(session, user_id, req.sql, req.connection_id)
     if existing:
         update_fields: dict = {}
         if req.title and req.title != existing.title:
@@ -120,7 +125,7 @@ def _save_query_sync(user_id: str, req: SaveQueryInput) -> tuple[SavedQuery, boo
             update_fields["tags"] = req.tags
 
         if update_fields:
-            updated = _update_query_sync(user_id, existing.id, UpdateQueryInput(**update_fields))
+            updated = _update_query_sync(session, user_id, existing.id, UpdateQueryInput(**update_fields))
             if updated:
                 return updated, False
         return existing, False
@@ -132,35 +137,36 @@ def _save_query_sync(user_id: str, req: SaveQueryInput) -> tuple[SavedQuery, boo
         "tags": req.tags,
     }
 
-    with session_scope() as session:
-        row = SavedQueryORM(
-            owner_id=user_id,
-            title=req.title,
-            sql=req.sql,
-            description=req.description,
-            connection_id=req.connection_id,
-            metadata_=metadata,
-            schedule=_schedule_payload(req.schedule),
-            next_run_at=_parse_dt(req.schedule.next_run_at) if req.schedule else None,
-            run_count=0,
-        )
-        session.add(row)
-        session.flush()
-        return _map_to_saved_query(row), True
+    row = SavedQueryORM(
+        owner_id=user_id,
+        title=req.title,
+        sql=req.sql,
+        description=req.description,
+        connection_id=req.connection_id,
+        metadata_=metadata,
+        schedule=_schedule_payload(req.schedule),
+        next_run_at=_parse_dt(req.schedule.next_run_at) if req.schedule else None,
+        run_count=0,
+    )
+    session.add(row)
+    session.flush()
+    return _map_to_saved_query(row), True
 
 
 async def get_query(user_id: str, query_id: str) -> Optional[SavedQuery]:
-    return await anyio.to_thread.run_sync(functools.partial(_get_query_sync, user_id, query_id))
+    def _run() -> Optional[SavedQuery]:
+        with read_session_scope() as session:
+            return _get_query_sync(session, user_id, query_id)
+    return await anyio.to_thread.run_sync(_run)
 
 
-def _get_query_sync(user_id: str, query_id: str) -> Optional[SavedQuery]:
-    with read_session_scope() as session:
-        row = (
-            session.query(SavedQueryORM)
-            .filter(SavedQueryORM.id == query_id, SavedQueryORM.owner_id == user_id)
-            .one_or_none()
-        )
-        return _map_to_saved_query(row) if row else None
+def _get_query_sync(session: Session, user_id: str, query_id: str) -> Optional[SavedQuery]:
+    row = (
+        session.query(SavedQueryORM)
+        .filter(SavedQueryORM.id == query_id, SavedQueryORM.owner_id == user_id)
+        .one_or_none()
+    )
+    return _map_to_saved_query(row) if row else None
 
 
 async def list_queries(
@@ -170,30 +176,31 @@ async def list_queries(
     connection_id: Optional[str] = None,
     recently_run: bool = False,
 ) -> list[SavedQuery]:
-    return await anyio.to_thread.run_sync(
-        functools.partial(
-            _list_queries_sync,
-            user_id,
-            folder=folder,
-            tag=tag,
-            connection_id=connection_id,
-            recently_run=recently_run,
-        )
-    )
+    def _run() -> list[SavedQuery]:
+        with read_session_scope() as session:
+            return _list_queries_sync(
+                session,
+                user_id,
+                folder=folder,
+                tag=tag,
+                connection_id=connection_id,
+                recently_run=recently_run,
+            )
+    return await anyio.to_thread.run_sync(_run)
 
 
 def _list_queries_sync(
+    session: Session,
     user_id: str,
     folder: Optional[str] = None,
     tag: Optional[str] = None,
     connection_id: Optional[str] = None,
     recently_run: bool = False,
 ) -> list[SavedQuery]:
-    with read_session_scope() as session:
-        query = session.query(SavedQueryORM).filter(SavedQueryORM.owner_id == user_id)
-        if connection_id:
-            query = query.filter(SavedQueryORM.connection_id == connection_id)
-        rows = query.all()
+    query = session.query(SavedQueryORM).filter(SavedQueryORM.owner_id == user_id)
+    if connection_id:
+        query = query.filter(SavedQueryORM.connection_id == connection_id)
+    rows = query.all()
 
     result = [_map_to_saved_query(row) for row in rows]
 
@@ -216,79 +223,83 @@ def _list_queries_sync(
 
 
 async def update_query(user_id: str, query_id: str, req: UpdateQueryInput) -> Optional[SavedQuery]:
-    return await anyio.to_thread.run_sync(
-        functools.partial(_update_query_sync, user_id, query_id, req)
+    def _run() -> Optional[SavedQuery]:
+        with session_scope() as session:
+            return _update_query_sync(session, user_id, query_id, req)
+    return await anyio.to_thread.run_sync(_run)
+
+
+def _update_query_sync(
+    session: Session, user_id: str, query_id: str, req: UpdateQueryInput
+) -> Optional[SavedQuery]:
+    row = (
+        session.query(SavedQueryORM)
+        .filter(SavedQueryORM.id == query_id, SavedQueryORM.owner_id == user_id)
+        .one_or_none()
     )
+    if not row:
+        return None
 
+    update_data = req.model_dump(exclude_unset=True)
+    for field in ["title", "sql", "description", "connection_id"]:
+        if field in update_data:
+            setattr(row, field, update_data[field])
 
-def _update_query_sync(user_id: str, query_id: str, req: UpdateQueryInput) -> Optional[SavedQuery]:
-    with session_scope() as session:
-        row = (
-            session.query(SavedQueryORM)
-            .filter(SavedQueryORM.id == query_id, SavedQueryORM.owner_id == user_id)
-            .one_or_none()
-        )
-        if not row:
-            return None
+    metadata = dict(row.metadata_ or {})
+    metadata_changed = False
+    for field in ["folder_name", "icon", "icon_bg", "tags"]:
+        if field in update_data:
+            metadata[field] = update_data[field]
+            metadata_changed = True
+    if metadata_changed:
+        row.metadata_ = metadata
 
-        update_data = req.model_dump(exclude_unset=True)
-        for field in ["title", "sql", "description", "connection_id"]:
-            if field in update_data:
-                setattr(row, field, update_data[field])
+    if "schedule" in update_data:
+        row.schedule = _schedule_payload(update_data["schedule"])
 
-        metadata = dict(row.metadata_ or {})
-        metadata_changed = False
-        for field in ["folder_name", "icon", "icon_bg", "tags"]:
-            if field in update_data:
-                metadata[field] = update_data[field]
-                metadata_changed = True
-        if metadata_changed:
-            row.metadata_ = metadata
-
-        if "schedule" in update_data:
-            row.schedule = _schedule_payload(update_data["schedule"])
-
-        session.flush()
-        return _map_to_saved_query(row)
+    session.flush()
+    return _map_to_saved_query(row)
 
 
 async def delete_query(user_id: str, query_id: str) -> bool:
-    return await anyio.to_thread.run_sync(functools.partial(_delete_query_sync, user_id, query_id))
+    def _run() -> bool:
+        with session_scope() as session:
+            return _delete_query_sync(session, user_id, query_id)
+    return await anyio.to_thread.run_sync(_run)
 
 
-def _delete_query_sync(user_id: str, query_id: str) -> bool:
-    with session_scope() as session:
-        row = (
-            session.query(SavedQueryORM)
-            .filter(SavedQueryORM.id == query_id, SavedQueryORM.owner_id == user_id)
-            .one_or_none()
-        )
-        if not row:
-            return False
-        session.delete(row)
-        return True
+def _delete_query_sync(session: Session, user_id: str, query_id: str) -> bool:
+    row = (
+        session.query(SavedQueryORM)
+        .filter(SavedQueryORM.id == query_id, SavedQueryORM.owner_id == user_id)
+        .one_or_none()
+    )
+    if not row:
+        return False
+    session.delete(row)
+    return True
 
 
 async def increment_run_count(user_id: str, query_id: str) -> Optional[SavedQuery]:
-    return await anyio.to_thread.run_sync(
-        functools.partial(_increment_run_count_sync, user_id, query_id)
+    def _run() -> Optional[SavedQuery]:
+        with session_scope() as session:
+            return _increment_run_count_sync(session, user_id, query_id)
+    return await anyio.to_thread.run_sync(_run)
+
+
+def _increment_run_count_sync(session: Session, user_id: str, query_id: str) -> Optional[SavedQuery]:
+    row = (
+        session.query(SavedQueryORM)
+        .filter(SavedQueryORM.id == query_id, SavedQueryORM.owner_id == user_id)
+        .one_or_none()
     )
+    if not row:
+        return None
+    row.run_count = (row.run_count or 0) + 1
+    row.last_run_at = datetime.now(timezone.utc)
 
-
-def _increment_run_count_sync(user_id: str, query_id: str) -> Optional[SavedQuery]:
-    with session_scope() as session:
-        row = (
-            session.query(SavedQueryORM)
-            .filter(SavedQueryORM.id == query_id, SavedQueryORM.owner_id == user_id)
-            .one_or_none()
-        )
-        if not row:
-            return None
-        row.run_count = (row.run_count or 0) + 1
-        row.last_run_at = datetime.now(timezone.utc)
-
-        session.flush()
-        return _map_to_saved_query(row)
+    session.flush()
+    return _map_to_saved_query(row)
 
 
 async def create_folder(user_id: str, name: str) -> bool:
@@ -326,62 +337,68 @@ async def get_stats(user_id: str) -> dict:
 
 
 async def get_scheduled_queries(user_id: Optional[str] = None) -> list[SavedQuery]:
-    return await anyio.to_thread.run_sync(functools.partial(_get_scheduled_queries_sync, user_id))
+    def _run() -> list[SavedQuery]:
+        with read_session_scope() as session:
+            return _get_scheduled_queries_sync(session, user_id)
+    return await anyio.to_thread.run_sync(_run)
 
 
-def _get_scheduled_queries_sync(user_id: Optional[str] = None) -> list[SavedQuery]:
-    with read_session_scope() as session:
-        query = session.query(SavedQueryORM)
-        if user_id:
-            query = query.filter(SavedQueryORM.owner_id == user_id)
-        rows = query.all()
+def _get_scheduled_queries_sync(session: Session, user_id: Optional[str] = None) -> list[SavedQuery]:
+    query = session.query(SavedQueryORM)
+    if user_id:
+        query = query.filter(SavedQueryORM.owner_id == user_id)
+    rows = query.all()
     result = [_map_to_saved_query(row) for row in rows]
     return [q for q in result if q.schedule and q.schedule.enabled]
 
 
 async def get_due_scheduled_queries(now: Optional[datetime] = None, limit: int = 100) -> list[SavedQuery]:
-    return await anyio.to_thread.run_sync(
-        functools.partial(_get_due_scheduled_queries_sync, now, limit)
-    )
+    def _run() -> list[SavedQuery]:
+        with read_session_scope() as session:
+            return _get_due_scheduled_queries_sync(session, now, limit)
+    return await anyio.to_thread.run_sync(_run)
 
 
-def _get_due_scheduled_queries_sync(now: Optional[datetime] = None, limit: int = 100) -> list[SavedQuery]:
+def _get_due_scheduled_queries_sync(
+    session: Session, now: Optional[datetime] = None, limit: int = 100
+) -> list[SavedQuery]:
     due_at = now or datetime.now(timezone.utc)
-    with read_session_scope() as session:
-        rows = (
-            session.query(SavedQueryORM)
-            .filter(SavedQueryORM.next_run_at.is_not(None), SavedQueryORM.next_run_at <= due_at)
-            .order_by(SavedQueryORM.next_run_at.asc())
-            .limit(limit)
-            .all()
-        )
+    rows = (
+        session.query(SavedQueryORM)
+        .filter(SavedQueryORM.next_run_at.is_not(None), SavedQueryORM.next_run_at <= due_at)
+        .order_by(SavedQueryORM.next_run_at.asc())
+        .limit(limit)
+        .all()
+    )
     result = [_map_to_saved_query(row) for row in rows]
     return [q for q in result if q.schedule and q.schedule.enabled]
 
 
 async def update_schedule(user_id: str, query_id: str, config: Optional[ScheduleConfig]) -> Optional[SavedQuery]:
-    return await anyio.to_thread.run_sync(
-        functools.partial(_update_schedule_sync, user_id, query_id, config)
+    def _run() -> Optional[SavedQuery]:
+        with session_scope() as session:
+            return _update_schedule_sync(session, user_id, query_id, config)
+    return await anyio.to_thread.run_sync(_run)
+
+
+def _update_schedule_sync(
+    session: Session, user_id: str, query_id: str, config: Optional[ScheduleConfig]
+) -> Optional[SavedQuery]:
+    row = (
+        session.query(SavedQueryORM)
+        .filter(SavedQueryORM.id == query_id, SavedQueryORM.owner_id == user_id)
+        .one_or_none()
     )
+    if not row:
+        return None
+    row.schedule = _schedule_payload(config)
+    row.next_run_at = _parse_dt(config.next_run_at) if config else None
+    if not config:
+        row.last_run_status = None
+        row.last_error = None
 
-
-def _update_schedule_sync(user_id: str, query_id: str, config: Optional[ScheduleConfig]) -> Optional[SavedQuery]:
-    with session_scope() as session:
-        row = (
-            session.query(SavedQueryORM)
-            .filter(SavedQueryORM.id == query_id, SavedQueryORM.owner_id == user_id)
-            .one_or_none()
-        )
-        if not row:
-            return None
-        row.schedule = _schedule_payload(config)
-        row.next_run_at = _parse_dt(config.next_run_at) if config else None
-        if not config:
-            row.last_run_status = None
-            row.last_error = None
-
-        session.flush()
-        return _map_to_saved_query(row)
+    session.flush()
+    return _map_to_saved_query(row)
 
 
 async def set_schedule_runtime_state(
@@ -393,20 +410,22 @@ async def set_schedule_runtime_state(
     last_run_status: str | None = None,
     last_error: str | None = None,
 ) -> Optional[SavedQuery]:
-    return await anyio.to_thread.run_sync(
-        functools.partial(
-            _set_schedule_runtime_state_sync,
-            user_id,
-            query_id,
-            next_run_at=next_run_at,
-            last_run_at=last_run_at,
-            last_run_status=last_run_status,
-            last_error=last_error,
-        )
-    )
+    def _run() -> Optional[SavedQuery]:
+        with session_scope() as session:
+            return _set_schedule_runtime_state_sync(
+                session,
+                user_id,
+                query_id,
+                next_run_at=next_run_at,
+                last_run_at=last_run_at,
+                last_run_status=last_run_status,
+                last_error=last_error,
+            )
+    return await anyio.to_thread.run_sync(_run)
 
 
 def _set_schedule_runtime_state_sync(
+    session: Session,
     user_id: str,
     query_id: str,
     *,
@@ -415,21 +434,20 @@ def _set_schedule_runtime_state_sync(
     last_run_status: str | None = None,
     last_error: str | None = None,
 ) -> Optional[SavedQuery]:
-    with session_scope() as session:
-        row = (
-            session.query(SavedQueryORM)
-            .filter(SavedQueryORM.id == query_id, SavedQueryORM.owner_id == user_id)
-            .one_or_none()
-        )
-        if not row:
-            return None
-        row.next_run_at = next_run_at
-        if last_run_at is not None:
-            row.last_run_at = last_run_at
-        row.last_run_status = last_run_status
-        row.last_error = last_error
-        session.flush()
-        return _map_to_saved_query(row)
+    row = (
+        session.query(SavedQueryORM)
+        .filter(SavedQueryORM.id == query_id, SavedQueryORM.owner_id == user_id)
+        .one_or_none()
+    )
+    if not row:
+        return None
+    row.next_run_at = next_run_at
+    if last_run_at is not None:
+        row.last_run_at = last_run_at
+    row.last_run_status = last_run_status
+    row.last_error = last_error
+    session.flush()
+    return _map_to_saved_query(row)
 
 
 async def finalize_scheduled_run(
@@ -440,19 +458,21 @@ async def finalize_scheduled_run(
     success: bool,
     error: str | None = None,
 ) -> Optional[SavedQuery]:
-    return await anyio.to_thread.run_sync(
-        functools.partial(
-            _finalize_scheduled_run_sync,
-            user_id,
-            query_id,
-            next_run_at=next_run_at,
-            success=success,
-            error=error,
-        )
-    )
+    def _run() -> Optional[SavedQuery]:
+        with session_scope() as session:
+            return _finalize_scheduled_run_sync(
+                session,
+                user_id,
+                query_id,
+                next_run_at=next_run_at,
+                success=success,
+                error=error,
+            )
+    return await anyio.to_thread.run_sync(_run)
 
 
 def _finalize_scheduled_run_sync(
+    session: Session,
     user_id: str,
     query_id: str,
     *,
@@ -460,22 +480,21 @@ def _finalize_scheduled_run_sync(
     success: bool,
     error: str | None = None,
 ) -> Optional[SavedQuery]:
-    with session_scope() as session:
-        row = (
-            session.query(SavedQueryORM)
-            .filter(SavedQueryORM.id == query_id, SavedQueryORM.owner_id == user_id)
-            .one_or_none()
-        )
-        if not row:
-            return None
-        now = datetime.now(timezone.utc)
-        row.run_count = (row.run_count or 0) + 1
-        row.last_run_at = now
-        row.next_run_at = next_run_at
-        row.last_run_status = "success" if success else "error"
-        row.last_error = error
-        session.flush()
-        return _map_to_saved_query(row)
+    row = (
+        session.query(SavedQueryORM)
+        .filter(SavedQueryORM.id == query_id, SavedQueryORM.owner_id == user_id)
+        .one_or_none()
+    )
+    if not row:
+        return None
+    now = datetime.now(timezone.utc)
+    row.run_count = (row.run_count or 0) + 1
+    row.last_run_at = now
+    row.next_run_at = next_run_at
+    row.last_run_status = "success" if success else "error"
+    row.last_error = error
+    session.flush()
+    return _map_to_saved_query(row)
 
 
 async def log_run(
@@ -487,21 +506,23 @@ async def log_run(
     error: Optional[str] = None,
     triggered_by: str = "manual",
 ) -> QueryRunRecord:
-    return await anyio.to_thread.run_sync(
-        functools.partial(
-            _log_run_sync,
-            user_id,
-            query_id,
-            success,
-            row_count=row_count,
-            execution_time_ms=execution_time_ms,
-            error=error,
-            triggered_by=triggered_by,
-        )
-    )
+    def _run() -> QueryRunRecord:
+        with session_scope() as session:
+            return _log_run_sync(
+                session,
+                user_id,
+                query_id,
+                success,
+                row_count=row_count,
+                execution_time_ms=execution_time_ms,
+                error=error,
+                triggered_by=triggered_by,
+            )
+    return await anyio.to_thread.run_sync(_run)
 
 
 def _log_run_sync(
+    session: Session,
     user_id: str,
     query_id: str,
     success: bool,
@@ -510,59 +531,62 @@ def _log_run_sync(
     error: Optional[str] = None,
     triggered_by: str = "manual",
 ) -> QueryRunRecord:
-    query = _get_query_sync(user_id, query_id)
+    query = _get_query_sync(session, user_id, query_id)
     if not query:
         raise Exception(f"Query {query_id} not found for logging")
 
-    with session_scope() as session:
-        row = QueryExecutionORM(
-            query_id=query_id,
-            owner_id=user_id,
-            connection_id=query.connection_id,
-            sql=query.sql,
-            success=success,
-            row_count=row_count,
-            execution_time_ms=execution_time_ms,
-            error=error,
-            triggered_by=triggered_by,
-        )
-        session.add(row)
-        session.flush()
-        return _map_to_run_record(row)
+    row = QueryExecutionORM(
+        query_id=query_id,
+        owner_id=user_id,
+        connection_id=query.connection_id,
+        sql=query.sql,
+        success=success,
+        row_count=row_count,
+        execution_time_ms=execution_time_ms,
+        error=error,
+        triggered_by=triggered_by,
+    )
+    session.add(row)
+    session.flush()
+    return _map_to_run_record(row)
 
 
 async def get_run_history(user_id: str, query_id: str, limit: int = 20) -> list[QueryRunRecord]:
-    return await anyio.to_thread.run_sync(
-        functools.partial(_get_run_history_sync, user_id, query_id, limit)
+    def _run() -> list[QueryRunRecord]:
+        with read_session_scope() as session:
+            return _get_run_history_sync(session, user_id, query_id, limit)
+    return await anyio.to_thread.run_sync(_run)
+
+
+def _get_run_history_sync(session: Session, user_id: str, query_id: str, limit: int = 20) -> list[QueryRunRecord]:
+    rows = (
+        session.query(QueryExecutionORM)
+        .filter(QueryExecutionORM.query_id == query_id, QueryExecutionORM.owner_id == user_id)
+        .order_by(desc(QueryExecutionORM.ran_at))
+        .limit(limit)
+        .all()
     )
-
-
-def _get_run_history_sync(user_id: str, query_id: str, limit: int = 20) -> list[QueryRunRecord]:
-    with read_session_scope() as session:
-        rows = (
-            session.query(QueryExecutionORM)
-            .filter(QueryExecutionORM.query_id == query_id, QueryExecutionORM.owner_id == user_id)
-            .order_by(desc(QueryExecutionORM.ran_at))
-            .limit(limit)
-            .all()
-        )
-        return [_map_to_run_record(row) for row in rows]
+    return [_map_to_run_record(row) for row in rows]
 
 
 def sync_get_query(user_id: str, query_id: str) -> Optional[SavedQuery]:
-    return _get_query_sync(user_id, query_id)
+    with read_session_scope() as session:
+        return _get_query_sync(session, user_id, query_id)
 
 
 def sync_get_scheduled_queries(user_id: Optional[str] = None) -> list[SavedQuery]:
-    return _get_scheduled_queries_sync(user_id)
+    with read_session_scope() as session:
+        return _get_scheduled_queries_sync(session, user_id)
 
 
 def sync_get_due_scheduled_queries(limit: int = 100) -> list[SavedQuery]:
-    return _get_due_scheduled_queries_sync(limit=limit)
+    with read_session_scope() as session:
+        return _get_due_scheduled_queries_sync(session, limit=limit)
 
 
 def sync_increment_run_count(user_id: str, query_id: str) -> Optional[SavedQuery]:
-    return _increment_run_count_sync(user_id, query_id)
+    with session_scope() as session:
+        return _increment_run_count_sync(session, user_id, query_id)
 
 
 def sync_set_schedule_runtime_state(
@@ -574,14 +598,16 @@ def sync_set_schedule_runtime_state(
     last_run_status: str | None = None,
     last_error: str | None = None,
 ) -> Optional[SavedQuery]:
-    return _set_schedule_runtime_state_sync(
-        user_id,
-        query_id,
-        next_run_at=next_run_at,
-        last_run_at=last_run_at,
-        last_run_status=last_run_status,
-        last_error=last_error,
-    )
+    with session_scope() as session:
+        return _set_schedule_runtime_state_sync(
+            session,
+            user_id,
+            query_id,
+            next_run_at=next_run_at,
+            last_run_at=last_run_at,
+            last_run_status=last_run_status,
+            last_error=last_error,
+        )
 
 
 def sync_finalize_scheduled_run(
@@ -592,13 +618,15 @@ def sync_finalize_scheduled_run(
     success: bool,
     error: str | None = None,
 ) -> Optional[SavedQuery]:
-    return _finalize_scheduled_run_sync(
-        user_id,
-        query_id,
-        next_run_at=next_run_at,
-        success=success,
-        error=error,
-    )
+    with session_scope() as session:
+        return _finalize_scheduled_run_sync(
+            session,
+            user_id,
+            query_id,
+            next_run_at=next_run_at,
+            success=success,
+            error=error,
+        )
 
 
 def sync_log_run(
@@ -610,12 +638,14 @@ def sync_log_run(
     error: Optional[str] = None,
     triggered_by: str = "scheduler",
 ) -> QueryRunRecord:
-    return _log_run_sync(
-        user_id,
-        query_id,
-        success,
-        row_count=row_count,
-        execution_time_ms=execution_time_ms,
-        error=error,
-        triggered_by=triggered_by,
-    )
+    with session_scope() as session:
+        return _log_run_sync(
+            session,
+            user_id,
+            query_id,
+            success,
+            row_count=row_count,
+            execution_time_ms=execution_time_ms,
+            error=error,
+            triggered_by=triggered_by,
+        )
