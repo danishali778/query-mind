@@ -117,9 +117,11 @@ export function SharedDashboardPage() {
     async function load() {
       if (!token) return;
       try {
-        const dash = await getSharedDashboard(token);
+        const [dash, wlist] = await Promise.all([
+          getSharedDashboard(token),
+          getSharedDashboardWidgets(token),
+        ]);
         setDashboard(dash);
-        const wlist = await getSharedDashboardWidgets(token);
         setWidgets(wlist);
       } catch (err) {
         setError('Dashboard not found or not public.');

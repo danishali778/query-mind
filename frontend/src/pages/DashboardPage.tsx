@@ -758,9 +758,11 @@ export function DashboardPage() {
   const loadActiveDashboard = useCallback(async () => {
     if (!activeDashId) return;
     try {
-      const data = await listDashboardWidgets(activeDashId);
+      const [data, s] = await Promise.all([
+        listDashboardWidgets(activeDashId),
+        getDashboardStats(activeDashId),
+      ]);
       setWidgets(data);
-      const s = await getDashboardStats(activeDashId);
       setStats(s);
     } catch (err) {
       console.error('Failed to load dashboard:', err);
