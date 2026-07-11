@@ -3,6 +3,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
+from sqlalchemy.orm import Session
+
 from app.db.models.templates import GeneratedQueryTemplate, TemplateGenerationState
 from app.db.orm_models import GeneratedTemplateORM, TemplateGenerationORM
 from app.db.session import read_session_scope, session_scope
@@ -42,31 +44,56 @@ def _map_template(row: GeneratedTemplateORM) -> GeneratedQueryTemplate:
     )
 
 
+def _get_generation_state_sync(
+    session: Session, owner_id: str, connection_id: str
+) -> TemplateGenerationState | None:
+    row = (
+        session.query(TemplateGenerationORM)
+        .filter(
+            TemplateGenerationORM.owner_id == owner_id,
+            TemplateGenerationORM.connection_id == connection_id,
+        )
+        .one_or_none()
+    )
+    return _map_generation(row) if row else None
+
+
 def get_generation_state(owner_id: str, connection_id: str) -> TemplateGenerationState | None:
     with read_session_scope() as session:
-        row = (
-            session.query(TemplateGenerationORM)
-            .filter(
-                TemplateGenerationORM.owner_id == owner_id,
-                TemplateGenerationORM.connection_id == connection_id,
-            )
-            .one_or_none()
+        return _get_generation_state_sync(session, owner_id, connection_id)
+
+
+def _list_templates_sync(session: Session, owner_id: str, connection_id: str) -> list[GeneratedQueryTemplate]:
+    rows = (
+        session.query(GeneratedTemplateORM)
+        .filter(
+            GeneratedTemplateORM.owner_id == owner_id,
+            GeneratedTemplateORM.connection_id == connection_id,
         )
-        return _map_generation(row) if row else None
+        .order_by(GeneratedTemplateORM.created_at.asc())
+        .all()
+    )
+    return [_map_template(row) for row in rows]
 
 
 def list_templates(owner_id: str, connection_id: str) -> list[GeneratedQueryTemplate]:
     with read_session_scope() as session:
-        rows = (
-            session.query(GeneratedTemplateORM)
-            .filter(
-                GeneratedTemplateORM.owner_id == owner_id,
-                GeneratedTemplateORM.connection_id == connection_id,
-            )
-            .order_by(GeneratedTemplateORM.created_at.asc())
-            .all()
-        )
-        return [_map_template(row) for row in rows]
+        return _list_templates_sync(session, owner_id, connection_id)
+
+
+def get_generation_status_and_templates(
+    owner_id: str, connection_id: str
+) -> tuple[TemplateGenerationState | None, list[GeneratedQueryTemplate]]:
+    """Fetch generation state and the generated templates in one read session.
+
+    Replaces two separate read-pool checkouts (get_generation_state +
+    list_templates) with a single session/round trip; both calls are reads,
+    so this stays on the read-only pool.
+    """
+    with read_session_scope() as session:
+        state = _get_generation_state_sync(session, owner_id, connection_id)
+        templates = _list_templates_sync(session, owner_id, connection_id)
+        return state, templates
 
 
 def get_template(owner_id: str, template_id: str) -> GeneratedQueryTemplate | None:

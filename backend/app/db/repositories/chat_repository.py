@@ -322,6 +322,38 @@ def _get_latest_user_message_id_sync(session: Session, user_id: str, session_id:
     return row.id if row else None
 
 
+async def record_user_turn(
+    user_id: str,
+    session_id: str,
+    connection_id: str | None,
+    message: str,
+) -> tuple[ChatMessage, Optional[str], list[dict]]:
+    """Track the active connection, resolve the previous user message id,
+    persist the new user message, and load LLM history — all in one session.
+
+    Atomicity note: this flow commits atomically. Connection tracking, the
+    prev-query-id lookup, the user-message insert, and the history read all
+    happen in a single session/transaction, so a mid-flow failure can no
+    longer leave connection tracking updated without the matching message
+    (or vice versa), and this replaces what used to be four separate pool
+    checkouts with one.
+    """
+    def _run() -> tuple[ChatMessage, Optional[str], list[dict]]:
+        with session_scope() as session:
+            _track_connection_sync(session, user_id, session_id, connection_id)
+            prev_query_id = _get_latest_user_message_id_sync(session, user_id, session_id)
+            user_msg = ChatMessage(
+                role="user",
+                content=message,
+                connection_id=connection_id,
+                prev_query_id=prev_query_id,
+            )
+            _add_message_sync(session, user_id, session_id, user_msg)
+            history = _get_history_for_llm_sync(session, user_id, session_id)
+            return user_msg, prev_query_id, history
+    return await anyio.to_thread.run_sync(_run)
+
+
 def reconstruct_dual_chain(messages: list[ChatMessage]) -> list[ChatMessage]:
     """Reconstruct conversation order using prev_query_id and parent_id links."""
     if not messages:
@@ -368,5 +400,6 @@ __all__ = [
     "update_message",
     "get_history_for_llm",
     "get_latest_user_message_id",
+    "record_user_turn",
     "reconstruct_dual_chain",
 ]

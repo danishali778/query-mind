@@ -20,6 +20,7 @@ from app.db.repositories.chat_repository import (
     get_message,
     get_session,
     list_sessions,
+    record_user_turn,
     reconstruct_dual_chain,
     rename_session,
     track_connection,
@@ -278,8 +279,6 @@ async def send_message(
         logger.exception("Failed to load or create chat session %s", session_id)
         raise ChatPersistenceError("Unable to persist chat state for this request.") from exc
 
-    await track_connection(user_id, session_id, connection_id)
-
     if is_new_session:
         title = message[:50].strip()
         if len(message) > 50:
@@ -289,28 +288,14 @@ async def send_message(
         except Exception:
             logger.warning("Failed to rename new chat session %s", session_id, exc_info=True)
 
+    # Track the active connection, resolve prev_query_id, persist the user
+    # message, and load LLM history in one atomic transaction/session.
     try:
-        prev_query_id = await get_latest_user_message_id(user_id, session_id) if session_id else None
+        user_msg, prev_query_id, history = await record_user_turn(
+            user_id, session_id, connection_id, message
+        )
     except Exception as exc:
-        logger.exception("Failed to load latest user message for session %s", session_id)
-        raise ChatPersistenceError("Unable to persist chat state for this request.") from exc
-
-    user_msg = ChatMessage(
-        role="user",
-        content=message,
-        connection_id=connection_id,
-        prev_query_id=prev_query_id,
-    )
-    try:
-        await add_message(user_id, session_id, user_msg)
-    except Exception as exc:
-        logger.exception("Failed to persist user chat message %s", user_msg.id)
-        raise ChatPersistenceError("Unable to persist chat state for this request.") from exc
-
-    try:
-        history = await get_history_for_llm(user_id, session_id)
-    except Exception as exc:
-        logger.exception("Failed to load LLM history for session %s", session_id)
+        logger.exception("Failed to persist chat turn for session %s", session_id)
         raise ChatPersistenceError("Unable to persist chat state for this request.") from exc
 
     result = await _execute_chat_turn(

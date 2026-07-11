@@ -390,6 +390,40 @@ async def record_schema_sync(
     return await anyio.to_thread.run_sync(_run)
 
 
+async def record_health_and_schema_sync(
+    user_id: str,
+    connection_id: str,
+    *,
+    last_status: str,
+    last_error: str | None | object = _UNSET,
+    latency_ms: float | None | object = _UNSET,
+    tested_at: datetime | None = None,
+    synced_at: datetime | None = None,
+) -> bool:
+    """Record connection health and the schema-sync timestamp in one transaction.
+
+    Atomicity note: this flow commits atomically — both fields are written to
+    the same connection row in a single session/transaction, replacing two
+    separate pool checkouts (record_connection_health + record_schema_sync)
+    with one.
+    """
+    def _run() -> bool:
+        with session_scope() as session:
+            health_ok = _record_connection_health_sync(
+                session,
+                user_id,
+                connection_id,
+                last_status=last_status,
+                last_error=last_error,
+                latency_ms=latency_ms,
+                tested_at=tested_at,
+            )
+            if not health_ok:
+                return False
+            return _record_schema_sync_sync(session, user_id, connection_id, synced_at=synced_at)
+    return await anyio.to_thread.run_sync(_run)
+
+
 __all__ = [
     "create_connection",
     "list_connections",
@@ -405,4 +439,5 @@ __all__ = [
     "sync_record_connection_health",
     "record_schema_sync",
     "sync_record_schema_sync",
+    "record_health_and_schema_sync",
 ]

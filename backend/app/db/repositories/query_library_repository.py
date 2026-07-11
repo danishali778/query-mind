@@ -569,6 +569,39 @@ def _get_run_history_sync(session: Session, user_id: str, query_id: str, limit: 
     return [_map_to_run_record(row) for row in rows]
 
 
+async def record_run(
+    user_id: str,
+    query_id: str,
+    success: bool,
+    row_count: int = 0,
+    execution_time_ms: float = 0.0,
+    error: Optional[str] = None,
+    triggered_by: str = "manual",
+) -> tuple[Optional[SavedQuery], QueryRunRecord]:
+    """Bump the saved query's run count and log the run in one transaction.
+
+    Atomicity note: this flow commits atomically — the run-count/last-run-at
+    bump on the saved query and the new execution-history row are written in
+    a single session/transaction, so a failure between the two writes can no
+    longer leave the run count incremented without a matching history row.
+    """
+    def _run() -> tuple[Optional[SavedQuery], QueryRunRecord]:
+        with session_scope() as session:
+            updated_query = _increment_run_count_sync(session, user_id, query_id)
+            run_record = _log_run_sync(
+                session,
+                user_id,
+                query_id,
+                success,
+                row_count=row_count,
+                execution_time_ms=execution_time_ms,
+                error=error,
+                triggered_by=triggered_by,
+            )
+            return updated_query, run_record
+    return await anyio.to_thread.run_sync(_run)
+
+
 def sync_get_query(user_id: str, query_id: str) -> Optional[SavedQuery]:
     with read_session_scope() as session:
         return _get_query_sync(session, user_id, query_id)
@@ -649,3 +682,46 @@ def sync_log_run(
             error=error,
             triggered_by=triggered_by,
         )
+
+
+def sync_log_run_and_finalize(
+    user_id: str,
+    query_id: str,
+    *,
+    success: bool,
+    next_run_at: datetime | None,
+    row_count: int = 0,
+    execution_time_ms: float = 0.0,
+    error: str | None = None,
+    triggered_by: str = "scheduler",
+) -> tuple[QueryRunRecord, Optional[SavedQuery]]:
+    """Log a scheduled run and finalize its schedule state in one transaction.
+
+    Used by the Celery scheduler worker (run_saved_query_task), which
+    previously called sync_log_run and sync_finalize_scheduled_run as two
+    separate pool checkouts/transactions. Atomicity note: this flow commits
+    atomically — the execution-history row and the saved query's
+    run-count/next-run-at update are written in a single session/
+    transaction, so a worker crash between the two writes can no longer
+    leave the schedule state inconsistent with the run history.
+    """
+    with session_scope() as session:
+        run_record = _log_run_sync(
+            session,
+            user_id,
+            query_id,
+            success,
+            row_count=row_count,
+            execution_time_ms=execution_time_ms,
+            error=error,
+            triggered_by=triggered_by,
+        )
+        finalized_query = _finalize_scheduled_run_sync(
+            session,
+            user_id,
+            query_id,
+            next_run_at=next_run_at,
+            success=success,
+            error=error,
+        )
+        return run_record, finalized_query

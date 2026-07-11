@@ -408,13 +408,13 @@ async def refresh_schema(user_id: str, connection_id: str) -> list[TableInfo] | 
         raise
 
     if schema is not None:
-        await connection_repository.record_connection_health(
+        # Record health and schema-sync timestamp atomically in one transaction/session.
+        await connection_repository.record_health_and_schema_sync(
             user_id,
             connection_id,
             last_status="healthy",
             last_error=None,
         )
-        await connection_repository.record_schema_sync(user_id, connection_id)
         await _persist_catalog_from_schema(user_id, connection_id, schema)
     return schema
 
