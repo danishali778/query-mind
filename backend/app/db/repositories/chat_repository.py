@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Optional
 
 import anyio
+from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
 from app.db.models.chat import ChatMessage, ChatSession, SessionSummary
@@ -149,57 +150,63 @@ async def list_sessions(user_id: str) -> list[SessionSummary]:
 
 def _list_sessions_sync(session: Session, user_id: str) -> list[SessionSummary]:
     rows = (
-        session.query(ChatSessionORM)
+        session.query(ChatSessionORM, func.count(ChatMessageORM.id).label("message_count"))
+        .outerjoin(
+            ChatMessageORM,
+            and_(
+                ChatMessageORM.session_id == ChatSessionORM.id,
+                ChatMessageORM.owner_id == user_id,
+            ),
+        )
         .filter(ChatSessionORM.owner_id == user_id)
+        .group_by(ChatSessionORM.id)
         .order_by(ChatSessionORM.created_at.desc())
         .all()
     )
-    summaries: list[SessionSummary] = []
-    for row in rows:
-        msg_count = (
-            session.query(ChatMessageORM)
-            .filter(ChatMessageORM.session_id == row.id, ChatMessageORM.owner_id == user_id)
-            .count()
+    return [
+        SessionSummary(
+            id=row.id,
+            owner_id=row.owner_id,
+            connection_ids=row.connection_ids or [],
+            last_connection_id=row.last_connection_id,
+            title=row.title,
+            message_count=int(message_count or 0),
+            created_at=_iso(row.created_at),
         )
-        summaries.append(
-            SessionSummary(
-                id=row.id,
-                owner_id=row.owner_id,
-                connection_ids=row.connection_ids or [],
-                last_connection_id=row.last_connection_id,
-                title=row.title,
-                message_count=msg_count,
-                created_at=_iso(row.created_at),
-            )
-        )
-    return summaries
+        for row, message_count in rows
+    ]
 
 
 async def track_connection(user_id: str, session_id: str, connection_id: str | None) -> None:
+    """Best-effort standalone connection tracking.
+
+    The composite ``record_user_turn`` flow calls the strict sync helper
+    directly so a tracking failure rolls back the entire user-turn write.
+    """
     def _run() -> None:
         with session_scope() as session:
             _track_connection_sync(session, user_id, session_id, connection_id)
-    await anyio.to_thread.run_sync(_run)
+    try:
+        await anyio.to_thread.run_sync(_run)
+    except Exception as exc:
+        logger.warning("Error tracking connection for session %s: %s", session_id, exc)
 
 
 def _track_connection_sync(session: Session, user_id: str, session_id: str, connection_id: str | None) -> None:
     if not connection_id:
         return
-    try:
-        row = (
-            session.query(ChatSessionORM)
-            .filter(ChatSessionORM.id == session_id, ChatSessionORM.owner_id == user_id)
-            .one_or_none()
-        )
-        if not row:
-            return
-        conn_ids = list(row.connection_ids or [])
-        if connection_id not in conn_ids:
-            conn_ids.append(connection_id)
-        row.connection_ids = conn_ids
-        row.last_connection_id = connection_id
-    except Exception as exc:
-        logger.warning("Error tracking connection for session %s: %s", session_id, exc)
+    row = (
+        session.query(ChatSessionORM)
+        .filter(ChatSessionORM.id == session_id, ChatSessionORM.owner_id == user_id)
+        .one_or_none()
+    )
+    if not row:
+        return
+    conn_ids = list(row.connection_ids or [])
+    if connection_id not in conn_ids:
+        conn_ids.append(connection_id)
+    row.connection_ids = conn_ids
+    row.last_connection_id = connection_id
 
 
 async def rename_session(user_id: str, session_id: str, title: str) -> bool:
@@ -349,6 +356,9 @@ async def record_user_turn(
                 prev_query_id=prev_query_id,
             )
             _add_message_sync(session, user_id, session_id, user_msg)
+            # Session factories disable autoflush. Flush explicitly so the
+            # history query below includes the message from this turn.
+            session.flush()
             history = _get_history_for_llm_sync(session, user_id, session_id)
             return user_msg, prev_query_id, history
     return await anyio.to_thread.run_sync(_run)

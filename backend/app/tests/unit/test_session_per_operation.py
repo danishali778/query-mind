@@ -14,14 +14,14 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import app.db.session as db_session
 from app.db.base import Base
 from app.db.models.query_library import SaveQueryInput
-from app.db.repositories import query_library_repository, template_repository
+from app.db.repositories import chat_repository, query_library_repository, template_repository
 
 
 @pytest.fixture(autouse=True)
@@ -124,3 +124,64 @@ def test_get_generation_status_and_templates_uses_a_single_session(monkeypatch):
     assert state is None
     assert templates == []
     assert len(factory_calls) == 1, "expected exactly one session-factory checkout for the merged read flow"
+
+
+def test_record_user_turn_returns_history_with_current_message():
+    chat = asyncio.run(chat_repository.create_session("user-1", "conn-1"))
+
+    user_message, previous_id, history = asyncio.run(
+        chat_repository.record_user_turn(
+            "user-1",
+            chat.id,
+            "conn-1",
+            "show this month's revenue",
+        )
+    )
+
+    assert previous_id is None
+    assert history[-1] == {"role": "user", "content": "show this month's revenue"}
+    persisted = asyncio.run(chat_repository.get_message("user-1", chat.id, user_message.id))
+    assert persisted is not None
+
+
+def test_record_user_turn_rolls_back_when_connection_tracking_fails(monkeypatch):
+    chat = asyncio.run(chat_repository.create_session("user-1", "conn-1"))
+
+    def fail_tracking(*_args, **_kwargs):
+        raise RuntimeError("tracking failed")
+
+    monkeypatch.setattr(chat_repository, "_track_connection_sync", fail_tracking)
+
+    with pytest.raises(RuntimeError, match="tracking failed"):
+        asyncio.run(
+            chat_repository.record_user_turn(
+                "user-1",
+                chat.id,
+                "conn-2",
+                "show revenue",
+            )
+        )
+
+    assert asyncio.run(chat_repository.get_history_for_llm("user-1", chat.id)) == []
+
+
+def test_list_sessions_counts_messages_with_one_select():
+    first = asyncio.run(chat_repository.create_session("user-1", "conn-1"))
+    asyncio.run(chat_repository.create_session("user-1", "conn-1"))
+    asyncio.run(chat_repository.record_user_turn("user-1", first.id, "conn-1", "hello"))
+
+    statements: list[str] = []
+
+    def capture_statement(_conn, _cursor, statement, _params, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement)
+
+    event.listen(db_session._read_engine, "before_cursor_execute", capture_statement)
+    try:
+        summaries = asyncio.run(chat_repository.list_sessions("user-1"))
+    finally:
+        event.remove(db_session._read_engine, "before_cursor_execute", capture_statement)
+
+    assert len(summaries) == 2
+    assert {summary.id: summary.message_count for summary in summaries}[first.id] == 1
+    assert len(statements) == 1

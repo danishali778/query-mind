@@ -87,8 +87,8 @@ def get_generation_status_and_templates(
     """Fetch generation state and the generated templates in one read session.
 
     Replaces two separate read-pool checkouts (get_generation_state +
-    list_templates) with a single session/round trip; both calls are reads,
-    so this stays on the read-only pool.
+    list_templates) with one session checkout. The two SELECT statements are
+    still separate database round trips, and both stay on the read-only pool.
     """
     with read_session_scope() as session:
         state = _get_generation_state_sync(session, owner_id, connection_id)

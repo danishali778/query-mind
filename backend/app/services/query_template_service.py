@@ -14,7 +14,7 @@ def list_templates(user_id: str, connection_id: str):
 
 
 def get_generation_status_and_templates(user_id: str, connection_id: str):
-    """Fetch generation status and templates in one read session/round trip."""
+    """Fetch status and templates through one read-session checkout."""
     state, templates = template_repository.get_generation_status_and_templates(user_id, connection_id)
     status = state.status if state else "not_started"
     return status, templates
