@@ -7,6 +7,7 @@ import { DashboardCreateForm } from '../components/dashboard/DashboardCreateForm
 import { WidgetRenderer } from '../components/dashboard/WidgetRenderer';
 import { T } from '../components/dashboard/tokens';
 import { DashboardFilterBar } from '../components/dashboard/DashboardFilterBar';
+import { Skeleton } from '../components/common/Skeleton';
 import {
   deleteDashboard,
   renameDashboard,
@@ -448,6 +449,27 @@ interface GridLayoutItem {
   minH?: number;
 }
 
+/* ── Dashboard Loading Skeleton ───────────────────────────────── */
+
+function DashboardSkeleton() {
+  return (
+    <div style={{ padding: 'clamp(20px, 4vw, 40px)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 20, marginBottom: 24 }}>
+        <Skeleton style={{ width: 52, height: 52 }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <Skeleton className="w-48" style={{ height: 20 }} />
+          <Skeleton className="w-32" style={{ height: 10 }} />
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 20 }}>
+        {[0, 1, 2, 3].map((i) => (
+          <Skeleton key={i} style={{ height: 180 }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ── Dashboard Canvas ─────────────────────────────────────────── */
 
 function StatChip({ label, muted = false, accent = false }: { label: string; muted?: boolean; accent?: boolean }) {
@@ -730,7 +752,7 @@ function DashboardCanvas({
 /* ── Main DashboardPage ─────────────────────────────────────────── */
 
 export function DashboardPage() {
-  const { dashboards, reloadDashboards, createNewDashboard, creating } = useDashboardCatalog();
+  const { dashboards, loading: dashboardsLoading, reloadDashboards, createNewDashboard, creating } = useDashboardCatalog();
   const [activeDashId, setActiveDashId] = useState<string | null>(null);
   const [widgets, setWidgets] = useState<DashboardWidgetItem[]>([]);
   const [stats, setStats] = useState<DashboardMetrics>({ total_widgets: 0, viz_breakdown: {} });
@@ -899,13 +921,13 @@ export function DashboardPage() {
         />
 
         <div style={{ flex: 1, padding: '0 0 40px 0', overflowY: 'auto' }}>
-          <DashboardCanvas
+          {dashboardsLoading && dashboards.length === 0 ? <DashboardSkeleton /> : <DashboardCanvas
             activeDash={activeDash}
             stats={stats}
             widgets={widgets}
             onDeleteWidget={handleDeleteWidget}
             onUpdateWidget={handleUpdateWidget}
-          />
+          />}
         </div>
       </div>
 
