@@ -8,7 +8,7 @@ from typing import Any
 from app.core.security import decrypt, encrypt
 from app.db.models.connection import ActiveConnection, ConnectionRequest, derive_connection_status
 from app.db.orm_models import DatabaseConnectionORM
-from app.db.session import session_scope
+from app.db.session import read_session_scope, session_scope
 
 
 _UNSET = object()
@@ -104,7 +104,7 @@ async def create_connection(user_id: str, config: ConnectionRequest) -> str:
 
 
 async def list_connections(user_id: str) -> list[ActiveConnection]:
-    with session_scope() as session:
+    with read_session_scope() as session:
         rows = (
             session.query(DatabaseConnectionORM)
             .filter(DatabaseConnectionORM.owner_id == user_id)
@@ -115,7 +115,7 @@ async def list_connections(user_id: str) -> list[ActiveConnection]:
 
 
 def sync_get_active_connection(user_id: str, connection_id: str) -> ActiveConnection | None:
-    with session_scope() as session:
+    with read_session_scope() as session:
         row = (
             session.query(DatabaseConnectionORM)
             .filter(DatabaseConnectionORM.id == connection_id, DatabaseConnectionORM.owner_id == user_id)
@@ -131,7 +131,7 @@ async def get_active_connection(user_id: str, connection_id: str) -> ActiveConne
 
 
 async def get_connection_row(user_id: str, connection_id: str) -> dict | None:
-    with session_scope() as session:
+    with read_session_scope() as session:
         row = (
             session.query(DatabaseConnectionORM)
             .filter(DatabaseConnectionORM.id == connection_id, DatabaseConnectionORM.owner_id == user_id)
@@ -166,7 +166,7 @@ async def get_connection_row(user_id: str, connection_id: str) -> dict | None:
 
 
 async def get_connection_config(user_id: str, connection_id: str) -> ConnectionRequest | None:
-    with session_scope() as session:
+    with read_session_scope() as session:
         row = (
             session.query(DatabaseConnectionORM)
             .filter(DatabaseConnectionORM.id == connection_id, DatabaseConnectionORM.owner_id == user_id)
@@ -214,7 +214,7 @@ async def get_readonly_setting(user_id: str, connection_id: str) -> bool:
 
 
 async def find_dev_connection(owner_id: str, name: str) -> str | None:
-    with session_scope() as session:
+    with read_session_scope() as session:
         row = (
             session.query(DatabaseConnectionORM.id)
             .filter(DatabaseConnectionORM.owner_id == owner_id, DatabaseConnectionORM.name == name)

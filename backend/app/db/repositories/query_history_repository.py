@@ -5,7 +5,7 @@ from sqlalchemy import desc, func, select
 
 from app.db.models.query_history import QueryRecord
 from app.db.orm_models import QueryExecutionORM
-from app.db.session import session_scope
+from app.db.session import read_session_scope, session_scope
 
 
 def _record_to_domain(row: QueryExecutionORM) -> QueryRecord:
@@ -54,7 +54,7 @@ def get_history(
     limit: int = 20,
 ) -> list[QueryRecord]:
     """Get recent ad-hoc query history for a user, optionally filtered by connection."""
-    with session_scope() as session:
+    with read_session_scope() as session:
         stmt = (
             select(QueryExecutionORM)
             .where(QueryExecutionORM.owner_id == user_id)
@@ -70,7 +70,7 @@ def get_history(
 
 def get_stats(user_id: str, connection_id: str) -> dict:
     """Get quick stats for a connection's query activity."""
-    with session_scope() as session:
+    with read_session_scope() as session:
         stmt = (
             select(QueryExecutionORM.success, QueryExecutionORM.execution_time_ms)
             .where(QueryExecutionORM.owner_id == user_id)
@@ -96,7 +96,7 @@ def get_stats(user_id: str, connection_id: str) -> dict:
 
 def get_connection_totals(user_id: str) -> dict[str, int]:
     """Return query counts grouped by connection for analytics use cases."""
-    with session_scope() as session:
+    with read_session_scope() as session:
         stmt = (
             select(QueryExecutionORM.connection_id, func.count(QueryExecutionORM.id))
             .where(QueryExecutionORM.owner_id == user_id)

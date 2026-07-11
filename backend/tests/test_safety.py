@@ -761,7 +761,7 @@ class TestChatPersistenceFailures:
     def test_get_history_for_llm_raises_on_db_failure(self, monkeypatch):
         from app.db.repositories import chat_repository
 
-        monkeypatch.setattr(chat_repository, "session_scope", lambda: _BrokenSessionScope())
+        monkeypatch.setattr(chat_repository, "read_session_scope", lambda: _BrokenSessionScope())
 
         with pytest.raises(RuntimeError, match="database unavailable"):
             asyncio.run(chat_repository.get_history_for_llm("user-1", "session-1"))
@@ -769,7 +769,7 @@ class TestChatPersistenceFailures:
     def test_get_history_for_llm_empty_history_returns_empty_list(self, monkeypatch):
         from app.db.repositories import chat_repository
 
-        monkeypatch.setattr(chat_repository, "session_scope", lambda: _EmptySessionScope())
+        monkeypatch.setattr(chat_repository, "read_session_scope", lambda: _EmptySessionScope())
 
         history = asyncio.run(
             chat_repository.get_history_for_llm(

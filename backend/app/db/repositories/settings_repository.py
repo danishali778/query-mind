@@ -4,7 +4,7 @@ from typing import TypeVar
 
 from app.db.models.settings import UserSettings, UserSettingsBase, UserSubscription
 from app.db.orm_models import UserSettingsORM, UserSubscriptionORM
-from app.db.session import session_scope
+from app.db.session import read_session_scope, session_scope
 
 
 logger = logging.getLogger(__name__)
@@ -88,7 +88,7 @@ def _new_subscription_row(owner_id: str) -> UserSubscriptionORM:
 
 def is_user_active(user_id: str) -> bool:
     try:
-        with session_scope() as session:
+        with read_session_scope() as session:
             row = session.get(UserSettingsORM, user_id)
             return bool(row and row.is_active)
     except Exception as exc:
@@ -99,7 +99,7 @@ def is_user_active(user_id: str) -> bool:
 def get_user_settings(user_id: str) -> UserSettings:
     """Fetch user settings, falling back to defaults if the row is missing."""
     try:
-        with session_scope() as session:
+        with read_session_scope() as session:
             row = session.get(UserSettingsORM, user_id)
             if row:
                 return _settings_to_domain(row)

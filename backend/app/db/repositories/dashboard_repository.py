@@ -14,7 +14,7 @@ from app.db.models.dashboard import (
     UpdateWidgetInput,
 )
 from app.db.orm_models import DashboardORM, DashboardWidgetORM
-from app.db.session import session_scope
+from app.db.session import read_session_scope, session_scope
 
 
 def _utcnow() -> datetime:
@@ -78,7 +78,7 @@ async def create_dashboard(user_id: str, req: CreateDashboardInput) -> Dashboard
 
 
 async def list_dashboards(user_id: str) -> list[DashboardSummary]:
-    with session_scope() as session:
+    with read_session_scope() as session:
         rows = (
             session.query(DashboardORM, func.count(DashboardWidgetORM.id).label("widget_count"))
             .outerjoin(DashboardWidgetORM, DashboardWidgetORM.dashboard_id == DashboardORM.id)
@@ -94,7 +94,7 @@ async def list_dashboards(user_id: str) -> list[DashboardSummary]:
 
 
 async def get_dashboard(user_id: str, dashboard_id: str) -> Optional[Dashboard]:
-    with session_scope() as session:
+    with read_session_scope() as session:
         row = (
             session.query(DashboardORM)
             .filter(DashboardORM.id == dashboard_id, DashboardORM.owner_id == user_id)
@@ -156,7 +156,7 @@ async def delete_dashboard(user_id: str, dashboard_id: str) -> bool:
 
 
 async def get_shared_dashboard(token: str) -> Optional[Dashboard]:
-    with session_scope() as session:
+    with read_session_scope() as session:
         row = (
             session.query(DashboardORM)
             .filter(DashboardORM.share_token == token, DashboardORM.is_public.is_(True))
@@ -166,7 +166,7 @@ async def get_shared_dashboard(token: str) -> Optional[Dashboard]:
 
 
 async def get_shared_widgets(dashboard_id: str) -> list[DashboardWidget]:
-    with session_scope() as session:
+    with read_session_scope() as session:
         rows = (
             session.query(DashboardWidgetORM)
             .filter(DashboardWidgetORM.dashboard_id == dashboard_id)
@@ -230,7 +230,7 @@ async def add_widget(user_id: str, req: AddWidgetInput) -> DashboardWidget:
 
 
 async def list_widgets(user_id: str, dashboard_id: Optional[str] = None) -> list[DashboardWidget]:
-    with session_scope() as session:
+    with read_session_scope() as session:
         query = session.query(DashboardWidgetORM).filter(DashboardWidgetORM.owner_id == user_id)
         if dashboard_id:
             query = query.filter(DashboardWidgetORM.dashboard_id == dashboard_id)
@@ -239,7 +239,7 @@ async def list_widgets(user_id: str, dashboard_id: Optional[str] = None) -> list
 
 
 async def get_widget(user_id: str, widget_id: str) -> Optional[DashboardWidget]:
-    with session_scope() as session:
+    with read_session_scope() as session:
         row = (
             session.query(DashboardWidgetORM)
             .filter(DashboardWidgetORM.id == widget_id, DashboardWidgetORM.owner_id == user_id)
@@ -350,7 +350,7 @@ async def finalize_widget_run(
 
 async def get_due_scheduled_widgets(now: Optional[datetime] = None, limit: int = 100) -> list[DashboardWidget]:
     due_at = now or _utcnow()
-    with session_scope() as session:
+    with read_session_scope() as session:
         rows = (
             session.query(DashboardWidgetORM)
             .filter(
@@ -377,7 +377,7 @@ async def get_stats(user_id: str, dashboard_id: Optional[str] = None) -> dict:
 
 
 async def get_all_scheduled_widgets() -> list[DashboardWidget]:
-    with session_scope() as session:
+    with read_session_scope() as session:
         rows = (
             session.query(DashboardWidgetORM)
             .filter(DashboardWidgetORM.cadence != "Manual only")

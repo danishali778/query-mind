@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.core.errors import ServiceUnavailableError
 from app.core.supabase_auth import ACCESS_TOKEN_COOKIE_NAME
 from app.db.orm_models import UserSettingsORM
-from app.db.session import session_scope
+from app.db.session import read_session_scope
 from app.integrations.supabase_auth import user_cache
 from app.integrations.supabase_auth.jwt import JWTError, decode_supabase_jwt, get_jwt_key
 
@@ -28,7 +28,7 @@ async def assert_user_exists(user_id: str) -> None:
         return
 
     try:
-        with session_scope() as session:
+        with read_session_scope() as session:
             row = session.get(UserSettingsORM, user_id)
             exists = bool(row and row.is_active)
     except Exception as exc:
