@@ -14,6 +14,7 @@ from app.core.config import settings
 
 _engine: Engine | None = None
 _session_factory: sessionmaker[Session] | None = None
+_read_session_factory: sessionmaker[Session] | None = None
 
 
 def get_app_database_url() -> str:
@@ -27,12 +28,20 @@ def get_app_database_url() -> str:
 
 
 def get_engine() -> Engine:
-    """Return a lazily initialized SQLAlchemy engine for the app database."""
+    """Return a lazily initialized SQLAlchemy engine for the app database.
+
+    Note: `pool_pre_ping` is intentionally omitted. It would send a `SELECT 1`
+    round trip on every pool checkout to guard against stale connections, but
+    `pool_recycle=1800` already covers the common staleness cause (idle
+    timeouts) by discarding connections older than 30 minutes. Against a
+    remote database with meaningful per-round-trip latency, that extra
+    round trip on every checkout is not worth paying for the residual case
+    of a connection dying within its 30-minute window.
+    """
     global _engine
     if _engine is None:
         _engine = create_engine(
             get_app_database_url(),
-            pool_pre_ping=True,
             pool_recycle=1800,
             future=True,
         )
@@ -51,6 +60,29 @@ def get_session_factory() -> sessionmaker[Session]:
             future=True,
         )
     return _session_factory
+
+
+def get_read_session_factory() -> sessionmaker[Session]:
+    """Return a lazily initialized session factory for read-only operations.
+
+    Bound to an `OptionEngine` (via `Engine.execution_options`) rather than a
+    second real engine, so it shares the same connection pool as
+    `get_session_factory()` — no extra connections are opened. The
+    `AUTOCOMMIT` isolation level means statements execute without any
+    surrounding transaction, so there is no COMMIT/ROLLBACK round trip to pay
+    on scope exit.
+    """
+    global _read_session_factory
+    if _read_session_factory is None:
+        read_engine = get_engine().execution_options(isolation_level="AUTOCOMMIT")
+        _read_session_factory = sessionmaker(
+            bind=read_engine,
+            autoflush=False,
+            autocommit=False,
+            expire_on_commit=False,
+            future=True,
+        )
+    return _read_session_factory
 
 
 def new_session() -> Session:
@@ -72,6 +104,27 @@ def session_scope() -> Generator[Session, None, None]:
         session.close()
 
 
+@contextmanager
+def read_session_scope() -> Generator[Session, None, None]:
+    """Provide a read-only scope with no transaction, for pure query paths.
+
+    Statements execute under AUTOCOMMIT isolation, so there is no
+    COMMIT/ROLLBACK round trip on scope exit — only the query itself crosses
+    the network. The session is still closed deterministically, and
+    exceptions propagate normally without ever attempting a commit.
+
+    Never use this for writes: no commit is issued, so any `session.add`,
+    `session.delete`, or attribute mutation performed here would either be
+    silently lost or (under autocommit) applied outside of any rollback
+    safety net. Reserve it strictly for reads.
+    """
+    session = get_read_session_factory()()
+    try:
+        yield session
+    finally:
+        session.close()
+
+
 def get_db_session() -> Generator[Session, None, None]:
     """FastAPI dependency-compatible session generator."""
     with session_scope() as session:
@@ -80,19 +133,22 @@ def get_db_session() -> Generator[Session, None, None]:
 
 def reset_engine_for_tests() -> None:
     """Dispose and clear engine state for tests that override configuration."""
-    global _engine, _session_factory
+    global _engine, _session_factory, _read_session_factory
     if _engine is not None:
         _engine.dispose()
     _engine = None
     _session_factory = None
+    _read_session_factory = None
 
 
 __all__ = [
     "get_app_database_url",
     "get_engine",
     "get_session_factory",
+    "get_read_session_factory",
     "new_session",
     "session_scope",
+    "read_session_scope",
     "get_db_session",
     "reset_engine_for_tests",
 ]

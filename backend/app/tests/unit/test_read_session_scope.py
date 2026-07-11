@@ -1,0 +1,181 @@
+"""Regression tests for the session round-trip reductions in app.db.session.
+
+Covers: dropping pool_pre_ping, the AUTOCOMMIT read_session_scope (no
+COMMIT/ROLLBACK round trip), and that session_scope's commit/rollback
+behavior on the write path is unchanged.
+"""
+
+from __future__ import annotations
+
+import pytest
+from sqlalchemy import create_engine, text
+
+from app.db import session as db_session
+
+
+@pytest.fixture(autouse=True)
+def _reset_session_state():
+    """Ensure engine/session-factory globals don't leak between tests."""
+    db_session.reset_engine_for_tests()
+    yield
+    db_session.reset_engine_for_tests()
+
+
+def _use_sqlite_engine(monkeypatch) -> None:
+    """Point get_engine() at an in-memory SQLite engine for these tests."""
+    engine = create_engine("sqlite:///:memory:", future=True)
+    monkeypatch.setattr(db_session, "_engine", engine)
+
+
+def test_engine_has_no_pre_ping(monkeypatch):
+    """pool_pre_ping must be dropped from create_engine (fix 3a)."""
+    _use_sqlite_engine(monkeypatch)
+    engine = db_session.get_engine()
+    assert hasattr(engine.pool, "_pre_ping"), (
+        "SQLAlchemy Pool no longer exposes _pre_ping; update this assertion"
+    )
+    assert engine.pool._pre_ping is False
+
+
+def test_read_session_scope_yields_working_session(monkeypatch):
+    """read_session_scope() should hand back a session that can run queries
+    against the shared engine (AUTOCOMMIT, no surrounding transaction)."""
+    _use_sqlite_engine(monkeypatch)
+
+    with db_session.read_session_scope() as session:
+        session.execute(text("CREATE TABLE widgets (id INTEGER)"))
+        session.execute(text("INSERT INTO widgets VALUES (1)"))
+        rows = session.execute(text("SELECT * FROM widgets")).all()
+        assert rows == [(1,)]
+
+
+def test_read_session_factory_shares_engine_pool(monkeypatch):
+    """The read-only factory must be bound to the SAME engine's pool, not a
+    second real engine, so it costs no extra connections."""
+    _use_sqlite_engine(monkeypatch)
+
+    engine = db_session.get_engine()
+    read_engine = db_session.get_read_session_factory().kw["bind"]
+
+    assert read_engine.pool is engine.pool
+
+
+def test_read_session_scope_never_commits(monkeypatch):
+    """The whole point of fix 3b: no COMMIT/ROLLBACK round trip on the read
+    path. Use a recording fake session to prove commit is never invoked and
+    close always is."""
+
+    calls: list[str] = []
+
+    class _RecordingSession:
+        def commit(self):
+            calls.append("commit")
+
+        def rollback(self):
+            calls.append("rollback")
+
+        def close(self):
+            calls.append("close")
+
+    fake_session = _RecordingSession()
+    monkeypatch.setattr(db_session, "get_read_session_factory", lambda: (lambda: fake_session))
+
+    with db_session.read_session_scope() as session:
+        assert session is fake_session
+
+    assert "commit" not in calls
+    assert "rollback" not in calls
+    assert calls == ["close"]
+
+
+def test_read_session_scope_closes_on_exception(monkeypatch):
+    """Even when the caller raises, the session must still be closed and no
+    commit attempted."""
+
+    calls: list[str] = []
+
+    class _RecordingSession:
+        def commit(self):
+            calls.append("commit")
+
+        def rollback(self):
+            calls.append("rollback")
+
+        def close(self):
+            calls.append("close")
+
+    fake_session = _RecordingSession()
+    monkeypatch.setattr(db_session, "get_read_session_factory", lambda: (lambda: fake_session))
+
+    with pytest.raises(RuntimeError):
+        with db_session.read_session_scope():
+            raise RuntimeError("boom")
+
+    assert "commit" not in calls
+    assert calls == ["close"]
+
+
+def test_session_scope_commits_on_success(monkeypatch):
+    """Regression guard: the write path must still commit when the block
+    completes without error."""
+
+    calls: list[str] = []
+
+    class _RecordingSession:
+        def commit(self):
+            calls.append("commit")
+
+        def rollback(self):
+            calls.append("rollback")
+
+        def close(self):
+            calls.append("close")
+
+    fake_session = _RecordingSession()
+    monkeypatch.setattr(db_session, "new_session", lambda: fake_session)
+
+    with db_session.session_scope() as session:
+        assert session is fake_session
+
+    assert calls == ["commit", "close"]
+
+
+def test_session_scope_rolls_back_on_exception(monkeypatch):
+    """Regression guard: the write path must roll back (not commit) when the
+    block raises."""
+
+    calls: list[str] = []
+
+    class _RecordingSession:
+        def commit(self):
+            calls.append("commit")
+
+        def rollback(self):
+            calls.append("rollback")
+
+        def close(self):
+            calls.append("close")
+
+    fake_session = _RecordingSession()
+    monkeypatch.setattr(db_session, "new_session", lambda: fake_session)
+
+    with pytest.raises(RuntimeError):
+        with db_session.session_scope():
+            raise RuntimeError("boom")
+
+    assert calls == ["rollback", "close"]
+
+
+def test_reset_engine_for_tests_clears_read_factory(monkeypatch):
+    """reset_engine_for_tests() must also drop the cached read-only factory
+    so a subsequent get_read_session_factory() rebuilds against the current
+    engine instead of a disposed one."""
+    _use_sqlite_engine(monkeypatch)
+
+    first_factory = db_session.get_read_session_factory()
+    db_session.reset_engine_for_tests()
+
+    _use_sqlite_engine(monkeypatch)
+    second_factory = db_session.get_read_session_factory()
+
+    assert first_factory is not second_factory
