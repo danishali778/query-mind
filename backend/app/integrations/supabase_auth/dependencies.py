@@ -10,6 +10,7 @@ from app.core.errors import ServiceUnavailableError
 from app.core.supabase_auth import ACCESS_TOKEN_COOKIE_NAME
 from app.db.orm_models import UserSettingsORM
 from app.db.session import session_scope
+from app.integrations.supabase_auth import user_cache
 from app.integrations.supabase_auth.jwt import JWTError, decode_supabase_jwt, get_jwt_key
 
 
@@ -23,6 +24,9 @@ class User(BaseModel):
 
 
 async def assert_user_exists(user_id: str) -> None:
+    if user_cache.is_user_cached_active(user_id):
+        return
+
     try:
         with session_scope() as session:
             row = session.get(UserSettingsORM, user_id)
@@ -39,6 +43,8 @@ async def assert_user_exists(user_id: str) -> None:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User account has been deactivated or deleted.",
         )
+
+    user_cache.mark_user_active(user_id)
 
 
 def _mock_user() -> User:

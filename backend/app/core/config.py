@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     auth_cookie_samesite: str = "lax"
     auth_rate_limit_attempts: int = 5
     auth_rate_limit_window_seconds: int = 900
+    # TTL for caching the per-request "user exists and is active" check.
+    # 0 disables the cache; a deactivated user may retain access for up to this long.
+    auth_user_cache_ttl_seconds: int = 60
     trusted_proxy_cidrs_raw: str = Field(default="", validation_alias="TRUSTED_PROXY_CIDRS")
 
     llm_provider: str = "groq"
