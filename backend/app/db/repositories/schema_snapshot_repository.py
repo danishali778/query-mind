@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from app.agents.schema_context.types import SchemaCatalog
 from app.db.orm_models import SchemaSnapshotORM
-from app.db.session import session_scope
+from app.db.session import read_session_scope, session_scope
 
 
 def _utcnow() -> datetime:
@@ -14,7 +14,7 @@ def _utcnow() -> datetime:
 
 
 def get(owner_id: str, connection_id: str) -> SchemaCatalog | None:
-    with session_scope() as db:
+    with read_session_scope() as db:
         row = (
             db.query(SchemaSnapshotORM)
             .filter(

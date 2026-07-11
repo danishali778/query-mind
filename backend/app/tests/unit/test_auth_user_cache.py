@@ -28,7 +28,7 @@ def _fail_session_scope(*_args, **_kwargs):
 
 def test_cached_user_skips_database(monkeypatch):
     asyncio.run(user_cache.mark_user_active("user-1"))
-    monkeypatch.setattr(auth_dependencies, "session_scope", _fail_session_scope)
+    monkeypatch.setattr(auth_dependencies, "read_session_scope", _fail_session_scope)
 
     asyncio.run(auth_dependencies.assert_user_exists("user-1"))
 
@@ -44,7 +44,7 @@ def test_negative_result_is_not_cached(monkeypatch):
         def __exit__(self, *_args):
             return False
 
-    monkeypatch.setattr(auth_dependencies, "session_scope", lambda: _FakeSession())
+    monkeypatch.setattr(auth_dependencies, "read_session_scope", lambda: _FakeSession())
 
     with pytest.raises(HTTPException) as exc_info:
         asyncio.run(auth_dependencies.assert_user_exists("user-2"))

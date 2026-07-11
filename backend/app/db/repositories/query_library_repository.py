@@ -12,7 +12,7 @@ from app.db.models.query_library import (
     UpdateQueryInput,
 )
 from app.db.orm_models import QueryExecutionORM, SavedQueryORM
-from app.db.session import session_scope
+from app.db.session import read_session_scope, session_scope
 
 
 def _normalize_sql(sql: str) -> str:
@@ -82,7 +82,7 @@ def _map_to_run_record(row: QueryExecutionORM) -> QueryRunRecord:
 
 
 async def find_duplicate(user_id: str, sql: str, connection_id: Optional[str] = None) -> Optional[SavedQuery]:
-    with session_scope() as session:
+    with read_session_scope() as session:
         query = session.query(SavedQueryORM).filter(SavedQueryORM.owner_id == user_id)
         if connection_id:
             query = query.filter(SavedQueryORM.connection_id == connection_id)
@@ -139,7 +139,7 @@ async def save_query(user_id: str, req: SaveQueryInput) -> tuple[SavedQuery, boo
 
 
 async def get_query(user_id: str, query_id: str) -> Optional[SavedQuery]:
-    with session_scope() as session:
+    with read_session_scope() as session:
         row = (
             session.query(SavedQueryORM)
             .filter(SavedQueryORM.id == query_id, SavedQueryORM.owner_id == user_id)
@@ -155,7 +155,7 @@ async def list_queries(
     connection_id: Optional[str] = None,
     recently_run: bool = False,
 ) -> list[SavedQuery]:
-    with session_scope() as session:
+    with read_session_scope() as session:
         query = session.query(SavedQueryORM).filter(SavedQueryORM.owner_id == user_id)
         if connection_id:
             query = query.filter(SavedQueryORM.connection_id == connection_id)
@@ -276,7 +276,7 @@ async def get_stats(user_id: str) -> dict:
 
 
 async def get_scheduled_queries(user_id: Optional[str] = None) -> list[SavedQuery]:
-    with session_scope() as session:
+    with read_session_scope() as session:
         query = session.query(SavedQueryORM)
         if user_id:
             query = query.filter(SavedQueryORM.owner_id == user_id)
@@ -287,7 +287,7 @@ async def get_scheduled_queries(user_id: Optional[str] = None) -> list[SavedQuer
 
 async def get_due_scheduled_queries(now: Optional[datetime] = None, limit: int = 100) -> list[SavedQuery]:
     due_at = now or datetime.now(timezone.utc)
-    with session_scope() as session:
+    with read_session_scope() as session:
         rows = (
             session.query(SavedQueryORM)
             .filter(SavedQueryORM.next_run_at.is_not(None), SavedQueryORM.next_run_at <= due_at)
@@ -401,7 +401,7 @@ async def log_run(
 
 
 async def get_run_history(user_id: str, query_id: str, limit: int = 20) -> list[QueryRunRecord]:
-    with session_scope() as session:
+    with read_session_scope() as session:
         rows = (
             session.query(QueryExecutionORM)
             .filter(QueryExecutionORM.query_id == query_id, QueryExecutionORM.owner_id == user_id)

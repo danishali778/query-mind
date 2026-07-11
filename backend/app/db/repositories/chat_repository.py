@@ -6,7 +6,7 @@ from typing import Optional
 
 from app.db.models.chat import ChatMessage, ChatSession, SessionSummary
 from app.db.orm_models import ChatMessageORM, ChatSessionORM
-from app.db.session import session_scope
+from app.db.session import read_session_scope, session_scope
 
 
 logger = logging.getLogger(__name__)
@@ -69,7 +69,7 @@ async def create_session(user_id: str, connection_id: str | None = None) -> Chat
 
 
 async def get_session(user_id: str, session_id: str) -> Optional[ChatSession]:
-    with session_scope() as db:
+    with read_session_scope() as db:
         row = (
             db.query(ChatSessionORM)
             .filter(ChatSessionORM.id == session_id, ChatSessionORM.owner_id == user_id)
@@ -87,7 +87,7 @@ async def get_session(user_id: str, session_id: str) -> Optional[ChatSession]:
         return _map_session(row, reconstruct_dual_chain(messages))
 
 async def get_message(user_id: str, session_id: str, message_id: str) -> Optional[ChatMessage]:
-    with session_scope() as db:
+    with read_session_scope() as db:
         row = (
             db.query(ChatMessageORM)
             .filter(
@@ -113,7 +113,7 @@ async def delete_session(user_id: str, session_id: str) -> bool:
 
 
 async def list_sessions(user_id: str) -> list[SessionSummary]:
-    with session_scope() as db:
+    with read_session_scope() as db:
         rows = (
             db.query(ChatSessionORM)
             .filter(ChatSessionORM.owner_id == user_id)
@@ -216,7 +216,7 @@ async def update_message(user_id: str, session_id: str, message_id: str, updates
         return True
 
 async def get_history_for_llm(user_id: str, session_id: str) -> list[dict]:
-    with session_scope() as db:
+    with read_session_scope() as db:
         rows = (
             db.query(ChatMessageORM)
             .filter(ChatMessageORM.session_id == session_id, ChatMessageORM.owner_id == user_id)
@@ -232,7 +232,7 @@ async def get_history_for_llm(user_id: str, session_id: str) -> list[dict]:
         return history
 
 async def get_latest_user_message_id(user_id: str, session_id: str) -> Optional[str]:
-    with session_scope() as db:
+    with read_session_scope() as db:
         row = (
             db.query(ChatMessageORM.id)
             .filter(

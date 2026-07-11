@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from app.db.models.templates import GeneratedQueryTemplate, TemplateGenerationState
 from app.db.orm_models import GeneratedTemplateORM, TemplateGenerationORM
-from app.db.session import session_scope
+from app.db.session import read_session_scope, session_scope
 
 
 def _utcnow() -> datetime:
@@ -43,7 +43,7 @@ def _map_template(row: GeneratedTemplateORM) -> GeneratedQueryTemplate:
 
 
 def get_generation_state(owner_id: str, connection_id: str) -> TemplateGenerationState | None:
-    with session_scope() as session:
+    with read_session_scope() as session:
         row = (
             session.query(TemplateGenerationORM)
             .filter(
@@ -56,7 +56,7 @@ def get_generation_state(owner_id: str, connection_id: str) -> TemplateGeneratio
 
 
 def list_templates(owner_id: str, connection_id: str) -> list[GeneratedQueryTemplate]:
-    with session_scope() as session:
+    with read_session_scope() as session:
         rows = (
             session.query(GeneratedTemplateORM)
             .filter(
@@ -70,7 +70,7 @@ def list_templates(owner_id: str, connection_id: str) -> list[GeneratedQueryTemp
 
 
 def get_template(owner_id: str, template_id: str) -> GeneratedQueryTemplate | None:
-    with session_scope() as session:
+    with read_session_scope() as session:
         row = (
             session.query(GeneratedTemplateORM)
             .filter(
