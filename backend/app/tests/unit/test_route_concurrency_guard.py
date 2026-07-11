@@ -1,4 +1,4 @@
-"""Guard against `async def` route handlers that never `await` anything.
+"""Baseline syntax guard for `async def` routes that never await anything.
 
 Context: the app database is remote (~180ms/round-trip). FastAPI runs plain
 `def` route handlers in its AnyIO worker threadpool, so a blocking (sync)
@@ -7,10 +7,9 @@ run directly on the single asyncio event loop -- if one of them performs
 blocking I/O without ever `await`-ing, it freezes the loop and every other
 concurrent request queues behind it (head-of-line blocking).
 
-The rule this test enforces: any router-decorated `async def` handler must
-contain at least one `await` in its body. If it doesn't, it is doing sync
-work on the event loop for no benefit and should be declared `def` instead
-so FastAPI dispatches it to the threadpool.
+This catches one obvious mistake only. An ``await`` elsewhere in a handler
+does not prove that every later operation is nonblocking, so behavioral
+thread-offloading tests cover known blocking service boundaries separately.
 
 `ROUTE_ASYNC_NO_AWAIT_ALLOWLIST` is the escape hatch for handlers that are
 justified exceptions to this rule. It should be empty or near-empty --
@@ -52,8 +51,28 @@ def _route_handlers(tree: ast.Module):
             yield node
 
 
-def _has_await(func: ast.AST) -> bool:
-    return any(isinstance(n, ast.Await) for n in ast.walk(func))
+def _has_await(func: ast.AsyncFunctionDef) -> bool:
+    """Find awaits in this handler, excluding nested function definitions."""
+
+    class _AwaitFinder(ast.NodeVisitor):
+        found = False
+
+        def visit_Await(self, node: ast.Await) -> None:
+            self.found = True
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            return
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+            return
+
+        def visit_Lambda(self, node: ast.Lambda) -> None:
+            return
+
+    finder = _AwaitFinder()
+    for statement in func.body:
+        finder.visit(statement)
+    return finder.found
 
 
 def _route_files():
@@ -63,10 +82,8 @@ def _route_files():
 def test_async_route_handlers_await_something():
     """Every `async def` route handler must await at least once in its body.
 
-    An `async def` handler that never awaits does purely synchronous work
-    directly on the event loop, blocking every other concurrent request for
-    the duration of that work. Such a handler should be declared `def` so
-    FastAPI runs it in the threadpool instead.
+    This is a baseline syntax check, not proof that all calls in the handler
+    are nonblocking. Behavioral tests must cover blocking service boundaries.
     """
     offenders = []
 

@@ -10,7 +10,7 @@ from app.integrations.lemon_squeezy import (
     parse_webhook_payload,
     verify_webhook_signature,
 )
-from app.services.billing_service import upgrade_to_pro
+from app.services.billing_service import upgrade_to_pro_async
 
 router = APIRouter(prefix="/webhooks", tags=["Webhooks"])
 logger = logging.getLogger(__name__)
@@ -45,7 +45,7 @@ async def lemonsqueezy_webhook(request: Request, x_signature: str | None = Heade
                 logger.error("Received subscription but no custom user_id attached.")
                 raise BadRequestError("No user_id found in webhook custom_data.")
 
-            upgrade_to_pro(user_id)
+            await upgrade_to_pro_async(user_id)
             logger.info("Upgraded user %s to PRO via Lemon Squeezy.", user_id)
 
         return {"status": "success"}

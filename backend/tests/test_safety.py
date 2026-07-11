@@ -535,13 +535,19 @@ def test_connection_manager_get_engine_reopens_saved_connection_in_thread(monkey
     from app.db import connection_manager
 
     opened = []
+    cached = []
 
     class FakeEngine:
         pass
 
     async def fake_run_sync(func, *args, **kwargs):
-        opened.append((func, args))
-        return FakeEngine(), None
+        target = getattr(func, "func", func)
+        if target is connection_manager.connection_pool.open_connection:
+            opened.append((func, args))
+            return FakeEngine(), None
+        if target is connection_manager.connection_pool.cache_connection:
+            cached.append((func, args))
+        return func(*args)
 
     async def fake_get_async_boundary_config(user_id, connection_id):
         return _async_boundary_config()
@@ -555,6 +561,7 @@ def test_connection_manager_get_engine_reopens_saved_connection_in_thread(monkey
 
     assert isinstance(engine, FakeEngine)
     assert opened == [(connection_manager.connection_pool.open_connection, (_async_boundary_config(),))]
+    assert len(cached) == 1
 
 
 def test_connect_route_does_not_inspect_schema_or_bootstrap_templates(monkeypatch):

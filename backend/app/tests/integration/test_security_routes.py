@@ -51,10 +51,10 @@ def test_webhook_rejects_invalid_signature():
 def test_webhook_upgrades_user_with_valid_signature(monkeypatch):
     upgraded = {}
 
-    def fake_upgrade(user_id: str):
+    async def fake_upgrade(user_id: str):
         upgraded["user_id"] = user_id
 
-    monkeypatch.setattr(webhooks_route, "upgrade_to_pro", fake_upgrade)
+    monkeypatch.setattr(webhooks_route, "upgrade_to_pro_async", fake_upgrade)
     monkeypatch.setattr(webhooks_route, "has_webhook_secret", lambda: True)
     monkeypatch.setattr(webhooks_route, "verify_webhook_signature", lambda _body, _sig: True)
     raw_body = b'{"meta":{"event_name":"subscription_created","custom_data":{"user_id":"user-1"}}}'

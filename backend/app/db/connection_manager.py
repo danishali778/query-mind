@@ -130,6 +130,30 @@ async def _log_attempt_async(**kwargs) -> None:
     await anyio.to_thread.run_sync(functools.partial(_log_attempt, **kwargs))
 
 
+async def _release_connection_async(user_id: str, connection_id: str) -> None:
+    await anyio.to_thread.run_sync(
+        functools.partial(connection_pool.release_connection, user_id, connection_id)
+    )
+
+
+async def _cache_connection_async(user_id, connection_id, engine, tunnel) -> None:
+    await anyio.to_thread.run_sync(
+        functools.partial(
+            connection_pool.cache_connection,
+            user_id,
+            connection_id,
+            engine,
+            tunnel,
+        )
+    )
+
+
+async def _dispose_resources_async(engine, tunnel) -> None:
+    await anyio.to_thread.run_sync(
+        functools.partial(connection_pool.dispose_connection_resources, engine, tunnel)
+    )
+
+
 async def test_connection(user_id: str, config: ConnectionRequest) -> ConnectionTestResult:
     started_at = time.monotonic()
     await _preflight_connection_attempt_async(user_id, "test", config, started_at)
@@ -167,7 +191,7 @@ async def test_saved_connection(user_id: str, connection_id: str) -> ConnectionT
         latency_ms=latency_ms,
     )
     if not success:
-        connection_pool.release_connection(user_id, connection_id)
+        await _release_connection_async(user_id, connection_id)
     else:
         try:
             await _refresh_catalog_for_connection(user_id, connection_id)
@@ -208,10 +232,7 @@ async def connect(user_id: str, config: ConnectionRequest) -> tuple[str, Engine,
             latency_ms=latency_ms,
         )
     except Exception as exc:
-        if engine:
-            engine.dispose()
-        if tunnel:
-            tunnel.stop()
+        await _dispose_resources_async(engine, tunnel)
         await _log_attempt_async(
             user_id=user_id,
             action="connect",
@@ -223,7 +244,7 @@ async def connect(user_id: str, config: ConnectionRequest) -> tuple[str, Engine,
         )
         raise
 
-    connection_pool.cache_connection(user_id, connection_id, engine, tunnel)
+    await _cache_connection_async(user_id, connection_id, engine, tunnel)
     try:
         await _persist_catalog_for_connection(user_id, connection_id)
     except Exception:
@@ -272,12 +293,12 @@ async def get_engine(user_id: str, connection_id: str) -> Engine | None:
         )
         raise
 
-    connection_pool.cache_connection(user_id, connection_id, engine, tunnel)
+    await _cache_connection_async(user_id, connection_id, engine, tunnel)
     return engine
 
 
 async def disconnect(user_id: str, connection_id: str) -> bool:
-    connection_pool.release_connection(user_id, connection_id)
+    await _release_connection_async(user_id, connection_id)
     return await connection_repository.delete_connection(user_id, connection_id)
 
 
@@ -294,7 +315,7 @@ async def update_settings(
     if not ok:
         return False
 
-    connection_pool.release_connection(user_id, connection_id)
+    await _release_connection_async(user_id, connection_id)
     await get_engine(user_id, connection_id)
     return True
 

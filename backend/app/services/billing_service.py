@@ -1,5 +1,7 @@
 """Billing and subscription workflows."""
 
+import anyio
+
 from app.core.errors import ServiceUnavailableError
 from app.db.models.settings import UserSubscription
 from app.db.repositories import settings_repository
@@ -42,6 +44,11 @@ def upgrade_to_pro(user_id: str) -> UserSubscription:
         raise ServiceUnavailableError("Unable to update subscription at the moment.") from exc
 
 
+async def upgrade_to_pro_async(user_id: str) -> UserSubscription:
+    """Upgrade an account without blocking an async request handler."""
+    return await anyio.to_thread.run_sync(upgrade_to_pro, user_id)
+
+
 def onboard_user(user_id: str) -> bool:
     try:
         return settings_repository.onboard_user(user_id)
@@ -58,5 +65,6 @@ __all__ = [
     "get_user_subscription",
     "increment_usage",
     "upgrade_to_pro",
+    "upgrade_to_pro_async",
     "onboard_user",
 ]
