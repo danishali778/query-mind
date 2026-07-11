@@ -17,13 +17,18 @@ import { Navigate } from 'react-router-dom';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading, isDevMode } = useAuth();
-  
-  if (loading) return null; // Or a nice splash screen
-  
-  if (!user && !isDevMode) {
+
+  // Three explicit states:
+  // - resolving (loading): render the shell/page immediately — never redirect
+  //   yet, or we'd flash the login page before we actually know the user is
+  //   unauthenticated. Pages already show their own loading/skeleton state
+  //   while `user` is unset.
+  // - unauthenticated (settled, no user): redirect to /auth.
+  // - authenticated: render normally.
+  if (!loading && !user && !isDevMode) {
     return <Navigate to="/auth" replace />;
   }
-  
+
   return <>{children}</>;
 }
 
