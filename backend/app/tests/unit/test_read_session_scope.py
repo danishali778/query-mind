@@ -22,9 +22,15 @@ def _reset_session_state():
 
 
 def _use_sqlite_engine(monkeypatch) -> None:
-    """Point get_engine() at an in-memory SQLite engine for these tests."""
+    """Point both engines at in-memory SQLite for these tests."""
     engine = create_engine("sqlite:///:memory:", future=True)
+    read_engine = create_engine(
+        "sqlite:///:memory:", future=True, isolation_level="AUTOCOMMIT"
+    )
     monkeypatch.setattr(db_session, "_engine", engine)
+    monkeypatch.setattr(db_session, "_read_engine", read_engine)
+    monkeypatch.setattr(db_session, "_session_factory", None)
+    monkeypatch.setattr(db_session, "_read_session_factory", None)
 
 
 def test_engine_has_no_pre_ping(monkeypatch):
@@ -49,15 +55,27 @@ def test_read_session_scope_yields_working_session(monkeypatch):
         assert rows == [(1,)]
 
 
-def test_read_session_factory_shares_engine_pool(monkeypatch):
-    """The read-only factory must be bound to the SAME engine's pool, not a
-    second real engine, so it costs no extra connections."""
-    _use_sqlite_engine(monkeypatch)
+def test_read_factory_uses_dedicated_autocommit_engine():
+    """The read-only factory must be bound to a DEDICATED engine created with
+    AUTOCOMMIT isolation. Sharing the write engine's pool via
+    execution_options() switches isolation per checkout, and SQLAlchemy
+    restores it with a server command on check-in — measured as one extra
+    ~180ms round-trip per read against the remote database."""
+    db_session.reset_engine_for_tests()
+    try:
+        engine = db_session.get_engine()
+        read_engine = db_session.get_read_engine()
 
-    engine = db_session.get_engine()
-    read_engine = db_session.get_read_session_factory().kw["bind"]
-
-    assert read_engine.pool is engine.pool
+        assert read_engine is not engine
+        assert db_session.get_read_session_factory().kw["bind"] is read_engine
+        isolation = getattr(read_engine.dialect, "_on_connect_isolation_level", None)
+        assert isolation == "AUTOCOMMIT", (
+            "read engine must be created with isolation_level='AUTOCOMMIT' "
+            f"(got {isolation!r}); if SQLAlchemy renamed this attribute, "
+            "update the assertion rather than deleting it"
+        )
+    finally:
+        db_session.reset_engine_for_tests()
 
 
 def test_read_session_scope_never_commits(monkeypatch):

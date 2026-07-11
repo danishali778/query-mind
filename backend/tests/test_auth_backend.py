@@ -32,7 +32,9 @@ def sqlite_app_db():
     )
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False, future=True)
     db_session._engine = engine
+    db_session._read_engine = engine
     db_session._session_factory = SessionLocal
+    db_session._read_session_factory = SessionLocal
     Base.metadata.create_all(engine)
     try:
         yield

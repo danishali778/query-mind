@@ -13,6 +13,7 @@ from app.core.config import settings
 
 
 _engine: Engine | None = None
+_read_engine: Engine | None = None
 _session_factory: sessionmaker[Session] | None = None
 _read_session_factory: sessionmaker[Session] | None = None
 
@@ -62,21 +63,38 @@ def get_session_factory() -> sessionmaker[Session]:
     return _session_factory
 
 
+def get_read_engine() -> Engine:
+    """Return a lazily initialized AUTOCOMMIT engine for read-only sessions.
+
+    This is a dedicated engine (own small pool) rather than
+    `get_engine().execution_options(isolation_level="AUTOCOMMIT")` sharing the
+    write pool. Sharing the pool looks cheaper, but SQLAlchemy then switches
+    the isolation level per checkout and restores it with a server command on
+    check-in — measured as one extra ~180ms round-trip per read against the
+    remote database. A dedicated pool keeps its connections permanently in
+    AUTOCOMMIT, so a read costs exactly one round-trip.
+    """
+    global _read_engine
+    if _read_engine is None:
+        _read_engine = create_engine(
+            get_app_database_url(),
+            pool_recycle=1800,
+            future=True,
+            isolation_level="AUTOCOMMIT",
+        )
+    return _read_engine
+
+
 def get_read_session_factory() -> sessionmaker[Session]:
     """Return a lazily initialized session factory for read-only operations.
 
-    Bound to an `OptionEngine` (via `Engine.execution_options`) rather than a
-    second real engine, so it shares the same connection pool as
-    `get_session_factory()` — no extra connections are opened. The
-    `AUTOCOMMIT` isolation level means statements execute without any
-    surrounding transaction, so there is no COMMIT/ROLLBACK round trip to pay
-    on scope exit.
+    Statements execute under AUTOCOMMIT isolation, so there is no BEGIN or
+    COMMIT/ROLLBACK round trip — only the query itself crosses the network.
     """
     global _read_session_factory
     if _read_session_factory is None:
-        read_engine = get_engine().execution_options(isolation_level="AUTOCOMMIT")
         _read_session_factory = sessionmaker(
-            bind=read_engine,
+            bind=get_read_engine(),
             autoflush=False,
             autocommit=False,
             expire_on_commit=False,
@@ -133,10 +151,13 @@ def get_db_session() -> Generator[Session, None, None]:
 
 def reset_engine_for_tests() -> None:
     """Dispose and clear engine state for tests that override configuration."""
-    global _engine, _session_factory, _read_session_factory
+    global _engine, _read_engine, _session_factory, _read_session_factory
     if _engine is not None:
         _engine.dispose()
+    if _read_engine is not None:
+        _read_engine.dispose()
     _engine = None
+    _read_engine = None
     _session_factory = None
     _read_session_factory = None
 
