@@ -85,8 +85,7 @@ def test_refresh_schema_persists_catalog():
         with (
             patch.object(connection_manager, "invalidate_catalog", AsyncMock()),
             patch.object(connection_manager, "get_cached_schema", AsyncMock(return_value=schema)),
-            patch.object(connection_manager.connection_repository, "record_connection_health", AsyncMock()),
-            patch.object(connection_manager.connection_repository, "record_schema_sync", AsyncMock()),
+            patch.object(connection_manager.connection_repository, "record_health_and_schema_sync", AsyncMock()),
             patch.object(connection_manager, "_persist_catalog_from_schema", AsyncMock()) as mock_persist,
         ):
             result = await connection_manager.refresh_schema("user-1", "conn-1")

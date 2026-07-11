@@ -5,7 +5,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from app.db.models.query_library import ScheduleConfig
+from app.db.models.dashboard import DashboardWidget
+from app.db.models.query_library import SavedQuery, ScheduleConfig
 from app.db.repositories import dashboard_repository, query_library_repository
 
 
@@ -161,9 +162,17 @@ def compute_next_widget_run(cadence: str | None, *, now: datetime | None = None)
     return None
 
 
-async def sync_saved_query_runtime(user_id: str, query_id: str, schedule: ScheduleConfig | None) -> None:
+async def sync_saved_query_runtime(
+    user_id: str, query_id: str, schedule: ScheduleConfig | None
+) -> SavedQuery | None:
+    """Compute and persist the next scheduled run time.
+
+    Returns the saved query as it stands after the update (the repository
+    call already reads back the row it just wrote), so callers do not need a
+    separate get_query() round trip to see the refreshed state.
+    """
     next_run_at = compute_next_saved_query_run(schedule)
-    await query_library_repository.set_schedule_runtime_state(
+    return await query_library_repository.set_schedule_runtime_state(
         user_id,
         query_id,
         next_run_at=next_run_at,
@@ -172,8 +181,10 @@ async def sync_saved_query_runtime(user_id: str, query_id: str, schedule: Schedu
     )
 
 
-async def clear_saved_query_runtime(user_id: str, query_id: str) -> None:
-    await query_library_repository.set_schedule_runtime_state(
+async def clear_saved_query_runtime(user_id: str, query_id: str) -> SavedQuery | None:
+    """Clear the scheduled run time; returns the post-update saved query (see
+    sync_saved_query_runtime for why callers can skip a follow-up fetch)."""
+    return await query_library_repository.set_schedule_runtime_state(
         user_id,
         query_id,
         next_run_at=None,
@@ -182,9 +193,15 @@ async def clear_saved_query_runtime(user_id: str, query_id: str) -> None:
     )
 
 
-async def sync_widget_runtime(user_id: str, widget_id: str, cadence: str | None) -> None:
+async def sync_widget_runtime(user_id: str, widget_id: str, cadence: str | None) -> DashboardWidget | None:
+    """Compute and persist the next scheduled widget run time.
+
+    Returns the widget as it stands after the update (the repository call
+    already reads back the row it just wrote), so callers do not need a
+    separate get_widget() round trip to see the refreshed state.
+    """
     next_run_at = compute_next_widget_run(cadence)
-    await dashboard_repository.set_widget_schedule_runtime_state(
+    return await dashboard_repository.set_widget_schedule_runtime_state(
         user_id,
         widget_id,
         next_run_at=next_run_at,
@@ -193,8 +210,10 @@ async def sync_widget_runtime(user_id: str, widget_id: str, cadence: str | None)
     )
 
 
-async def clear_widget_runtime(user_id: str, widget_id: str) -> None:
-    await dashboard_repository.set_widget_schedule_runtime_state(
+async def clear_widget_runtime(user_id: str, widget_id: str) -> DashboardWidget | None:
+    """Clear the scheduled widget run time; returns the post-update widget
+    (see sync_widget_runtime for why callers can skip a follow-up fetch)."""
+    return await dashboard_repository.set_widget_schedule_runtime_state(
         user_id,
         widget_id,
         next_run_at=None,

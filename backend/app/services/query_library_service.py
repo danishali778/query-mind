@@ -34,8 +34,9 @@ async def get_query(user_id: str, query_id: str):
 async def save_query(user_id: str, req: SaveQueryInput):
     query, created = await query_library_repository.save_query(user_id, req)
     if created and query.schedule and query.schedule.enabled:
-        await scheduling_service.sync_saved_query_runtime(user_id, query.id, query.schedule)
-        refreshed = await query_library_repository.get_query(user_id, query.id)
+        # sync_saved_query_runtime already reads back the row it just wrote,
+        # so no separate get_query() round trip is needed to refresh `query`.
+        refreshed = await scheduling_service.sync_saved_query_runtime(user_id, query.id, query.schedule)
         if refreshed:
             query = refreshed
     return query, created
@@ -47,11 +48,12 @@ async def update_query(user_id: str, query_id: str, req: UpdateQueryInput):
         return None
 
     if "schedule" in req.model_dump(exclude_unset=True):
+        # Both branches return the post-update saved query directly, so no
+        # separate get_query() round trip is needed to refresh `query`.
         if query.schedule and query.schedule.enabled:
-            await scheduling_service.sync_saved_query_runtime(user_id, query.id, query.schedule)
+            refreshed = await scheduling_service.sync_saved_query_runtime(user_id, query.id, query.schedule)
         else:
-            await scheduling_service.clear_saved_query_runtime(user_id, query.id)
-        refreshed = await query_library_repository.get_query(user_id, query.id)
+            refreshed = await scheduling_service.clear_saved_query_runtime(user_id, query.id)
         if refreshed:
             query = refreshed
     return query
@@ -74,10 +76,10 @@ async def run_saved_query(user_id: str, query_id: str, *, row_limit: int = 500):
         query.sql,
         row_limit=row_limit,
     )
-    await query_library_repository.increment_run_count(user_id, query_id)
-    await query_library_repository.log_run(
-        user_id=user_id,
-        query_id=query_id,
+    # Bump the run count and log the run atomically in a single transaction.
+    await query_library_repository.record_run(
+        user_id,
+        query_id,
         success=result.success,
         row_count=result.row_count,
         execution_time_ms=result.execution_time_ms,
@@ -126,12 +128,13 @@ async def set_schedule(user_id: str, query_id: str, config: ScheduleConfig) -> d
         raise ValueError("Cannot schedule a query without a database connection.")
 
     updated = await query_library_repository.update_schedule(user_id, query_id, config)
+    # Both branches return the post-update saved query directly, so no
+    # separate get_query() round trip is needed to refresh the final state.
     if config.enabled:
-        await scheduling_service.sync_saved_query_runtime(user_id, query_id, config)
+        refreshed = await scheduling_service.sync_saved_query_runtime(user_id, query_id, config)
     else:
-        await scheduling_service.clear_saved_query_runtime(user_id, query_id)
+        refreshed = await scheduling_service.clear_saved_query_runtime(user_id, query_id)
 
-    refreshed = await query_library_repository.get_query(user_id, query_id)
     final_query = refreshed or updated
     return {
         "query_id": query_id,
@@ -163,11 +166,10 @@ async def get_public_templates(user_id: str, connection_id: Optional[str]) -> di
     if not await connection_service.get_engine(user_id, connection_id):
         raise ValueError("Connection not found.")
 
-    status = await anyio.to_thread.run_sync(
-        functools.partial(query_template_service.get_generation_status, user_id, connection_id)
-    )
-    templates = await anyio.to_thread.run_sync(
-        functools.partial(query_template_service.list_templates, user_id, connection_id)
+    # Fetch generation status and templates in one read session/thread hop
+    # instead of two separate pool checkouts.
+    status, templates = await anyio.to_thread.run_sync(
+        functools.partial(query_template_service.get_generation_status_and_templates, user_id, connection_id)
     )
     return {
         "status": status,

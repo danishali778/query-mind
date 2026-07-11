@@ -13,6 +13,13 @@ def list_templates(user_id: str, connection_id: str):
     return template_repository.list_templates(user_id, connection_id)
 
 
+def get_generation_status_and_templates(user_id: str, connection_id: str):
+    """Fetch status and templates through one read-session checkout."""
+    state, templates = template_repository.get_generation_status_and_templates(user_id, connection_id)
+    status = state.status if state else "not_started"
+    return status, templates
+
+
 def get_template(user_id: str, template_id: str):
     return template_repository.get_template(user_id, template_id)
 
@@ -24,6 +31,7 @@ def start_template_generation(user_id: str, connection_id: str, schema_text: str
 __all__ = [
     "get_generation_status",
     "list_templates",
+    "get_generation_status_and_templates",
     "get_template",
     "start_template_generation",
 ]

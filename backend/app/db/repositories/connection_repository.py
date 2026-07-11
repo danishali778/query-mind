@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import functools
 from datetime import datetime, timezone
 from typing import Any
 
 import anyio
+from sqlalchemy.orm import Session
 
 from app.core.security import decrypt, encrypt
 from app.db.models.connection import ActiveConnection, ConnectionRequest, derive_connection_status
@@ -99,126 +99,135 @@ def _connection_row(user_id: str, config: ConnectionRequest) -> DatabaseConnecti
 
 
 async def create_connection(user_id: str, config: ConnectionRequest) -> str:
-    return await anyio.to_thread.run_sync(functools.partial(_create_connection_sync, user_id, config))
+    def _run() -> str:
+        with session_scope() as session:
+            return _create_connection_sync(session, user_id, config)
+    return await anyio.to_thread.run_sync(_run)
 
 
-def _create_connection_sync(user_id: str, config: ConnectionRequest) -> str:
-    with session_scope() as session:
-        row = _connection_row(user_id, config)
-        session.add(row)
-        session.flush()
-        return row.id
+def _create_connection_sync(session: Session, user_id: str, config: ConnectionRequest) -> str:
+    row = _connection_row(user_id, config)
+    session.add(row)
+    session.flush()
+    return row.id
 
 
 async def list_connections(user_id: str) -> list[ActiveConnection]:
-    return await anyio.to_thread.run_sync(functools.partial(_list_connections_sync, user_id))
+    def _run() -> list[ActiveConnection]:
+        with read_session_scope() as session:
+            return _list_connections_sync(session, user_id)
+    return await anyio.to_thread.run_sync(_run)
 
 
-def _list_connections_sync(user_id: str) -> list[ActiveConnection]:
-    with read_session_scope() as session:
-        rows = (
-            session.query(DatabaseConnectionORM)
-            .filter(DatabaseConnectionORM.owner_id == user_id)
-            .order_by(DatabaseConnectionORM.created_at.desc())
-            .all()
-        )
-        return [_row_to_active_connection(row) for row in rows]
+def _list_connections_sync(session: Session, user_id: str) -> list[ActiveConnection]:
+    rows = (
+        session.query(DatabaseConnectionORM)
+        .filter(DatabaseConnectionORM.owner_id == user_id)
+        .order_by(DatabaseConnectionORM.created_at.desc())
+        .all()
+    )
+    return [_row_to_active_connection(row) for row in rows]
+
+
+def _get_active_connection_sync(session: Session, user_id: str, connection_id: str) -> ActiveConnection | None:
+    row = (
+        session.query(DatabaseConnectionORM)
+        .filter(DatabaseConnectionORM.id == connection_id, DatabaseConnectionORM.owner_id == user_id)
+        .one_or_none()
+    )
+    if not row:
+        return None
+    return _row_to_active_connection(row)
 
 
 def sync_get_active_connection(user_id: str, connection_id: str) -> ActiveConnection | None:
     with read_session_scope() as session:
-        row = (
-            session.query(DatabaseConnectionORM)
-            .filter(DatabaseConnectionORM.id == connection_id, DatabaseConnectionORM.owner_id == user_id)
-            .one_or_none()
-        )
-        if not row:
-            return None
-        return _row_to_active_connection(row)
+        return _get_active_connection_sync(session, user_id, connection_id)
 
 
 async def get_active_connection(user_id: str, connection_id: str) -> ActiveConnection | None:
-    return await anyio.to_thread.run_sync(
-        functools.partial(sync_get_active_connection, user_id, connection_id)
-    )
+    def _run() -> ActiveConnection | None:
+        with read_session_scope() as session:
+            return _get_active_connection_sync(session, user_id, connection_id)
+    return await anyio.to_thread.run_sync(_run)
 
 
 async def get_connection_row(user_id: str, connection_id: str) -> dict | None:
-    return await anyio.to_thread.run_sync(
-        functools.partial(_get_connection_row_sync, user_id, connection_id)
+    def _run() -> dict | None:
+        with read_session_scope() as session:
+            return _get_connection_row_sync(session, user_id, connection_id)
+    return await anyio.to_thread.run_sync(_run)
+
+
+def _get_connection_row_sync(session: Session, user_id: str, connection_id: str) -> dict | None:
+    row = (
+        session.query(DatabaseConnectionORM)
+        .filter(DatabaseConnectionORM.id == connection_id, DatabaseConnectionORM.owner_id == user_id)
+        .one_or_none()
     )
-
-
-def _get_connection_row_sync(user_id: str, connection_id: str) -> dict | None:
-    with read_session_scope() as session:
-        row = (
-            session.query(DatabaseConnectionORM)
-            .filter(DatabaseConnectionORM.id == connection_id, DatabaseConnectionORM.owner_id == user_id)
-            .one_or_none()
-        )
-        if not row:
-            return None
-        return {
-            "id": row.id,
-            "owner_id": row.owner_id,
-            "name": row.name,
-            "db_type": row.db_type,
-            "host": row.host,
-            "port": row.port,
-            "database": row.database,
-            "username": row.username,
-            "password": row.password,
-            "ssl_mode": row.ssl_mode,
-            "readonly": True,
-            "use_ssh": row.use_ssh,
-            "ssh_host": row.ssh_host,
-            "ssh_port": row.ssh_port,
-            "ssh_username": row.ssh_username,
-            "ssh_password": row.ssh_password,
-            "ssh_private_key": row.ssh_private_key,
-            "last_tested_at": _normalize_utc(row.last_tested_at),
-            "last_status": row.last_status or "unknown",
-            "last_error": row.last_error,
-            "latency_ms": row.latency_ms,
-            "last_schema_sync_at": _normalize_utc(row.last_schema_sync_at),
-        }
+    if not row:
+        return None
+    return {
+        "id": row.id,
+        "owner_id": row.owner_id,
+        "name": row.name,
+        "db_type": row.db_type,
+        "host": row.host,
+        "port": row.port,
+        "database": row.database,
+        "username": row.username,
+        "password": row.password,
+        "ssl_mode": row.ssl_mode,
+        "readonly": True,
+        "use_ssh": row.use_ssh,
+        "ssh_host": row.ssh_host,
+        "ssh_port": row.ssh_port,
+        "ssh_username": row.ssh_username,
+        "ssh_password": row.ssh_password,
+        "ssh_private_key": row.ssh_private_key,
+        "last_tested_at": _normalize_utc(row.last_tested_at),
+        "last_status": row.last_status or "unknown",
+        "last_error": row.last_error,
+        "latency_ms": row.latency_ms,
+        "last_schema_sync_at": _normalize_utc(row.last_schema_sync_at),
+    }
 
 
 async def get_connection_config(user_id: str, connection_id: str) -> ConnectionRequest | None:
-    return await anyio.to_thread.run_sync(
-        functools.partial(_get_connection_config_sync, user_id, connection_id)
+    def _run() -> ConnectionRequest | None:
+        with read_session_scope() as session:
+            return _get_connection_config_sync(session, user_id, connection_id)
+    return await anyio.to_thread.run_sync(_run)
+
+
+def _get_connection_config_sync(session: Session, user_id: str, connection_id: str) -> ConnectionRequest | None:
+    row = (
+        session.query(DatabaseConnectionORM)
+        .filter(DatabaseConnectionORM.id == connection_id, DatabaseConnectionORM.owner_id == user_id)
+        .one_or_none()
     )
-
-
-def _get_connection_config_sync(user_id: str, connection_id: str) -> ConnectionRequest | None:
-    with read_session_scope() as session:
-        row = (
-            session.query(DatabaseConnectionORM)
-            .filter(DatabaseConnectionORM.id == connection_id, DatabaseConnectionORM.owner_id == user_id)
-            .one_or_none()
-        )
-        if not row:
-            return None
-        return _row_to_connection_request(row)
+    if not row:
+        return None
+    return _row_to_connection_request(row)
 
 
 async def delete_connection(user_id: str, connection_id: str) -> bool:
-    return await anyio.to_thread.run_sync(
-        functools.partial(_delete_connection_sync, user_id, connection_id)
+    def _run() -> bool:
+        with session_scope() as session:
+            return _delete_connection_sync(session, user_id, connection_id)
+    return await anyio.to_thread.run_sync(_run)
+
+
+def _delete_connection_sync(session: Session, user_id: str, connection_id: str) -> bool:
+    row = (
+        session.query(DatabaseConnectionORM)
+        .filter(DatabaseConnectionORM.id == connection_id, DatabaseConnectionORM.owner_id == user_id)
+        .one_or_none()
     )
-
-
-def _delete_connection_sync(user_id: str, connection_id: str) -> bool:
-    with session_scope() as session:
-        row = (
-            session.query(DatabaseConnectionORM)
-            .filter(DatabaseConnectionORM.id == connection_id, DatabaseConnectionORM.owner_id == user_id)
-            .one_or_none()
-        )
-        if not row:
-            return False
-        session.delete(row)
-        return True
+    if not row:
+        return False
+    session.delete(row)
+    return True
 
 
 async def update_connection_settings_record(
@@ -226,28 +235,29 @@ async def update_connection_settings_record(
     connection_id: str,
     ssl_mode: str | None,
 ) -> bool:
-    return await anyio.to_thread.run_sync(
-        functools.partial(_update_connection_settings_record_sync, user_id, connection_id, ssl_mode)
-    )
+    def _run() -> bool:
+        with session_scope() as session:
+            return _update_connection_settings_record_sync(session, user_id, connection_id, ssl_mode)
+    return await anyio.to_thread.run_sync(_run)
 
 
 def _update_connection_settings_record_sync(
+    session: Session,
     user_id: str,
     connection_id: str,
     ssl_mode: str | None,
 ) -> bool:
-    with session_scope() as session:
-        row = (
-            session.query(DatabaseConnectionORM)
-            .filter(DatabaseConnectionORM.id == connection_id, DatabaseConnectionORM.owner_id == user_id)
-            .one_or_none()
-        )
-        if not row:
-            return False
-        if ssl_mode is not None:
-            row.ssl_mode = ssl_mode
-        row.readonly = True
-        return True
+    row = (
+        session.query(DatabaseConnectionORM)
+        .filter(DatabaseConnectionORM.id == connection_id, DatabaseConnectionORM.owner_id == user_id)
+        .one_or_none()
+    )
+    if not row:
+        return False
+    if ssl_mode is not None:
+        row.ssl_mode = ssl_mode
+    row.readonly = True
+    return True
 
 
 async def get_readonly_setting(user_id: str, connection_id: str) -> bool:
@@ -255,17 +265,45 @@ async def get_readonly_setting(user_id: str, connection_id: str) -> bool:
 
 
 async def find_dev_connection(owner_id: str, name: str) -> str | None:
-    return await anyio.to_thread.run_sync(functools.partial(_find_dev_connection_sync, owner_id, name))
+    def _run() -> str | None:
+        with read_session_scope() as session:
+            return _find_dev_connection_sync(session, owner_id, name)
+    return await anyio.to_thread.run_sync(_run)
 
 
-def _find_dev_connection_sync(owner_id: str, name: str) -> str | None:
-    with read_session_scope() as session:
-        row = (
-            session.query(DatabaseConnectionORM.id)
-            .filter(DatabaseConnectionORM.owner_id == owner_id, DatabaseConnectionORM.name == name)
-            .one_or_none()
-        )
-        return row.id if row else None
+def _find_dev_connection_sync(session: Session, owner_id: str, name: str) -> str | None:
+    row = (
+        session.query(DatabaseConnectionORM.id)
+        .filter(DatabaseConnectionORM.owner_id == owner_id, DatabaseConnectionORM.name == name)
+        .one_or_none()
+    )
+    return row.id if row else None
+
+
+def _record_connection_health_sync(
+    session: Session,
+    user_id: str,
+    connection_id: str,
+    *,
+    last_status: str,
+    last_error: str | None | object = _UNSET,
+    latency_ms: float | None | object = _UNSET,
+    tested_at: datetime | None = None,
+) -> bool:
+    row = (
+        session.query(DatabaseConnectionORM)
+        .filter(DatabaseConnectionORM.id == connection_id, DatabaseConnectionORM.owner_id == user_id)
+        .one_or_none()
+    )
+    if not row:
+        return False
+    row.last_status = last_status
+    row.last_tested_at = _normalize_utc(tested_at or _utcnow())
+    if last_error is not _UNSET:
+        row.last_error = last_error
+    if latency_ms is not _UNSET:
+        row.latency_ms = latency_ms
+    return True
 
 
 def sync_record_connection_health(
@@ -278,20 +316,15 @@ def sync_record_connection_health(
     tested_at: datetime | None = None,
 ) -> bool:
     with session_scope() as session:
-        row = (
-            session.query(DatabaseConnectionORM)
-            .filter(DatabaseConnectionORM.id == connection_id, DatabaseConnectionORM.owner_id == user_id)
-            .one_or_none()
+        return _record_connection_health_sync(
+            session,
+            user_id,
+            connection_id,
+            last_status=last_status,
+            last_error=last_error,
+            latency_ms=latency_ms,
+            tested_at=tested_at,
         )
-        if not row:
-            return False
-        row.last_status = last_status
-        row.last_tested_at = _normalize_utc(tested_at or _utcnow())
-        if last_error is not _UNSET:
-            row.last_error = last_error
-        if latency_ms is not _UNSET:
-            row.latency_ms = latency_ms
-        return True
 
 
 async def record_connection_health(
@@ -303,17 +336,36 @@ async def record_connection_health(
     latency_ms: float | None | object = _UNSET,
     tested_at: datetime | None = None,
 ) -> bool:
-    return await anyio.to_thread.run_sync(
-        functools.partial(
-            sync_record_connection_health,
-            user_id,
-            connection_id,
-            last_status=last_status,
-            last_error=last_error,
-            latency_ms=latency_ms,
-            tested_at=tested_at,
-        )
+    def _run() -> bool:
+        with session_scope() as session:
+            return _record_connection_health_sync(
+                session,
+                user_id,
+                connection_id,
+                last_status=last_status,
+                last_error=last_error,
+                latency_ms=latency_ms,
+                tested_at=tested_at,
+            )
+    return await anyio.to_thread.run_sync(_run)
+
+
+def _record_schema_sync_sync(
+    session: Session,
+    user_id: str,
+    connection_id: str,
+    *,
+    synced_at: datetime | None = None,
+) -> bool:
+    row = (
+        session.query(DatabaseConnectionORM)
+        .filter(DatabaseConnectionORM.id == connection_id, DatabaseConnectionORM.owner_id == user_id)
+        .one_or_none()
     )
+    if not row:
+        return False
+    row.last_schema_sync_at = _normalize_utc(synced_at or _utcnow())
+    return True
 
 
 def sync_record_schema_sync(
@@ -323,15 +375,7 @@ def sync_record_schema_sync(
     synced_at: datetime | None = None,
 ) -> bool:
     with session_scope() as session:
-        row = (
-            session.query(DatabaseConnectionORM)
-            .filter(DatabaseConnectionORM.id == connection_id, DatabaseConnectionORM.owner_id == user_id)
-            .one_or_none()
-        )
-        if not row:
-            return False
-        row.last_schema_sync_at = _normalize_utc(synced_at or _utcnow())
-        return True
+        return _record_schema_sync_sync(session, user_id, connection_id, synced_at=synced_at)
 
 
 async def record_schema_sync(
@@ -340,9 +384,44 @@ async def record_schema_sync(
     *,
     synced_at: datetime | None = None,
 ) -> bool:
-    return await anyio.to_thread.run_sync(
-        functools.partial(sync_record_schema_sync, user_id, connection_id, synced_at=synced_at)
-    )
+    def _run() -> bool:
+        with session_scope() as session:
+            return _record_schema_sync_sync(session, user_id, connection_id, synced_at=synced_at)
+    return await anyio.to_thread.run_sync(_run)
+
+
+async def record_health_and_schema_sync(
+    user_id: str,
+    connection_id: str,
+    *,
+    last_status: str,
+    last_error: str | None | object = _UNSET,
+    latency_ms: float | None | object = _UNSET,
+    tested_at: datetime | None = None,
+    synced_at: datetime | None = None,
+) -> bool:
+    """Record connection health and the schema-sync timestamp in one transaction.
+
+    Atomicity note: this flow commits atomically — both fields are written to
+    the same connection row in a single session/transaction, replacing two
+    separate pool checkouts (record_connection_health + record_schema_sync)
+    with one.
+    """
+    def _run() -> bool:
+        with session_scope() as session:
+            health_ok = _record_connection_health_sync(
+                session,
+                user_id,
+                connection_id,
+                last_status=last_status,
+                last_error=last_error,
+                latency_ms=latency_ms,
+                tested_at=tested_at,
+            )
+            if not health_ok:
+                return False
+            return _record_schema_sync_sync(session, user_id, connection_id, synced_at=synced_at)
+    return await anyio.to_thread.run_sync(_run)
 
 
 __all__ = [
@@ -360,4 +439,5 @@ __all__ = [
     "sync_record_connection_health",
     "record_schema_sync",
     "sync_record_schema_sync",
+    "record_health_and_schema_sync",
 ]

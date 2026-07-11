@@ -98,8 +98,9 @@ async def add_widget(user_id: str, req: AddWidgetInput) -> DashboardWidget:
     if not dashboard:
         raise ValueError("Dashboard not found.")
     widget = await dashboard_repository.add_widget(user_id, req)
-    await scheduling_service.sync_widget_runtime(user_id, widget.id, widget.cadence)
-    refreshed = await dashboard_repository.get_widget(user_id, widget.id)
+    # sync_widget_runtime already reads back the row it just wrote, so no
+    # separate get_widget() round trip is needed to refresh `widget`.
+    refreshed = await scheduling_service.sync_widget_runtime(user_id, widget.id, widget.cadence)
     return refreshed or widget
 
 
@@ -112,8 +113,9 @@ async def update_widget(
     if not widget:
         return None
     if req.cadence is not None:
-        await scheduling_service.sync_widget_runtime(user_id, widget.id, widget.cadence)
-        refreshed = await dashboard_repository.get_widget(user_id, widget.id)
+        # sync_widget_runtime already reads back the row it just wrote, so no
+        # separate get_widget() round trip is needed to refresh `widget`.
+        refreshed = await scheduling_service.sync_widget_runtime(user_id, widget.id, widget.cadence)
         if refreshed:
             widget = refreshed
     return widget

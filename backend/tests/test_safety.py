@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import anyio
 import pytest
 from sqlalchemy import create_engine, text
+from app.db.models.chat import ChatMessage
 from app.db.models.connection import ConnectionRequest
 from app.query_engine.executor import execute_query
 from app.query_engine.safety import (
@@ -647,11 +648,10 @@ class TestChatTruncatedMetadata:
         async def fake_noop(*args, **kwargs):
             return None
 
-        async def fake_get_history_for_llm(user_id, session_id):
-            return []
-
-        async def fake_get_latest_user_message_id(user_id, session_id):
-            return None
+        async def fake_record_user_turn(user_id, session_id, connection_id, message):
+            user_msg = ChatMessage(role="user", content=message, connection_id=connection_id)
+            stored_messages.append(user_msg)
+            return user_msg, None, []
 
         async def fake_add_message(user_id, session_id, message):
             stored_messages.append(message)
@@ -674,9 +674,7 @@ class TestChatTruncatedMetadata:
         monkeypatch.setattr(chat_service.connection_service, "get_schema_for_ai", fake_get_schema_for_ai)
         monkeypatch.setattr(chat_service, "create_session", fake_create_session)
         monkeypatch.setattr(chat_service, "rename_session", fake_noop)
-        monkeypatch.setattr(chat_service, "track_connection", fake_noop)
-        monkeypatch.setattr(chat_service, "get_history_for_llm", fake_get_history_for_llm)
-        monkeypatch.setattr(chat_service, "get_latest_user_message_id", fake_get_latest_user_message_id)
+        monkeypatch.setattr(chat_service, "record_user_turn", fake_record_user_turn)
         monkeypatch.setattr(chat_service, "add_message", fake_add_message)
         monkeypatch.setattr(chat_service, "run_chat", fake_run_chat)
 
@@ -808,10 +806,7 @@ class TestChatPersistenceFailures:
         async def fake_noop(*args, **kwargs):
             return True
 
-        async def fake_get_latest_user_message_id(user_id, session_id):
-            return None
-
-        async def fake_add_message(*args, **kwargs):
+        async def fake_record_user_turn(user_id, session_id, connection_id, message):
             raise RuntimeError("write failed")
 
         def fake_run_chat(*args, **kwargs):
@@ -823,9 +818,7 @@ class TestChatPersistenceFailures:
         monkeypatch.setattr(chat_service.connection_service, "get_schema_for_ai", fake_get_schema_for_ai)
         monkeypatch.setattr(chat_service, "create_session", fake_create_session)
         monkeypatch.setattr(chat_service, "rename_session", fake_noop)
-        monkeypatch.setattr(chat_service, "track_connection", fake_noop)
-        monkeypatch.setattr(chat_service, "get_latest_user_message_id", fake_get_latest_user_message_id)
-        monkeypatch.setattr(chat_service, "add_message", fake_add_message)
+        monkeypatch.setattr(chat_service, "record_user_turn", fake_record_user_turn)
         monkeypatch.setattr(chat_service, "run_chat", fake_run_chat)
 
         with pytest.raises(chat_service.ChatPersistenceError):
@@ -848,17 +841,14 @@ class TestChatPersistenceFailures:
         async def fake_noop(*args, **kwargs):
             return True
 
-        async def fake_get_latest_user_message_id(user_id, session_id):
-            return None
-
-        async def fake_get_history_for_llm(user_id, session_id):
-            return []
+        async def fake_record_user_turn(user_id, session_id, connection_id, message):
+            user_msg = ChatMessage(role="user", content=message, connection_id=connection_id)
+            return user_msg, None, []
 
         async def fake_add_message(*args, **kwargs):
             nonlocal add_calls
             add_calls += 1
-            if add_calls == 2:
-                raise RuntimeError("assistant write failed")
+            raise RuntimeError("assistant write failed")
 
         def fake_run_chat(*args, **kwargs):
             return {
@@ -875,16 +865,14 @@ class TestChatPersistenceFailures:
         monkeypatch.setattr(chat_service.connection_service, "get_schema_for_ai", fake_get_schema_for_ai)
         monkeypatch.setattr(chat_service, "create_session", fake_create_session)
         monkeypatch.setattr(chat_service, "rename_session", fake_noop)
-        monkeypatch.setattr(chat_service, "track_connection", fake_noop)
-        monkeypatch.setattr(chat_service, "get_latest_user_message_id", fake_get_latest_user_message_id)
-        monkeypatch.setattr(chat_service, "get_history_for_llm", fake_get_history_for_llm)
+        monkeypatch.setattr(chat_service, "record_user_turn", fake_record_user_turn)
         monkeypatch.setattr(chat_service, "add_message", fake_add_message)
         monkeypatch.setattr(chat_service, "run_chat", fake_run_chat)
 
         with pytest.raises(chat_service.ChatPersistenceError):
             asyncio.run(chat_service.send_message("user-1", "connection-1", "show rows"))
 
-        assert add_calls == 2
+        assert add_calls == 1
 # ---------------------------------------------------------------------------
 # edit-SQL preflight validation
 # ---------------------------------------------------------------------------

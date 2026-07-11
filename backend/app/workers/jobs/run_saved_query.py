@@ -47,38 +47,27 @@ def run_saved_query_task(self, query_id: str, owner_id: str) -> None:
 
         if not query.connection_id:
             error = "No connection configured"
-            query_library_repository.sync_log_run(
-                user_id=owner_id,
-                query_id=query_id,
-                success=False,
-                error=error,
-                triggered_by="schedule",
-            )
-            query_library_repository.sync_finalize_scheduled_run(
+            # Log the run and finalize the schedule state atomically in one transaction.
+            query_library_repository.sync_log_run_and_finalize(
                 owner_id,
                 query_id,
-                next_run_at=next_run_at,
                 success=False,
+                next_run_at=next_run_at,
                 error=error,
+                triggered_by="schedule",
             )
             return
 
         engine = asyncio.run(get_engine(owner_id, query.connection_id))
         if not engine:
             error = "Connection not found"
-            query_library_repository.sync_log_run(
-                user_id=owner_id,
-                query_id=query_id,
-                success=False,
-                error=error,
-                triggered_by="schedule",
-            )
-            query_library_repository.sync_finalize_scheduled_run(
+            query_library_repository.sync_log_run_and_finalize(
                 owner_id,
                 query_id,
-                next_run_at=next_run_at,
                 success=False,
+                next_run_at=next_run_at,
                 error=error,
+                triggered_by="schedule",
             )
             return
 
@@ -90,21 +79,15 @@ def run_saved_query_task(self, query_id: str, owner_id: str) -> None:
             connection_id=query.connection_id,
             readonly=True,
         )
-        query_library_repository.sync_log_run(
-            user_id=owner_id,
-            query_id=query_id,
+        query_library_repository.sync_log_run_and_finalize(
+            owner_id,
+            query_id,
             success=result.success,
+            next_run_at=next_run_at,
             row_count=result.row_count,
             execution_time_ms=result.execution_time_ms,
             error=result.error,
             triggered_by="schedule",
-        )
-        query_library_repository.sync_finalize_scheduled_run(
-            owner_id,
-            query_id,
-            next_run_at=next_run_at,
-            success=result.success,
-            error=result.error,
         )
     finally:
         release_dispatch_lock(lock_key)
