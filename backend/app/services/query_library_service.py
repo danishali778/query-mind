@@ -1,6 +1,9 @@
 """Query-library workflows."""
 
+import functools
 from typing import Optional
+
+import anyio
 
 from app.db.models.query_library import SaveQueryInput, ScheduleConfig, UpdateQueryInput
 from app.db.repositories import query_library_repository
@@ -160,8 +163,12 @@ async def get_public_templates(user_id: str, connection_id: Optional[str]) -> di
     if not await connection_service.get_engine(user_id, connection_id):
         raise ValueError("Connection not found.")
 
-    status = query_template_service.get_generation_status(user_id, connection_id)
-    templates = query_template_service.list_templates(user_id, connection_id)
+    status = await anyio.to_thread.run_sync(
+        functools.partial(query_template_service.get_generation_status, user_id, connection_id)
+    )
+    templates = await anyio.to_thread.run_sync(
+        functools.partial(query_template_service.list_templates, user_id, connection_id)
+    )
     return {
         "status": status,
         "connection_id": connection_id,
@@ -176,7 +183,11 @@ async def trigger_template_generation(user_id: str, connection_id: str) -> dict:
 
     all_connections = await connection_service.get_all_connections(user_id)
     db_type = next((conn.db_type for conn in all_connections if conn.id == connection_id), "postgresql")
-    query_template_service.start_template_generation(user_id, connection_id, schema_text, db_type)
+    await anyio.to_thread.run_sync(
+        functools.partial(
+            query_template_service.start_template_generation, user_id, connection_id, schema_text, db_type
+        )
+    )
     return {"message": "Template generation started.", "connection_id": connection_id}
 
 
@@ -185,7 +196,9 @@ async def clone_public_template(
     template_id: str,
     connection_id: Optional[str] = None,
 ):
-    template = query_template_service.get_template(user_id, template_id)
+    template = await anyio.to_thread.run_sync(
+        functools.partial(query_template_service.get_template, user_id, template_id)
+    )
     if not template:
         raise ValueError("Template not found.")
 

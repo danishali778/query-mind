@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import functools
 from datetime import datetime, timezone
 from typing import Any
+
+import anyio
 
 from app.core.security import decrypt, encrypt
 from app.db.models.connection import ActiveConnection, ConnectionRequest, derive_connection_status
@@ -96,6 +99,10 @@ def _connection_row(user_id: str, config: ConnectionRequest) -> DatabaseConnecti
 
 
 async def create_connection(user_id: str, config: ConnectionRequest) -> str:
+    return await anyio.to_thread.run_sync(functools.partial(_create_connection_sync, user_id, config))
+
+
+def _create_connection_sync(user_id: str, config: ConnectionRequest) -> str:
     with session_scope() as session:
         row = _connection_row(user_id, config)
         session.add(row)
@@ -104,6 +111,10 @@ async def create_connection(user_id: str, config: ConnectionRequest) -> str:
 
 
 async def list_connections(user_id: str) -> list[ActiveConnection]:
+    return await anyio.to_thread.run_sync(functools.partial(_list_connections_sync, user_id))
+
+
+def _list_connections_sync(user_id: str) -> list[ActiveConnection]:
     with read_session_scope() as session:
         rows = (
             session.query(DatabaseConnectionORM)
@@ -127,10 +138,18 @@ def sync_get_active_connection(user_id: str, connection_id: str) -> ActiveConnec
 
 
 async def get_active_connection(user_id: str, connection_id: str) -> ActiveConnection | None:
-    return sync_get_active_connection(user_id, connection_id)
+    return await anyio.to_thread.run_sync(
+        functools.partial(sync_get_active_connection, user_id, connection_id)
+    )
 
 
 async def get_connection_row(user_id: str, connection_id: str) -> dict | None:
+    return await anyio.to_thread.run_sync(
+        functools.partial(_get_connection_row_sync, user_id, connection_id)
+    )
+
+
+def _get_connection_row_sync(user_id: str, connection_id: str) -> dict | None:
     with read_session_scope() as session:
         row = (
             session.query(DatabaseConnectionORM)
@@ -166,6 +185,12 @@ async def get_connection_row(user_id: str, connection_id: str) -> dict | None:
 
 
 async def get_connection_config(user_id: str, connection_id: str) -> ConnectionRequest | None:
+    return await anyio.to_thread.run_sync(
+        functools.partial(_get_connection_config_sync, user_id, connection_id)
+    )
+
+
+def _get_connection_config_sync(user_id: str, connection_id: str) -> ConnectionRequest | None:
     with read_session_scope() as session:
         row = (
             session.query(DatabaseConnectionORM)
@@ -178,6 +203,12 @@ async def get_connection_config(user_id: str, connection_id: str) -> ConnectionR
 
 
 async def delete_connection(user_id: str, connection_id: str) -> bool:
+    return await anyio.to_thread.run_sync(
+        functools.partial(_delete_connection_sync, user_id, connection_id)
+    )
+
+
+def _delete_connection_sync(user_id: str, connection_id: str) -> bool:
     with session_scope() as session:
         row = (
             session.query(DatabaseConnectionORM)
@@ -191,6 +222,16 @@ async def delete_connection(user_id: str, connection_id: str) -> bool:
 
 
 async def update_connection_settings_record(
+    user_id: str,
+    connection_id: str,
+    ssl_mode: str | None,
+) -> bool:
+    return await anyio.to_thread.run_sync(
+        functools.partial(_update_connection_settings_record_sync, user_id, connection_id, ssl_mode)
+    )
+
+
+def _update_connection_settings_record_sync(
     user_id: str,
     connection_id: str,
     ssl_mode: str | None,
@@ -214,6 +255,10 @@ async def get_readonly_setting(user_id: str, connection_id: str) -> bool:
 
 
 async def find_dev_connection(owner_id: str, name: str) -> str | None:
+    return await anyio.to_thread.run_sync(functools.partial(_find_dev_connection_sync, owner_id, name))
+
+
+def _find_dev_connection_sync(owner_id: str, name: str) -> str | None:
     with read_session_scope() as session:
         row = (
             session.query(DatabaseConnectionORM.id)
@@ -258,13 +303,16 @@ async def record_connection_health(
     latency_ms: float | None | object = _UNSET,
     tested_at: datetime | None = None,
 ) -> bool:
-    return sync_record_connection_health(
-        user_id,
-        connection_id,
-        last_status=last_status,
-        last_error=last_error,
-        latency_ms=latency_ms,
-        tested_at=tested_at,
+    return await anyio.to_thread.run_sync(
+        functools.partial(
+            sync_record_connection_health,
+            user_id,
+            connection_id,
+            last_status=last_status,
+            last_error=last_error,
+            latency_ms=latency_ms,
+            tested_at=tested_at,
+        )
     )
 
 
@@ -292,7 +340,9 @@ async def record_schema_sync(
     *,
     synced_at: datetime | None = None,
 ) -> bool:
-    return sync_record_schema_sync(user_id, connection_id, synced_at=synced_at)
+    return await anyio.to_thread.run_sync(
+        functools.partial(sync_record_schema_sync, user_id, connection_id, synced_at=synced_at)
+    )
 
 
 __all__ = [

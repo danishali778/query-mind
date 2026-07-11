@@ -1,8 +1,11 @@
+import functools
 import json
 import logging
 import uuid
 from datetime import datetime
 from typing import Optional
+
+import anyio
 
 from app.db.models.chat import ChatMessage, ChatSession, SessionSummary
 from app.db.orm_models import ChatMessageORM, ChatSessionORM
@@ -54,6 +57,10 @@ def _map_session(row: ChatSessionORM, messages: list[ChatMessage] | None = None)
 
 
 async def create_session(user_id: str, connection_id: str | None = None) -> ChatSession:
+    return await anyio.to_thread.run_sync(functools.partial(_create_session_sync, user_id, connection_id))
+
+
+def _create_session_sync(user_id: str, connection_id: str | None = None) -> ChatSession:
     session_id = str(uuid.uuid4())
     with session_scope() as db:
         row = ChatSessionORM(
@@ -69,6 +76,10 @@ async def create_session(user_id: str, connection_id: str | None = None) -> Chat
 
 
 async def get_session(user_id: str, session_id: str) -> Optional[ChatSession]:
+    return await anyio.to_thread.run_sync(functools.partial(_get_session_sync, user_id, session_id))
+
+
+def _get_session_sync(user_id: str, session_id: str) -> Optional[ChatSession]:
     with read_session_scope() as db:
         row = (
             db.query(ChatSessionORM)
@@ -86,7 +97,12 @@ async def get_session(user_id: str, session_id: str) -> Optional[ChatSession]:
         messages = [_map_message(message_row) for message_row in message_rows]
         return _map_session(row, reconstruct_dual_chain(messages))
 
+
 async def get_message(user_id: str, session_id: str, message_id: str) -> Optional[ChatMessage]:
+    return await anyio.to_thread.run_sync(functools.partial(_get_message_sync, user_id, session_id, message_id))
+
+
+def _get_message_sync(user_id: str, session_id: str, message_id: str) -> Optional[ChatMessage]:
     with read_session_scope() as db:
         row = (
             db.query(ChatMessageORM)
@@ -99,7 +115,12 @@ async def get_message(user_id: str, session_id: str, message_id: str) -> Optiona
         )
         return _map_message(row) if row else None
 
+
 async def delete_session(user_id: str, session_id: str) -> bool:
+    return await anyio.to_thread.run_sync(functools.partial(_delete_session_sync, user_id, session_id))
+
+
+def _delete_session_sync(user_id: str, session_id: str) -> bool:
     with session_scope() as db:
         row = (
             db.query(ChatSessionORM)
@@ -113,6 +134,10 @@ async def delete_session(user_id: str, session_id: str) -> bool:
 
 
 async def list_sessions(user_id: str) -> list[SessionSummary]:
+    return await anyio.to_thread.run_sync(functools.partial(_list_sessions_sync, user_id))
+
+
+def _list_sessions_sync(user_id: str) -> list[SessionSummary]:
     with read_session_scope() as db:
         rows = (
             db.query(ChatSessionORM)
@@ -142,6 +167,10 @@ async def list_sessions(user_id: str) -> list[SessionSummary]:
 
 
 async def track_connection(user_id: str, session_id: str, connection_id: str | None) -> None:
+    await anyio.to_thread.run_sync(functools.partial(_track_connection_sync, user_id, session_id, connection_id))
+
+
+def _track_connection_sync(user_id: str, session_id: str, connection_id: str | None) -> None:
     if not connection_id:
         return
     try:
@@ -163,6 +192,10 @@ async def track_connection(user_id: str, session_id: str, connection_id: str | N
 
 
 async def rename_session(user_id: str, session_id: str, title: str) -> bool:
+    return await anyio.to_thread.run_sync(functools.partial(_rename_session_sync, user_id, session_id, title))
+
+
+def _rename_session_sync(user_id: str, session_id: str, title: str) -> bool:
     with session_scope() as db:
         row = (
             db.query(ChatSessionORM)
@@ -174,7 +207,12 @@ async def rename_session(user_id: str, session_id: str, title: str) -> bool:
         row.title = title
         return True
 
+
 async def add_message(user_id: str, session_id: str, message: ChatMessage) -> None:
+    await anyio.to_thread.run_sync(functools.partial(_add_message_sync, user_id, session_id, message))
+
+
+def _add_message_sync(user_id: str, session_id: str, message: ChatMessage) -> None:
     with session_scope() as db:
         row = ChatMessageORM(
             id=message.id,
@@ -196,7 +234,14 @@ async def add_message(user_id: str, session_id: str, message: ChatMessage) -> No
         )
         db.add(row)
 
+
 async def update_message(user_id: str, session_id: str, message_id: str, updates: dict) -> bool:
+    return await anyio.to_thread.run_sync(
+        functools.partial(_update_message_sync, user_id, session_id, message_id, updates)
+    )
+
+
+def _update_message_sync(user_id: str, session_id: str, message_id: str, updates: dict) -> bool:
     with session_scope() as db:
         row = (
             db.query(ChatMessageORM)
@@ -215,7 +260,12 @@ async def update_message(user_id: str, session_id: str, message_id: str, updates
                 setattr(row, key, value)
         return True
 
+
 async def get_history_for_llm(user_id: str, session_id: str) -> list[dict]:
+    return await anyio.to_thread.run_sync(functools.partial(_get_history_for_llm_sync, user_id, session_id))
+
+
+def _get_history_for_llm_sync(user_id: str, session_id: str) -> list[dict]:
     with read_session_scope() as db:
         rows = (
             db.query(ChatMessageORM)
@@ -231,7 +281,14 @@ async def get_history_for_llm(user_id: str, session_id: str) -> list[dict]:
             history.append({"role": row.role, "content": content})
         return history
 
+
 async def get_latest_user_message_id(user_id: str, session_id: str) -> Optional[str]:
+    return await anyio.to_thread.run_sync(
+        functools.partial(_get_latest_user_message_id_sync, user_id, session_id)
+    )
+
+
+def _get_latest_user_message_id_sync(user_id: str, session_id: str) -> Optional[str]:
     with read_session_scope() as db:
         row = (
             db.query(ChatMessageORM.id)
@@ -244,6 +301,7 @@ async def get_latest_user_message_id(user_id: str, session_id: str) -> Optional[
             .first()
         )
         return row.id if row else None
+
 
 def reconstruct_dual_chain(messages: list[ChatMessage]) -> list[ChatMessage]:
     """Reconstruct conversation order using prev_query_id and parent_id links."""

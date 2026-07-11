@@ -1,5 +1,6 @@
 import io
 import logging
+import threading
 import time
 from typing import Optional
 
@@ -31,17 +32,30 @@ _tunnels: dict[tuple[str, str], SSHTunnelForwarder] = {}
 _engine_access_times: dict[tuple[str, str], float] = {}
 _schema_cache: dict[tuple[str, str], tuple[list[TableInfo], float]] = {}
 _catalog_cache: dict[tuple[str, str], tuple[SchemaCatalog, float]] = {}
+_cache_lock = threading.RLock()
 
 MAX_CACHED_ENGINES = 50
 SCHEMA_CACHE_TTL_SECONDS = 600
 
 
-def _evict_lru_engine() -> None:
-    if len(_engines) < MAX_CACHED_ENGINES:
-        return
+def _pop_connection_locked(key: tuple[str, str]):
+    engine = _engines.pop(key, None)
+    tunnel = _tunnels.pop(key, None)
+    _engine_access_times.pop(key, None)
+    _schema_cache.pop(key, None)
+    _catalog_cache.pop(key, None)
+    return engine, tunnel
 
-    oldest_key = min(_engine_access_times, key=_engine_access_times.get)
-    release_connection(*oldest_key)
+
+def dispose_connection_resources(
+    engine: Engine | None,
+    tunnel: Optional[SSHTunnelForwarder],
+) -> None:
+    """Close resources after they have been detached from the shared cache."""
+    if engine:
+        engine.dispose()
+    if tunnel:
+        tunnel.stop()
 
 
 def build_connection_url(
@@ -131,33 +145,37 @@ def open_connection(config: ConnectionRequest) -> tuple[Engine, Optional[SSHTunn
 
 
 def cache_connection(user_id: str, connection_id: str, engine: Engine, tunnel: Optional[SSHTunnelForwarder] = None) -> None:
-    _evict_lru_engine()
     key = (user_id, connection_id)
-    _engines[key] = engine
-    if tunnel:
-        _tunnels[key] = tunnel
-    _engine_access_times[key] = time.monotonic()
+    detached = []
+    with _cache_lock:
+        if key in _engines or key in _tunnels:
+            detached.append(_pop_connection_locked(key))
+        if len(_engines) >= MAX_CACHED_ENGINES:
+            oldest_key = min(_engine_access_times, key=_engine_access_times.get)
+            detached.append(_pop_connection_locked(oldest_key))
+        _engines[key] = engine
+        if tunnel:
+            _tunnels[key] = tunnel
+        _engine_access_times[key] = time.monotonic()
+
+    for old_engine, old_tunnel in detached:
+        dispose_connection_resources(old_engine, old_tunnel)
 
 
 def get_cached_engine(user_id: str, connection_id: str) -> Engine | None:
     key = (user_id, connection_id)
-    engine = _engines.get(key)
-    if engine:
-        _engine_access_times[key] = time.monotonic()
-    return engine
+    with _cache_lock:
+        engine = _engines.get(key)
+        if engine:
+            _engine_access_times[key] = time.monotonic()
+        return engine
 
 
 def release_connection(user_id: str, connection_id: str) -> None:
     key = (user_id, connection_id)
-    engine = _engines.pop(key, None)
-    tunnel = _tunnels.pop(key, None)
-    _engine_access_times.pop(key, None)
-    _schema_cache.pop(key, None)
-    _catalog_cache.pop(key, None)
-    if engine:
-        engine.dispose()
-    if tunnel:
-        tunnel.stop()
+    with _cache_lock:
+        engine, tunnel = _pop_connection_locked(key)
+    dispose_connection_resources(engine, tunnel)
 
 
 async def get_cached_schema(
@@ -170,7 +188,8 @@ async def get_cached_schema(
     now = time.monotonic()
 
     if not force_refresh:
-        cached = _schema_cache.get(key)
+        with _cache_lock:
+            cached = _schema_cache.get(key)
         if cached:
             schema, ts = cached
             if now - ts < SCHEMA_CACHE_TTL_SECONDS:
@@ -181,47 +200,53 @@ async def get_cached_schema(
         return None
 
     schema = await anyio.to_thread.run_sync(schema_inspector.get_schema, engine)
-    _schema_cache[key] = (schema, now)
+    with _cache_lock:
+        _schema_cache[key] = (schema, now)
     return schema
 
 
 def invalidate_schema_cache(user_id: str, connection_id: str) -> None:
     key = (user_id, connection_id)
-    _schema_cache.pop(key, None)
-    _catalog_cache.pop(key, None)
+    with _cache_lock:
+        _schema_cache.pop(key, None)
+        _catalog_cache.pop(key, None)
 
 
 def cache_schema(user_id: str, connection_id: str, schema: list[TableInfo]) -> None:
-    _schema_cache[(user_id, connection_id)] = (schema, time.monotonic())
+    with _cache_lock:
+        _schema_cache[(user_id, connection_id)] = (schema, time.monotonic())
 
 
 def peek_cached_schema(user_id: str, connection_id: str) -> list[TableInfo] | None:
     """Return in-memory schema cache only; never introspect the live database."""
     key = (user_id, connection_id)
-    cached = _schema_cache.get(key)
-    if not cached:
-        return None
-    schema, ts = cached
-    if time.monotonic() - ts >= SCHEMA_CACHE_TTL_SECONDS:
-        _schema_cache.pop(key, None)
-        return None
-    return schema
+    with _cache_lock:
+        cached = _schema_cache.get(key)
+        if not cached:
+            return None
+        schema, ts = cached
+        if time.monotonic() - ts >= SCHEMA_CACHE_TTL_SECONDS:
+            _schema_cache.pop(key, None)
+            return None
+        return schema
 
 
 def cache_catalog(user_id: str, connection_id: str, catalog: SchemaCatalog) -> None:
-    _catalog_cache[(user_id, connection_id)] = (catalog, time.monotonic())
+    with _cache_lock:
+        _catalog_cache[(user_id, connection_id)] = (catalog, time.monotonic())
 
 
 def get_cached_catalog_entry(user_id: str, connection_id: str) -> SchemaCatalog | None:
     key = (user_id, connection_id)
-    cached = _catalog_cache.get(key)
-    if not cached:
-        return None
-    catalog, ts = cached
-    if time.monotonic() - ts >= SCHEMA_CACHE_TTL_SECONDS:
-        _catalog_cache.pop(key, None)
-        return None
-    return catalog
+    with _cache_lock:
+        cached = _catalog_cache.get(key)
+        if not cached:
+            return None
+        catalog, ts = cached
+        if time.monotonic() - ts >= SCHEMA_CACHE_TTL_SECONDS:
+            _catalog_cache.pop(key, None)
+            return None
+        return catalog
 
 
 def build_schema_prompt_text(schema: list[TableInfo]) -> str:
@@ -249,6 +274,7 @@ __all__ = [
     "cache_connection",
     "get_cached_engine",
     "release_connection",
+    "dispose_connection_resources",
     "get_cached_schema",
     "invalidate_schema_cache",
     "cache_schema",

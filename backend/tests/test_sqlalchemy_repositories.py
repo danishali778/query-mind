@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 import app.db.session as db_session
 from app.db.base import Base
@@ -24,7 +25,14 @@ from app.db.repositories import (
 
 @pytest.fixture(autouse=True)
 def sqlite_app_db():
-    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    # Repositories now run their DB work in worker threads (anyio.to_thread),
+    # so the in-memory SQLite connection must be shareable across threads.
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False, future=True)
     db_session._engine = engine
     db_session._read_engine = engine

@@ -1,7 +1,9 @@
+import functools
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
+import anyio
 from sqlalchemy import func
 
 from app.db.models.dashboard import (
@@ -63,6 +65,10 @@ def _map_widget(row: DashboardWidgetORM) -> DashboardWidget:
 
 
 async def create_dashboard(user_id: str, req: CreateDashboardInput) -> Dashboard:
+    return await anyio.to_thread.run_sync(functools.partial(_create_dashboard_sync, user_id, req))
+
+
+def _create_dashboard_sync(user_id: str, req: CreateDashboardInput) -> Dashboard:
     with session_scope() as session:
         row = DashboardORM(
             id=str(uuid.uuid4()),
@@ -78,6 +84,10 @@ async def create_dashboard(user_id: str, req: CreateDashboardInput) -> Dashboard
 
 
 async def list_dashboards(user_id: str) -> list[DashboardSummary]:
+    return await anyio.to_thread.run_sync(functools.partial(_list_dashboards_sync, user_id))
+
+
+def _list_dashboards_sync(user_id: str) -> list[DashboardSummary]:
     with read_session_scope() as session:
         rows = (
             session.query(DashboardORM, func.count(DashboardWidgetORM.id).label("widget_count"))
@@ -94,6 +104,10 @@ async def list_dashboards(user_id: str) -> list[DashboardSummary]:
 
 
 async def get_dashboard(user_id: str, dashboard_id: str) -> Optional[Dashboard]:
+    return await anyio.to_thread.run_sync(functools.partial(_get_dashboard_sync, user_id, dashboard_id))
+
+
+def _get_dashboard_sync(user_id: str, dashboard_id: str) -> Optional[Dashboard]:
     with read_session_scope() as session:
         row = (
             session.query(DashboardORM)
@@ -104,6 +118,12 @@ async def get_dashboard(user_id: str, dashboard_id: str) -> Optional[Dashboard]:
 
 
 async def rename_dashboard(user_id: str, dashboard_id: str, name: str) -> Optional[Dashboard]:
+    return await anyio.to_thread.run_sync(
+        functools.partial(_rename_dashboard_sync, user_id, dashboard_id, name)
+    )
+
+
+def _rename_dashboard_sync(user_id: str, dashboard_id: str, name: str) -> Optional[Dashboard]:
     with session_scope() as session:
         row = (
             session.query(DashboardORM)
@@ -118,6 +138,16 @@ async def rename_dashboard(user_id: str, dashboard_id: str, name: str) -> Option
 
 
 async def update_dashboard(
+    user_id: str,
+    dashboard_id: str,
+    req: UpdateDashboardInput,
+) -> Optional[Dashboard]:
+    return await anyio.to_thread.run_sync(
+        functools.partial(_update_dashboard_sync, user_id, dashboard_id, req)
+    )
+
+
+def _update_dashboard_sync(
     user_id: str,
     dashboard_id: str,
     req: UpdateDashboardInput,
@@ -143,6 +173,12 @@ async def update_dashboard(
 
 
 async def delete_dashboard(user_id: str, dashboard_id: str) -> bool:
+    return await anyio.to_thread.run_sync(
+        functools.partial(_delete_dashboard_sync, user_id, dashboard_id)
+    )
+
+
+def _delete_dashboard_sync(user_id: str, dashboard_id: str) -> bool:
     with session_scope() as session:
         row = (
             session.query(DashboardORM)
@@ -156,6 +192,10 @@ async def delete_dashboard(user_id: str, dashboard_id: str) -> bool:
 
 
 async def get_shared_dashboard(token: str) -> Optional[Dashboard]:
+    return await anyio.to_thread.run_sync(functools.partial(_get_shared_dashboard_sync, token))
+
+
+def _get_shared_dashboard_sync(token: str) -> Optional[Dashboard]:
     with read_session_scope() as session:
         row = (
             session.query(DashboardORM)
@@ -166,6 +206,10 @@ async def get_shared_dashboard(token: str) -> Optional[Dashboard]:
 
 
 async def get_shared_widgets(dashboard_id: str) -> list[DashboardWidget]:
+    return await anyio.to_thread.run_sync(functools.partial(_get_shared_widgets_sync, dashboard_id))
+
+
+def _get_shared_widgets_sync(dashboard_id: str) -> list[DashboardWidget]:
     with read_session_scope() as session:
         rows = (
             session.query(DashboardWidgetORM)
@@ -177,6 +221,10 @@ async def get_shared_widgets(dashboard_id: str) -> list[DashboardWidget]:
 
 
 async def add_widget(user_id: str, req: AddWidgetInput) -> DashboardWidget:
+    return await anyio.to_thread.run_sync(functools.partial(_add_widget_sync, user_id, req))
+
+
+def _add_widget_sync(user_id: str, req: AddWidgetInput) -> DashboardWidget:
     size_defaults = {
         "half": {"w": 1, "h": 7, "minW": 1, "minH": 5},
         "full": {"w": 2, "h": 8, "minW": 2, "minH": 6},
@@ -230,6 +278,12 @@ async def add_widget(user_id: str, req: AddWidgetInput) -> DashboardWidget:
 
 
 async def list_widgets(user_id: str, dashboard_id: Optional[str] = None) -> list[DashboardWidget]:
+    return await anyio.to_thread.run_sync(
+        functools.partial(_list_widgets_sync, user_id, dashboard_id)
+    )
+
+
+def _list_widgets_sync(user_id: str, dashboard_id: Optional[str] = None) -> list[DashboardWidget]:
     with read_session_scope() as session:
         query = session.query(DashboardWidgetORM).filter(DashboardWidgetORM.owner_id == user_id)
         if dashboard_id:
@@ -239,6 +293,10 @@ async def list_widgets(user_id: str, dashboard_id: Optional[str] = None) -> list
 
 
 async def get_widget(user_id: str, widget_id: str) -> Optional[DashboardWidget]:
+    return await anyio.to_thread.run_sync(functools.partial(_get_widget_sync, user_id, widget_id))
+
+
+def _get_widget_sync(user_id: str, widget_id: str) -> Optional[DashboardWidget]:
     with read_session_scope() as session:
         row = (
             session.query(DashboardWidgetORM)
@@ -249,6 +307,10 @@ async def get_widget(user_id: str, widget_id: str) -> Optional[DashboardWidget]:
 
 
 async def delete_widget(user_id: str, widget_id: str) -> bool:
+    return await anyio.to_thread.run_sync(functools.partial(_delete_widget_sync, user_id, widget_id))
+
+
+def _delete_widget_sync(user_id: str, widget_id: str) -> bool:
     with session_scope() as session:
         row = (
             session.query(DashboardWidgetORM)
@@ -262,6 +324,16 @@ async def delete_widget(user_id: str, widget_id: str) -> bool:
 
 
 async def update_widget(
+    user_id: str,
+    widget_id: str,
+    req: UpdateWidgetInput,
+) -> Optional[DashboardWidget]:
+    return await anyio.to_thread.run_sync(
+        functools.partial(_update_widget_sync, user_id, widget_id, req)
+    )
+
+
+def _update_widget_sync(
     user_id: str,
     widget_id: str,
     req: UpdateWidgetInput,
@@ -307,6 +379,28 @@ async def set_widget_schedule_runtime_state(
     last_run_status: str | None = None,
     last_error: str | None = None,
 ) -> Optional[DashboardWidget]:
+    return await anyio.to_thread.run_sync(
+        functools.partial(
+            _set_widget_schedule_runtime_state_sync,
+            user_id,
+            widget_id,
+            next_run_at=next_run_at,
+            last_run_at=last_run_at,
+            last_run_status=last_run_status,
+            last_error=last_error,
+        )
+    )
+
+
+def _set_widget_schedule_runtime_state_sync(
+    user_id: str,
+    widget_id: str,
+    *,
+    next_run_at: datetime | None = None,
+    last_run_at: datetime | None = None,
+    last_run_status: str | None = None,
+    last_error: str | None = None,
+) -> Optional[DashboardWidget]:
     with session_scope() as session:
         row = (
             session.query(DashboardWidgetORM)
@@ -332,6 +426,26 @@ async def finalize_widget_run(
     success: bool,
     error: str | None = None,
 ) -> Optional[DashboardWidget]:
+    return await anyio.to_thread.run_sync(
+        functools.partial(
+            _finalize_widget_run_sync,
+            user_id,
+            widget_id,
+            next_run_at=next_run_at,
+            success=success,
+            error=error,
+        )
+    )
+
+
+def _finalize_widget_run_sync(
+    user_id: str,
+    widget_id: str,
+    *,
+    next_run_at: datetime | None,
+    success: bool,
+    error: str | None = None,
+) -> Optional[DashboardWidget]:
     with session_scope() as session:
         row = (
             session.query(DashboardWidgetORM)
@@ -349,6 +463,12 @@ async def finalize_widget_run(
 
 
 async def get_due_scheduled_widgets(now: Optional[datetime] = None, limit: int = 100) -> list[DashboardWidget]:
+    return await anyio.to_thread.run_sync(
+        functools.partial(_get_due_scheduled_widgets_sync, now, limit)
+    )
+
+
+def _get_due_scheduled_widgets_sync(now: Optional[datetime] = None, limit: int = 100) -> list[DashboardWidget]:
     due_at = now or _utcnow()
     with read_session_scope() as session:
         rows = (
@@ -377,6 +497,10 @@ async def get_stats(user_id: str, dashboard_id: Optional[str] = None) -> dict:
 
 
 async def get_all_scheduled_widgets() -> list[DashboardWidget]:
+    return await anyio.to_thread.run_sync(_get_all_scheduled_widgets_sync)
+
+
+def _get_all_scheduled_widgets_sync() -> list[DashboardWidget]:
     with read_session_scope() as session:
         rows = (
             session.query(DashboardWidgetORM)

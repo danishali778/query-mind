@@ -1,6 +1,9 @@
 """Dashboard and widget workflows."""
 
+import functools
 from typing import Optional
+
+import anyio
 
 from app.agents.insights.generator import generate_widget_insight
 from app.db.models.dashboard import (
@@ -157,11 +160,14 @@ async def build_widget_insight(user_id: str, widget_id: str) -> str:
         raise ValueError("Widget not found.")
 
     dashboard = await get_dashboard(user_id, widget.dashboard_id)
-    return generate_widget_insight(
-        widget.title,
-        widget.viz_type,
-        widget.rows,
-        dashboard.filters if dashboard else {},
+    return await anyio.to_thread.run_sync(
+        functools.partial(
+            generate_widget_insight,
+            widget.title,
+            widget.viz_type,
+            widget.rows,
+            dashboard.filters if dashboard else {},
+        )
     )
 
 
