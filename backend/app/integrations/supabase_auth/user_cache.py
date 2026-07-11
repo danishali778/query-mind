@@ -19,10 +19,12 @@ of after the TTL expires.
 
 from __future__ import annotations
 
+import functools
 import logging
 import threading
 import time
 
+import anyio
 from redis import Redis
 from redis.exceptions import RedisError
 
@@ -71,7 +73,7 @@ def _mark_redis_down(exc: RedisError) -> None:
     )
 
 
-def is_user_cached_active(user_id: str) -> bool:
+async def is_user_cached_active(user_id: str) -> bool:
     """Return True when a recent positive check exists for this user."""
     ttl = settings.auth_user_cache_ttl_seconds
     if ttl <= 0:
@@ -80,15 +82,21 @@ def is_user_cached_active(user_id: str) -> bool:
     client = _get_client()
     if client is not None:
         try:
-            return client.exists(_KEY_PREFIX + user_id) == 1
+            exists = await anyio.to_thread.run_sync(client.exists, _KEY_PREFIX + user_id)
+            return exists == 1
         except RedisError as exc:
             _mark_redis_down(exc)
 
     expires_at = _memory_cache.get(user_id)
-    return expires_at is not None and time.monotonic() < expires_at
+    if expires_at is None:
+        return False
+    if time.monotonic() >= expires_at:
+        _memory_cache.pop(user_id, None)
+        return False
+    return True
 
 
-def mark_user_active(user_id: str) -> None:
+async def mark_user_active(user_id: str) -> None:
     """Record a positive existence check for the configured TTL."""
     ttl = settings.auth_user_cache_ttl_seconds
     if ttl <= 0:
@@ -97,7 +105,9 @@ def mark_user_active(user_id: str) -> None:
     client = _get_client()
     if client is not None:
         try:
-            client.set(_KEY_PREFIX + user_id, "1", ex=ttl)
+            await anyio.to_thread.run_sync(
+                functools.partial(client.set, _KEY_PREFIX + user_id, "1", ex=ttl)
+            )
             return
         except RedisError as exc:
             _mark_redis_down(exc)
@@ -105,13 +115,13 @@ def mark_user_active(user_id: str) -> None:
     _memory_cache[user_id] = time.monotonic() + ttl
 
 
-def invalidate_user_cache(user_id: str) -> None:
+async def invalidate_user_cache(user_id: str) -> None:
     """Drop a cached positive check (call on deactivation/deletion)."""
     _memory_cache.pop(user_id, None)
     client = _get_client()
     if client is not None:
         try:
-            client.delete(_KEY_PREFIX + user_id)
+            await anyio.to_thread.run_sync(client.delete, _KEY_PREFIX + user_id)
         except RedisError as exc:
             _mark_redis_down(exc)
 

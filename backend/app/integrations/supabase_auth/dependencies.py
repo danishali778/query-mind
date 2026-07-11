@@ -24,7 +24,7 @@ class User(BaseModel):
 
 
 async def assert_user_exists(user_id: str) -> None:
-    if user_cache.is_user_cached_active(user_id):
+    if await user_cache.is_user_cached_active(user_id):
         return
 
     try:
@@ -44,7 +44,7 @@ async def assert_user_exists(user_id: str) -> None:
             detail="User account has been deactivated or deleted.",
         )
 
-    user_cache.mark_user_active(user_id)
+    await user_cache.mark_user_active(user_id)
 
 
 def _mock_user() -> User:
