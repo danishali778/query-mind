@@ -1,6 +1,8 @@
+import functools
 import logging
 from typing import Optional
 
+import anyio
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
@@ -23,14 +25,18 @@ class User(BaseModel):
     email: Optional[str] = None
 
 
+def _load_user_active_sync(user_id: str) -> bool:
+    with read_session_scope() as session:
+        row = session.get(UserSettingsORM, user_id)
+        return bool(row and row.is_active)
+
+
 async def assert_user_exists(user_id: str) -> None:
     if await user_cache.is_user_cached_active(user_id):
         return
 
     try:
-        with read_session_scope() as session:
-            row = session.get(UserSettingsORM, user_id)
-            exists = bool(row and row.is_active)
+        exists = await anyio.to_thread.run_sync(functools.partial(_load_user_active_sync, user_id))
     except Exception as exc:
         logger.error("Authentication database error: %s", exc, exc_info=True)
         raise HTTPException(

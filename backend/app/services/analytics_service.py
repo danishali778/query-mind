@@ -1,3 +1,7 @@
+import functools
+
+import anyio
+
 import app.services.connection_service as connection_service
 import app.services.dashboard_service as dashboard_store
 import app.services.query_history_service as query_history_store
@@ -7,7 +11,9 @@ import app.services.query_library_service as library_store
 async def build_analytics_overview(user_id: str) -> dict:
     """Return workspace-level analytics aggregated from existing persistent stores."""
     connections = await connection_service.get_all_connections(user_id)
-    history = query_history_store.get_history(user_id, limit=500)
+    history = await anyio.to_thread.run_sync(
+        functools.partial(query_history_store.get_history, user_id, limit=500)
+    )
     library_stats = await library_store.get_stats(user_id)
     dashboards = await dashboard_store.list_dashboards(user_id)
     dashboard_stats = await dashboard_store.get_stats(user_id)

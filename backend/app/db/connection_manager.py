@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 import time
 
@@ -117,13 +118,25 @@ def _preflight_connection_attempt(user_id: str, action: str, config: ConnectionR
         raise
 
 
+async def _preflight_connection_attempt_async(
+    user_id: str, action: str, config: ConnectionRequest, started_at: float
+) -> None:
+    await anyio.to_thread.run_sync(
+        functools.partial(_preflight_connection_attempt, user_id, action, config, started_at)
+    )
+
+
+async def _log_attempt_async(**kwargs) -> None:
+    await anyio.to_thread.run_sync(functools.partial(_log_attempt, **kwargs))
+
+
 async def test_connection(user_id: str, config: ConnectionRequest) -> ConnectionTestResult:
     started_at = time.monotonic()
-    _preflight_connection_attempt(user_id, "test", config, started_at)
+    await _preflight_connection_attempt_async(user_id, "test", config, started_at)
 
     success, message = await connection_pool.test_connection(config)
     latency_ms = round((time.monotonic() - started_at) * 1000, 2)
-    _log_attempt(
+    await _log_attempt_async(
         user_id=user_id,
         action="test",
         config=config,
@@ -141,7 +154,7 @@ async def test_saved_connection(user_id: str, connection_id: str) -> ConnectionT
         return None
 
     started_at = time.monotonic()
-    _preflight_connection_attempt(user_id, "test", config, started_at)
+    await _preflight_connection_attempt_async(user_id, "test", config, started_at)
 
     success, message = await connection_pool.test_connection(config)
     latency_ms = round((time.monotonic() - started_at) * 1000, 2)
@@ -165,7 +178,7 @@ async def test_saved_connection(user_id: str, connection_id: str) -> ConnectionT
                 exc_info=True,
             )
 
-    _log_attempt(
+    await _log_attempt_async(
         user_id=user_id,
         action="test",
         config=config,
@@ -179,7 +192,7 @@ async def test_saved_connection(user_id: str, connection_id: str) -> ConnectionT
 
 async def connect(user_id: str, config: ConnectionRequest) -> tuple[str, Engine, float]:
     started_at = time.monotonic()
-    _preflight_connection_attempt(user_id, "connect", config, started_at)
+    await _preflight_connection_attempt_async(user_id, "connect", config, started_at)
 
     engine = None
     tunnel = None
@@ -199,7 +212,7 @@ async def connect(user_id: str, config: ConnectionRequest) -> tuple[str, Engine,
             engine.dispose()
         if tunnel:
             tunnel.stop()
-        _log_attempt(
+        await _log_attempt_async(
             user_id=user_id,
             action="connect",
             config=config,
@@ -219,7 +232,7 @@ async def connect(user_id: str, config: ConnectionRequest) -> tuple[str, Engine,
             connection_id,
             exc_info=True,
         )
-    _log_attempt(
+    await _log_attempt_async(
         user_id=user_id,
         action="connect",
         config=config,
@@ -345,7 +358,9 @@ async def get_connection_schema(user_id: str, connection_id: str) -> list[TableI
 
     catalog = connection_pool.get_cached_catalog_entry(user_id, connection_id)
     if catalog is None:
-        catalog = schema_snapshot_repository.get(user_id, connection_id)
+        catalog = await anyio.to_thread.run_sync(
+            functools.partial(schema_snapshot_repository.get, user_id, connection_id)
+        )
         if catalog:
             connection_pool.cache_catalog(user_id, connection_id, catalog)
 
@@ -392,7 +407,9 @@ async def _persist_catalog_from_schema(
         connection = await get_connection(user_id, connection_id)
         db_type = connection.db_type if connection else "postgresql"
         catalog = build_catalog(connection_id, db_type, schema)
-        schema_snapshot_repository.upsert(catalog, user_id)
+        await anyio.to_thread.run_sync(
+            functools.partial(schema_snapshot_repository.upsert, catalog, user_id)
+        )
         connection_pool.cache_catalog(user_id, connection_id, catalog)
     except Exception:
         logger.warning(
@@ -484,7 +501,9 @@ async def get_catalog(user_id: str, connection_id: str, *, force_refresh: bool =
         if cached:
             return cached
 
-        snapshot = schema_snapshot_repository.get(user_id, connection_id)
+        snapshot = await anyio.to_thread.run_sync(
+            functools.partial(schema_snapshot_repository.get, user_id, connection_id)
+        )
         if snapshot:
             connection_pool.cache_catalog(user_id, connection_id, snapshot)
             return snapshot
@@ -496,14 +515,18 @@ async def get_catalog(user_id: str, connection_id: str, *, force_refresh: bool =
     connection = await get_connection(user_id, connection_id)
     db_type = connection.db_type if connection else "postgresql"
     catalog = build_catalog(connection_id, db_type, schema)
-    schema_snapshot_repository.upsert(catalog, user_id)
+    await anyio.to_thread.run_sync(
+        functools.partial(schema_snapshot_repository.upsert, catalog, user_id)
+    )
     connection_pool.cache_catalog(user_id, connection_id, catalog)
     return catalog
 
 
 async def invalidate_catalog(user_id: str, connection_id: str) -> None:
     connection_pool.invalidate_schema_cache(user_id, connection_id)
-    schema_snapshot_repository.delete(user_id, connection_id)
+    await anyio.to_thread.run_sync(
+        functools.partial(schema_snapshot_repository.delete, user_id, connection_id)
+    )
 
 
 async def seed_dev_connection() -> str | None:
