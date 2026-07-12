@@ -147,10 +147,10 @@ function TableViz({ columns, rows, compact }: { columns: string[]; rows: Array<R
   
   // Detection logic for special columns
   const isRankCol = (col: string, index: number) => index === 0 && (col.toLowerCase().includes('rank') || col === '#' || col.toLowerCase() === 'id');
-  const isTrendCol = (val: any) => typeof val === 'string' && (val.includes('%') || val.startsWith('+') || val.startsWith('-'));
+  const isTrendCol = (val: unknown) => typeof val === 'string' && (val.includes('%') || val.startsWith('+') || val.startsWith('-'));
   const isShareCol = (col: string) => col.toLowerCase().includes('share') || col.toLowerCase().includes('ratio');
 
-  const renderCellContent = (col: string, val: any, index: number) => {
+  const renderCellContent = (col: string, val: unknown, index: number) => {
     if (val === null || val === undefined || val === '') {
       return <span style={{ color: T.text3, fontStyle: 'italic', opacity: 0.6 }}>--</span>;
     }

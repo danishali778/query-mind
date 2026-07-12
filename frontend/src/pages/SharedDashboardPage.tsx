@@ -97,10 +97,10 @@ function ReadOnlyWidget({ widget }: { widget: DashboardWidget }) {
         )}
       </div>
       <div style={{ flex: 1, padding: '12px 16px 16px' }}>
-        {widget.viz_type === 'bar' && <DashboardBarChart widget={widget as any} size={size} />}
-        {widget.viz_type === 'line' && <DashboardLineChart widget={widget as any} size={size} />}
-        {widget.viz_type === 'area' && <DashboardAreaChart widget={widget as any} size={size} />}
-        {(widget.viz_type === 'pie' || widget.viz_type === 'donut') && <DashboardPieChart widget={widget as any} size={size} />}
+        {widget.viz_type === 'bar' && <DashboardBarChart widget={widget} size={size} />}
+        {widget.viz_type === 'line' && <DashboardLineChart widget={widget} size={size} />}
+        {widget.viz_type === 'area' && <DashboardAreaChart widget={widget} size={size} />}
+        {(widget.viz_type === 'pie' || widget.viz_type === 'donut') && <DashboardPieChart widget={widget} size={size} />}
       </div>
     </div>
   );
@@ -123,7 +123,7 @@ export function SharedDashboardPage() {
         ]);
         setDashboard(dash);
         setWidgets(wlist);
-      } catch (err) {
+      } catch {
         setError('Dashboard not found or not public.');
       } finally {
         setLoading(false);

@@ -21,8 +21,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     try {
       const data = await getSettings();
       set({ settings: data, isLoading: false });
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to fetch settings', isLoading: false });
+    } catch (err: unknown) {
+      set({ error: err instanceof Error ? err.message : 'Failed to fetch settings', isLoading: false });
     }
   },
 
@@ -37,9 +37,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const updated = await updateSettings(updates);
       // Sync with strict server response just in case
       set({ settings: updated, error: null });
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Revert on failure
-      set({ settings: currentSettings, error: err.message || 'Failed to update setting' });
+      set({ settings: currentSettings, error: err instanceof Error ? err.message : 'Failed to update setting' });
     }
   }
 }));

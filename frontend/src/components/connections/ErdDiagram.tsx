@@ -165,7 +165,7 @@ export function ErdDiagram({ tables }: ErdDiagramProps) {
       // Determine which sides to connect
       const fromCenterX = fromPos.x + TABLE_WIDTH / 2;
       const toCenterX = toPos.x + TABLE_WIDTH / 2;
-      let sx: number, sy: number, ex: number, ey: number;
+      let sx: number, ex: number;
 
       if (fromCenterX <= toCenterX) {
         sx = fromPos.x + TABLE_WIDTH;
@@ -174,8 +174,8 @@ export function ErdDiagram({ tables }: ErdDiagramProps) {
         sx = fromPos.x;
         ex = toPos.x + TABLE_WIDTH;
       }
-      sy = fromY;
-      ey = toY;
+      const sy = fromY;
+      const ey = toY;
 
       const dx = Math.abs(ex - sx) * 0.5;
       const path = `M ${sx} ${sy} C ${sx + (ex > sx ? dx : -dx)} ${sy}, ${ex + (ex > sx ? -dx : dx)} ${ey}, ${ex} ${ey}`;

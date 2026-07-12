@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
+import type { Variants } from 'framer-motion';
 import { Database, Zap, Clock, Link as LinkIcon, TrendingUp, TrendingDown } from 'lucide-react';
 import { T } from './tokens';
 
@@ -67,7 +68,7 @@ interface KpiCardsProps {
   items?: OverviewKpiItem[];
 }
 
-function KpiCardItem({ kpi, index, variants }: { kpi: OverviewKpiItem; index: number; variants: any }) {
+function KpiCardItem({ kpi, index, variants }: { kpi: OverviewKpiItem; index: number; variants: Variants }) {
   const [isHovered, setIsHovered] = useState(false);
 
   return (
