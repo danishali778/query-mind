@@ -57,7 +57,11 @@ def _ensure_client_keys(payload: dict[str, Any]) -> dict[str, Any]:
     widgets = payload.get("widgets")
     if isinstance(widgets, list):
         for widget in widgets:
-            if isinstance(widget, dict) and not widget.get("client_key"):
+            if not isinstance(widget, dict):
+                continue
+            try:
+                widget["client_key"] = str(uuid.UUID(str(widget.get("client_key") or "")))
+            except (ValueError, AttributeError):
                 widget["client_key"] = str(uuid.uuid4())
     return payload
 
@@ -165,8 +169,6 @@ def plan_dashboard(
             progress(stage, label)
 
     _stage("reading_objective", "Reading the dashboard objective")
-    _stage("schema_search", "Searching the database schema")
-    _stage("identifying_metrics", "Identifying useful business metrics")
     _stage("designing_widgets", "Designing dashboard widgets")
 
     llm = get_chat_llm(temperature=0.2, max_tokens=4096)

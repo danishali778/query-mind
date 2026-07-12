@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class CreateDashboardGenerationRequest(BaseModel):
@@ -14,6 +14,16 @@ class CreateDashboardGenerationRequest(BaseModel):
     default_time_range: Optional[str] = Field(default=None, max_length=100)
     extra_instructions: Optional[str] = Field(default=None, max_length=2000)
     client_request_id: str
+
+    @field_validator("client_request_id")
+    @classmethod
+    def validate_client_request_id(cls, value: str) -> str:
+        from uuid import UUID
+
+        try:
+            return str(UUID(value))
+        except (ValueError, AttributeError) as exc:
+            raise ValueError("client_request_id must be a valid UUID") from exc
 
 
 class CreateDashboardGenerationResponse(BaseModel):

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Query
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import CurrentUserDep, RateLimitChecker
@@ -36,6 +36,14 @@ async def create_generation(
         default_time_range=request.default_time_range,
         extra_instructions=request.extra_instructions,
     )
+
+
+@router.get("", response_model=DashboardGenerationRunResponse)
+async def get_generation_for_dashboard(
+    current_user: CurrentUserDep,
+    dashboard_id: str = Query(min_length=36, max_length=36),
+):
+    return await generation_service.get_generation_for_dashboard(current_user.id, dashboard_id)
 
 
 @router.get("/{run_id}", response_model=DashboardGenerationRunResponse)

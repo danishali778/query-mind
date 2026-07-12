@@ -113,62 +113,35 @@ def _map_run(
 
 
 def compute_placeholder_layouts(widget_plans: list[dict[str, Any]]) -> list[dict[str, int]]:
-    """Deterministic two-column layout for AI placeholders."""
+    """Deterministic layout matching the frontend's 20-column grid."""
 
     size_dims = {
-        "quarter": {"w": 1, "h": 5, "minW": 1, "minH": 4},
-        "half": {"w": 1, "h": 7, "minW": 1, "minH": 5},
-        "three-quarter": {"w": 2, "h": 8, "minW": 2, "minH": 6},
-        "full": {"w": 2, "h": 8, "minW": 2, "minH": 6},
+        "quarter": {"w": 5, "h": 5, "minW": 5, "minH": 4},
+        "half": {"w": 10, "h": 7, "minW": 4, "minH": 5},
+        "three-quarter": {"w": 15, "h": 8, "minW": 8, "minH": 6},
+        "full": {"w": 20, "h": 8, "minW": 10, "minH": 6},
     }
     layouts: list[dict[str, int]] = []
+    cursor_x = 0
     cursor_y = 0
-    half_row_x: int | None = None
-    half_row_y: int | None = None
-    half_row_h = 0
+    row_height = 0
 
     for plan in widget_plans:
         size = str(plan.get("size") or "half")
-        viz = str(plan.get("visualization") or "auto")
         if size not in size_dims:
             size = "half"
         dims = size_dims[size]
-        # KPIs prefer half-row packing even when sized quarter/half.
-        is_kpi_slot = viz == "kpi" or size in {"quarter", "half"}
-
-        if dims["w"] >= 2 or size in {"full", "three-quarter"}:
-            if half_row_x is not None and half_row_y is not None:
-                cursor_y = max(cursor_y, half_row_y + half_row_h)
-                half_row_x = None
-                half_row_y = None
-                half_row_h = 0
-            layouts.append({"x": 0, "y": cursor_y, **dims})
-            cursor_y += dims["h"]
-            continue
-
-        if is_kpi_slot and half_row_x is not None and half_row_y is not None:
-            layouts.append({"x": half_row_x, "y": half_row_y, **dims})
-            half_row_h = max(half_row_h, dims["h"])
-            cursor_y = max(cursor_y, half_row_y + half_row_h)
-            half_row_x = None
-            half_row_y = None
-            half_row_h = 0
-            continue
-
-        if is_kpi_slot:
-            layouts.append({"x": 0, "y": cursor_y, **dims})
-            half_row_x = 1
-            half_row_y = cursor_y
-            half_row_h = dims["h"]
-            continue
-
-        if half_row_x is not None and half_row_y is not None:
-            cursor_y = max(cursor_y, half_row_y + half_row_h)
-            half_row_x = None
-            half_row_y = None
-            half_row_h = 0
-        layouts.append({"x": 0, "y": cursor_y, **dims})
-        cursor_y += dims["h"]
+        if cursor_x and cursor_x + dims["w"] > 20:
+            cursor_y += row_height
+            cursor_x = 0
+            row_height = 0
+        layouts.append({"x": cursor_x, "y": cursor_y, **dims})
+        cursor_x += dims["w"]
+        row_height = max(row_height, dims["h"])
+        if cursor_x >= 20:
+            cursor_y += row_height
+            cursor_x = 0
+            row_height = 0
 
     return layouts
 
@@ -183,6 +156,7 @@ def create_planning_run_sync(
     requested_widget_count: int = 6,
     default_time_range: str | None = None,
     extra_instructions: str | None = None,
+    max_active_runs: int = 1,
 ) -> tuple[DashboardGenerationRun, bool]:
     existing = (
         session.query(DashboardGenerationRunORM)
@@ -195,15 +169,15 @@ def create_planning_run_sync(
     if existing:
         return _map_run(existing), False
 
-    active = (
+    active_count = (
         session.query(DashboardGenerationRunORM.id)
         .filter(
             DashboardGenerationRunORM.owner_id == owner_id,
             DashboardGenerationRunORM.status.in_(ACTIVE_RUN_STATUSES),
         )
-        .first()
+        .count()
     )
-    if active:
+    if active_count >= max(1, max_active_runs):
         raise ActiveGenerationConflictError("Another dashboard generation is already active.")
 
     row = DashboardGenerationRunORM(
@@ -258,6 +232,155 @@ async def get_run(owner_id: str, run_id: str) -> DashboardGenerationRun | None:
 def get_run_by_id_sync(session: Session, run_id: str) -> DashboardGenerationRun | None:
     row = session.query(DashboardGenerationRunORM).filter(DashboardGenerationRunORM.id == run_id).one_or_none()
     return _map_run(row) if row else None
+
+
+def get_latest_run_for_dashboard_sync(
+    session: Session,
+    owner_id: str,
+    dashboard_id: str,
+) -> DashboardGenerationRun | None:
+    row = (
+        session.query(DashboardGenerationRunORM)
+        .filter(
+            DashboardGenerationRunORM.owner_id == owner_id,
+            DashboardGenerationRunORM.dashboard_id == dashboard_id,
+        )
+        .order_by(DashboardGenerationRunORM.created_at.desc())
+        .first()
+    )
+    return _map_run(row) if row else None
+
+
+async def get_latest_run_for_dashboard(owner_id: str, dashboard_id: str) -> DashboardGenerationRun | None:
+    def _run() -> DashboardGenerationRun | None:
+        with read_session_scope() as session:
+            return get_latest_run_for_dashboard_sync(session, owner_id, dashboard_id)
+
+    return await anyio.to_thread.run_sync(_run)
+
+
+def claim_planning_run_sync(session: Session, run_id: str) -> DashboardGenerationRun | None:
+    now = _now()
+    changed = (
+        session.query(DashboardGenerationRunORM)
+        .filter(
+            DashboardGenerationRunORM.id == run_id,
+            DashboardGenerationRunORM.status == "planning",
+            DashboardGenerationRunORM.current_stage == "reading_objective",
+        )
+        .update(
+            {
+                "current_stage": "planning",
+                "current_stage_label": "Planning dashboard",
+                "heartbeat_at": now,
+                "updated_at": now,
+            },
+            synchronize_session=False,
+        )
+    )
+    if not changed:
+        return None
+    row = session.query(DashboardGenerationRunORM).filter(DashboardGenerationRunORM.id == run_id).one()
+    return _map_run(row)
+
+
+def claim_execution_run_sync(session: Session, run_id: str) -> DashboardGenerationRun | None:
+    now = _now()
+    changed = (
+        session.query(DashboardGenerationRunORM)
+        .filter(
+            DashboardGenerationRunORM.id == run_id,
+            DashboardGenerationRunORM.status == "queued",
+        )
+        .update(
+            {
+                "status": "running",
+                "current_stage": "running",
+                "current_stage_label": "Generating widgets",
+                "started_at": now,
+                "heartbeat_at": now,
+                "updated_at": now,
+            },
+            synchronize_session=False,
+        )
+    )
+    if not changed:
+        return None
+    row = session.query(DashboardGenerationRunORM).filter(DashboardGenerationRunORM.id == run_id).one()
+    return _map_run(row)
+
+
+def claim_item_sync(session: Session, item_id: str) -> DashboardGenerationItem | None:
+    now = _now()
+    changed = (
+        session.query(DashboardGenerationItemORM)
+        .filter(
+            DashboardGenerationItemORM.id == item_id,
+            DashboardGenerationItemORM.status.in_(("queued", "regenerating")),
+        )
+        .update(
+            {
+                "status": "running",
+                "attempt_count": DashboardGenerationItemORM.attempt_count + 1,
+                "started_at": now,
+                "finished_at": None,
+                "last_error_code": None,
+                "last_error_message": None,
+                "updated_at": now,
+            },
+            synchronize_session=False,
+        )
+    )
+    if not changed:
+        return None
+    row = session.query(DashboardGenerationItemORM).filter(DashboardGenerationItemORM.id == item_id).one()
+    if row.dashboard_widget_id:
+        widget = session.query(DashboardWidgetORM).filter(DashboardWidgetORM.id == row.dashboard_widget_id).one_or_none()
+        if widget:
+            widget.generation_status = "running"
+            widget.generation_error = None
+    session.flush()
+    return _map_item(row)
+
+
+def reopen_run_for_item_sync(
+    session: Session,
+    owner_id: str,
+    run_id: str,
+    item_id: str,
+    *,
+    item_status: str,
+    allowed_item_statuses: tuple[str, ...],
+) -> DashboardGenerationRun:
+    row = (
+        session.query(DashboardGenerationRunORM)
+        .filter(DashboardGenerationRunORM.id == run_id, DashboardGenerationRunORM.owner_id == owner_id)
+        .one_or_none()
+    )
+    if not row:
+        raise GenerationNotFoundError(run_id)
+    item = (
+        session.query(DashboardGenerationItemORM)
+        .filter(DashboardGenerationItemORM.id == item_id, DashboardGenerationItemORM.run_id == run_id)
+        .one_or_none()
+    )
+    if not item:
+        raise GenerationItemNotFoundError(item_id)
+    if item.status not in allowed_item_statuses:
+        raise GenerationNotApprovableError(
+            f"Widget cannot be queued from status '{item.status}'."
+        )
+    mark_item_status_sync(session, item_id, status=item_status)
+    row.status = "queued"
+    row.current_stage = "queued"
+    row.current_stage_label = "Widget queued"
+    row.finished_at = None
+    row.failure_code = None
+    row.failure_message = None
+    row.cancel_requested_at = None
+    row.heartbeat_at = _now()
+    session.flush()
+    return _map_run(row)
 
 
 def update_stage_sync(
@@ -593,6 +716,32 @@ def cancel_pending_items_sync(session: Session, run_id: str) -> int:
     return len(rows)
 
 
+def fail_pending_items_sync(
+    session: Session,
+    run_id: str,
+    *,
+    error_code: str,
+    error_message: str,
+) -> int:
+    rows = (
+        session.query(DashboardGenerationItemORM)
+        .filter(
+            DashboardGenerationItemORM.run_id == run_id,
+            DashboardGenerationItemORM.status.in_(("planned", "queued", "running", "regenerating")),
+        )
+        .all()
+    )
+    for row in rows:
+        mark_item_status_sync(
+            session,
+            row.id,
+            status="failed",
+            error_code=error_code,
+            error_message=error_message,
+        )
+    return len(rows)
+
+
 def fail_stale_runs_sync(session: Session, *, older_than_seconds: int = 1800) -> int:
     cutoff = _now() - timedelta(seconds=older_than_seconds)
     rows = (
@@ -637,6 +786,30 @@ def active_run_count_sync(session: Session, owner_id: str) -> int:
     )
 
 
+def run_health_counts_sync(session: Session, *, stale_after_seconds: int) -> dict[str, int]:
+    cutoff = _now() - timedelta(seconds=stale_after_seconds)
+    active = (
+        session.query(DashboardGenerationRunORM.id)
+        .filter(DashboardGenerationRunORM.status.in_(ACTIVE_RUN_STATUSES))
+        .count()
+    )
+    stale = (
+        session.query(DashboardGenerationRunORM.id)
+        .filter(
+            DashboardGenerationRunORM.status.in_(ACTIVE_RUN_STATUSES),
+            DashboardGenerationRunORM.heartbeat_at.is_not(None),
+            DashboardGenerationRunORM.heartbeat_at < cutoff,
+        )
+        .count()
+    )
+    return {"active_runs": active, "stale_runs": stale}
+
+
+def run_health_counts(*, stale_after_seconds: int) -> dict[str, int]:
+    with read_session_scope() as session:
+        return run_health_counts_sync(session, stale_after_seconds=stale_after_seconds)
+
+
 __all__ = [
     "ACTIVE_RUN_STATUSES",
     "TERMINAL_RUN_STATUSES",
@@ -652,6 +825,12 @@ __all__ = [
     "get_run",
     "get_run_sync",
     "get_run_by_id_sync",
+    "get_latest_run_for_dashboard",
+    "get_latest_run_for_dashboard_sync",
+    "claim_planning_run_sync",
+    "claim_execution_run_sync",
+    "claim_item_sync",
+    "reopen_run_for_item_sync",
     "update_stage_sync",
     "set_task_id_sync",
     "save_plan",
@@ -663,7 +842,10 @@ __all__ = [
     "finalize_run_sync",
     "mark_item_status_sync",
     "cancel_pending_items_sync",
+    "fail_pending_items_sync",
     "fail_stale_runs",
     "fail_stale_runs_sync",
     "active_run_count_sync",
+    "run_health_counts",
+    "run_health_counts_sync",
 ]

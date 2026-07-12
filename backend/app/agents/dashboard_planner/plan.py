@@ -56,7 +56,10 @@ class WidgetPlan(BaseModel):
         cleaned = value.strip()
         if not cleaned:
             raise ValueError("client_key is required")
-        return cleaned
+        try:
+            return str(uuid.UUID(cleaned))
+        except (ValueError, AttributeError) as exc:
+            raise ValueError("client_key must be a valid UUID") from exc
 
     @field_validator("question")
     @classmethod

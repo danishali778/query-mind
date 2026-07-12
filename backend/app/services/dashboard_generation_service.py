@@ -25,6 +25,7 @@ from app.services.dashboard_generation_progress import (
     TERMINAL_EVENTS,
     DashboardGenerationReporter,
     cancel_signalled,
+    clear_cancel,
     ensure_available,
     publish_event,
     read_events,
@@ -43,6 +44,54 @@ def _snapshot_dict(run) -> dict[str, Any]:
         **run.model_dump(),
         "events_url": _events_url(run.id),
     }
+
+
+def _finalize_idle_run_sync(session, run_id: str):
+    run = gen_repo.get_run_by_id_sync(session, run_id)
+    if not run:
+        return None, None, None
+    statuses = [item.status for item in run.items]
+    if any(status in {"queued", "running", "regenerating"} for status in statuses):
+        return None, None, None
+    completed = sum(1 for status in statuses if status == "completed")
+    failed = sum(1 for status in statuses if status in {"failed", "cancelled"})
+    if failed and completed:
+        status, event, label = "partial", "run.partial", "Dashboard generation partially completed"
+    elif failed and not completed:
+        status, event, label = "failed", "run.failed", "Dashboard generation failed"
+    else:
+        status, event, label = "completed", "run.completed", "Dashboard generation completed"
+    finalized = gen_repo.finalize_run_sync(
+        session,
+        run_id,
+        status=status,
+        stage=status,
+        stage_label=label,
+    )
+    return finalized, event, label
+
+
+def _mark_item_dispatch_failed(run_id: str, item_id: str) -> tuple[str | None, str | None]:
+    message = "The widget generation worker could not be started."
+    with session_scope() as session:
+        gen_repo.mark_item_status_sync(
+            session,
+            item_id,
+            status="failed",
+            error_code="dispatch_failed",
+            error_message=message,
+        )
+        _finalized, event, label = _finalize_idle_run_sync(session, run_id)
+    publish_event(
+        run_id,
+        "widget.failed",
+        "Widget generation worker unavailable",
+        stage="failed",
+        metadata={"item_id": item_id, "failure_code": "dispatch_failed"},
+    )
+    if event and label:
+        publish_event(run_id, event, label, stage=event.removeprefix("run."))
+    return event, label
 
 
 async def start_planning(
@@ -90,6 +139,7 @@ async def start_planning(
             requested_widget_count=count,
             default_time_range=default_time_range,
             extra_instructions=extra_instructions,
+            max_active_runs=settings.dashboard_ai_max_active_per_user,
         )
     except gen_repo.ActiveGenerationConflictError as exc:
         raise ConflictError(str(exc), code="dashboard_generation_limit_reached") from exc
@@ -97,10 +147,27 @@ async def start_planning(
     if created:
         from app.workers.jobs.plan_dashboard import plan_dashboard_task
 
-        async_result = plan_dashboard_task.apply_async(args=[run.id], queue=settings.celery_dashboards_queue)
-        with session_scope() as session:
-            gen_repo.set_task_id_sync(session, run.id, async_result.id)
-        publish_event(run.id, "run.queued", "Planning queued", stage="planning")
+        try:
+            async_result = plan_dashboard_task.apply_async(args=[run.id], queue=settings.celery_dashboards_queue)
+            with session_scope() as session:
+                gen_repo.set_task_id_sync(session, run.id, async_result.id)
+            publish_event(run.id, "run.queued", "Planning queued", stage="planning")
+        except Exception as exc:
+            with session_scope() as session:
+                gen_repo.finalize_run_sync(
+                    session,
+                    run.id,
+                    status="failed",
+                    failure_code="dispatch_failed",
+                    failure_message="The dashboard planning worker could not be started.",
+                    stage="failed",
+                    stage_label="Planning worker unavailable",
+                )
+            publish_event(run.id, "run.failed", "Planning worker unavailable", stage="failed")
+            raise ServiceUnavailableError(
+                "The dashboard planning worker could not be started.",
+                code="dispatch_failed",
+            ) from exc
 
     return {
         "run_id": run.id,
@@ -111,6 +178,13 @@ async def start_planning(
 
 async def get_generation(owner_id: str, run_id: str) -> dict[str, Any]:
     run = await gen_repo.get_run(owner_id, run_id)
+    if not run:
+        raise NotFoundError("Generation run not found.")
+    return _snapshot_dict(run)
+
+
+async def get_generation_for_dashboard(owner_id: str, dashboard_id: str) -> dict[str, Any]:
+    run = await gen_repo.get_latest_run_for_dashboard(owner_id, dashboard_id)
     if not run:
         raise NotFoundError("Generation run not found.")
     return _snapshot_dict(run)
@@ -168,13 +242,34 @@ async def approve(owner_id: str, run_id: str, *, expected_revision: int) -> dict
         )
         from app.workers.jobs.execute_dashboard_generation import execute_dashboard_generation_task
 
-        async_result = execute_dashboard_generation_task.apply_async(
-            args=[run.id],
-            queue=settings.celery_dashboards_queue,
-        )
-        with session_scope() as session:
-            gen_repo.set_task_id_sync(session, run.id, async_result.id)
-        publish_event(run.id, "run.queued", "Generation queued", stage="queued")
+        try:
+            async_result = execute_dashboard_generation_task.apply_async(
+                args=[run.id],
+                queue=settings.celery_dashboards_queue,
+            )
+            with session_scope() as session:
+                gen_repo.set_task_id_sync(session, run.id, async_result.id)
+            publish_event(run.id, "run.queued", "Generation queued", stage="queued")
+        except Exception as exc:
+            message = "The dashboard generation worker could not be started."
+            with session_scope() as session:
+                gen_repo.fail_pending_items_sync(
+                    session,
+                    run.id,
+                    error_code="dispatch_failed",
+                    error_message=message,
+                )
+                gen_repo.finalize_run_sync(
+                    session,
+                    run.id,
+                    status="failed",
+                    failure_code="dispatch_failed",
+                    failure_message=message,
+                    stage="failed",
+                    stage_label="Generation worker unavailable",
+                )
+            publish_event(run.id, "run.failed", "Generation worker unavailable", stage="failed")
+            raise ServiceUnavailableError(message, code="dispatch_failed") from exc
 
     return {
         "run_id": run.id,
@@ -194,7 +289,7 @@ async def cancel(owner_id: str, run_id: str) -> dict[str, Any]:
     except Exception:
         logger.warning("Failed to publish dashboard cancel signal for %s", run_id, exc_info=True)
 
-    if run.status == "planning" and not run.dashboard_id:
+    if run.status in {"planning", "awaiting_approval"} and not run.dashboard_id:
         with session_scope() as session:
             gen_repo.cancel_pending_items_sync(session, run_id)
             finalized = gen_repo.finalize_run_sync(
@@ -213,8 +308,6 @@ async def cancel(owner_id: str, run_id: str) -> dict[str, Any]:
 
 
 async def retry_item(owner_id: str, run_id: str, item_id: str) -> dict[str, Any]:
-    from app.db.orm_models import DashboardGenerationRunORM
-
     run = await gen_repo.get_run(owner_id, run_id)
     if not run:
         raise NotFoundError("Generation run not found.")
@@ -223,26 +316,38 @@ async def retry_item(owner_id: str, run_id: str, item_id: str) -> dict[str, Any]
         raise NotFoundError("Generation item not found.")
     if item.status not in gen_repo.RETRYABLE_ITEM_STATUSES:
         raise BadRequestError("Only failed or cancelled widgets can be retried.")
+    if run.status not in gen_repo.TERMINAL_RUN_STATUSES and run.status != "queued":
+        raise ConflictError("Wait for the active dashboard generation to finish before retrying a widget.")
 
-    with session_scope() as session:
-        gen_repo.mark_item_status_sync(session, item_id, status="queued", increment_attempt=True)
-        row = (
-            session.query(DashboardGenerationRunORM)
-            .filter(DashboardGenerationRunORM.id == run_id, DashboardGenerationRunORM.owner_id == owner_id)
-            .one()
-        )
-        if row.status in {"partial", "failed", "completed"}:
-            row.status = "queued"
-            row.finished_at = None
-            row.failure_code = None
-            row.failure_message = None
+    try:
+        with session_scope() as session:
+            gen_repo.reopen_run_for_item_sync(
+                session,
+                owner_id,
+                run_id,
+                item_id,
+                item_status="queued",
+                allowed_item_statuses=gen_repo.RETRYABLE_ITEM_STATUSES,
+            )
+    except gen_repo.GenerationNotApprovableError as exc:
+        raise ConflictError(str(exc), code="dashboard_widget_already_queued") from exc
+    clear_cancel(run_id)
 
     from app.workers.jobs.execute_dashboard_generation import regenerate_dashboard_widget_task
 
-    regenerate_dashboard_widget_task.apply_async(
-        args=[run_id, item_id, None],
-        queue=settings.celery_dashboards_queue,
-    )
+    try:
+        task = regenerate_dashboard_widget_task.apply_async(
+            args=[run_id, item_id, None],
+            queue=settings.celery_dashboards_queue,
+        )
+        with session_scope() as session:
+            gen_repo.set_task_id_sync(session, run_id, task.id)
+    except Exception as exc:
+        _mark_item_dispatch_failed(run_id, item_id)
+        raise ServiceUnavailableError(
+            "The widget generation worker could not be started.",
+            code="dispatch_failed",
+        ) from exc
     publish_event(run_id, "widget.queued", "Widget queued for retry", metadata={"item_id": item_id})
     return await get_generation(owner_id, run_id)
 
@@ -261,20 +366,40 @@ async def regenerate_item(
     if not item:
         raise NotFoundError("Generation item not found.")
 
-    with session_scope() as session:
-        gen_repo.mark_item_status_sync(
-            session,
-            item_id,
-            status="regenerating",
-            increment_attempt=True,
-        )
+    if item.status not in {"completed", "failed", "cancelled"}:
+        raise BadRequestError("Only completed, failed, or cancelled widgets can be regenerated.")
+    if run.status not in gen_repo.TERMINAL_RUN_STATUSES:
+        raise ConflictError("Wait for the active dashboard generation to finish before regenerating a widget.")
+
+    try:
+        with session_scope() as session:
+            gen_repo.reopen_run_for_item_sync(
+                session,
+                owner_id,
+                run_id,
+                item_id,
+                item_status="regenerating",
+                allowed_item_statuses=("completed", "failed", "cancelled"),
+            )
+    except gen_repo.GenerationNotApprovableError as exc:
+        raise ConflictError(str(exc), code="dashboard_widget_already_queued") from exc
+    clear_cancel(run_id)
 
     from app.workers.jobs.execute_dashboard_generation import regenerate_dashboard_widget_task
 
-    regenerate_dashboard_widget_task.apply_async(
-        args=[run_id, item_id, instruction],
-        queue=settings.celery_dashboards_queue,
-    )
+    try:
+        task = regenerate_dashboard_widget_task.apply_async(
+            args=[run_id, item_id, instruction],
+            queue=settings.celery_dashboards_queue,
+        )
+        with session_scope() as session:
+            gen_repo.set_task_id_sync(session, run_id, task.id)
+    except Exception as exc:
+        _mark_item_dispatch_failed(run_id, item_id)
+        raise ServiceUnavailableError(
+            "The widget generation worker could not be started.",
+            code="dispatch_failed",
+        ) from exc
     publish_event(
         run_id,
         "widget.regenerating",
@@ -308,6 +433,7 @@ async def stream_events(owner_id: str, run_id: str, last_event_id: str | None = 
         return
 
     idle_rounds = 0
+    heartbeat_rounds = max(1, (settings.dashboard_run_heartbeat_seconds + 3) // 4)
     while True:
         try:
             events = await anyio.to_thread.run_sync(read_events, run_id, last_sequence, 4000)
@@ -318,7 +444,7 @@ async def stream_events(owner_id: str, run_id: str, last_event_id: str | None = 
 
         if not events:
             idle_rounds += 1
-            if idle_rounds >= 3:
+            if idle_rounds >= heartbeat_rounds:
                 current = await get_generation(owner_id, run_id)
                 yield _sse("heartbeat", {"run_id": run_id, "status": current["status"]}, event_id=str(last_sequence))
                 if current["status"] in gen_repo.TERMINAL_RUN_STATUSES:
@@ -372,15 +498,16 @@ def _viz_type_from_result(result: dict[str, Any], planned: str | None) -> str:
     return "table"
 
 
-async def execute_run(run_id: str) -> None:
-    reporter = DashboardGenerationReporter(run_id)
+async def execute_run(
+    run_id: str,
+    *,
+    reporter: DashboardGenerationReporter | None = None,
+) -> None:
+    reporter = reporter or DashboardGenerationReporter(run_id)
     with session_scope() as session:
-        run = gen_repo.get_run_by_id_sync(session, run_id)
+        run = gen_repo.claim_execution_run_sync(session, run_id)
         if not run:
             return
-        if run.status in gen_repo.TERMINAL_RUN_STATUSES:
-            return
-        gen_repo.update_stage_sync(session, run_id, stage="running", stage_label="Generating widgets", status="running")
     publish_event(run_id, "run.started", "Generating dashboard widgets", stage="running")
 
     with session_scope() as session:
@@ -415,7 +542,28 @@ async def execute_run(run_id: str) -> None:
             completed += 1
             continue
 
-        ok = await _execute_item(run_id, item.id, reporter=reporter)
+        try:
+            ok = await _execute_item(run_id, item.id, reporter=reporter)
+        except AgentRunCancelled:
+            with session_scope() as session:
+                gen_repo.cancel_pending_items_sync(session, run_id)
+                status = "partial" if completed else "cancelled"
+                gen_repo.finalize_run_sync(
+                    session,
+                    run_id,
+                    status=status,
+                    failure_code="dashboard_generation_cancelled",
+                    failure_message="Cancelled during generation.",
+                    stage="cancelled",
+                    stage_label="Cancelled",
+                )
+            publish_event(
+                run_id,
+                "run.partial" if completed else "run.cancelled",
+                "Dashboard generation cancelled",
+                stage="cancelled",
+            )
+            return
         if ok:
             completed += 1
         else:
@@ -482,15 +630,16 @@ async def _execute_item(
             previous_chart = widget.chart_config
             previous_viz = widget.viz_type
 
-    status = "regenerating" if regenerating else "running"
     with session_scope() as session:
-        gen_repo.mark_item_status_sync(session, item_id, status=status)
+        claimed = gen_repo.claim_item_sync(session, item_id)
+    if not claimed:
+        return False
     reporter.widget_event(
         "widget.regenerating" if regenerating else "widget.started",
         "Regenerating widget" if regenerating else "Generating widget",
         item_id=item_id,
         widget_id=widget_id,
-        stage=status,
+        stage="regenerating" if regenerating else "running",
     )
 
     question = str(plan.get("question") or "")
@@ -616,11 +765,15 @@ async def _execute_item(
         return False
 
 
-async def execute_planning(run_id: str) -> None:
-    reporter = DashboardGenerationReporter(run_id)
+async def execute_planning(
+    run_id: str,
+    *,
+    reporter: DashboardGenerationReporter | None = None,
+) -> None:
+    reporter = reporter or DashboardGenerationReporter(run_id)
     with session_scope() as session:
-        run = gen_repo.get_run_by_id_sync(session, run_id)
-        if not run or run.status != "planning":
+        run = gen_repo.claim_planning_run_sync(session, run_id)
+        if not run:
             return
         owner_id = run.owner_id
         connection_id = run.connection_id
@@ -634,7 +787,9 @@ async def execute_planning(run_id: str) -> None:
         if cancel_signalled(run_id):
             raise AgentRunCancelled("Cancelled")
 
+        reporter.stage_started("schema_search", "Searching the database schema")
         catalog = await connection_service.get_catalog(owner_id, connection_id)
+        reporter.stage_completed("schema_search", "Schema context ready")
 
         def progress(stage: str, label: str) -> None:
             reporter.stage_started(stage, label)
@@ -691,7 +846,7 @@ async def execute_planning(run_id: str) -> None:
     except Exception as exc:
         logger.exception("Dashboard planning failed for %s", run_id)
         with session_scope() as session:
-            gen_repo.finalize_run_sync(
+            finalized = gen_repo.finalize_run_sync(
                 session,
                 run_id,
                 status="failed",
@@ -700,17 +855,24 @@ async def execute_planning(run_id: str) -> None:
                 stage="failed",
                 stage_label="Planning failed",
             )
-        publish_event(
-            run_id,
-            "run.failed",
-            "Planning failed",
-            stage="failed",
-            metadata={"failure_code": "dashboard_planning_failed"},
-        )
+        if finalized and finalized.status == "failed":
+            publish_event(
+                run_id,
+                "run.failed",
+                "Planning failed",
+                stage="failed",
+                metadata={"failure_code": "dashboard_planning_failed"},
+            )
 
 
-async def execute_single_item(run_id: str, item_id: str, instruction: str | None = None) -> None:
-    reporter = DashboardGenerationReporter(run_id)
+async def execute_single_item(
+    run_id: str,
+    item_id: str,
+    instruction: str | None = None,
+    *,
+    reporter: DashboardGenerationReporter | None = None,
+) -> None:
+    reporter = reporter or DashboardGenerationReporter(run_id)
     regenerating = True
     try:
         await _execute_item(
@@ -721,26 +883,34 @@ async def execute_single_item(run_id: str, item_id: str, instruction: str | None
             regenerating=regenerating,
         )
     except AgentRunCancelled:
+        completed = 0
+        with session_scope() as session:
+            run = gen_repo.get_run_by_id_sync(session, run_id)
+            if run:
+                completed = sum(1 for entry in run.items if entry.status == "completed")
+                gen_repo.cancel_pending_items_sync(session, run_id)
+                status = "partial" if completed else "cancelled"
+                gen_repo.finalize_run_sync(
+                    session,
+                    run_id,
+                    status=status,
+                    failure_code="dashboard_generation_cancelled",
+                    failure_message="Cancelled during widget generation.",
+                    stage="cancelled",
+                    stage_label="Cancelled",
+                )
+        publish_event(
+            run_id,
+            "run.partial" if completed else "run.cancelled",
+            "Dashboard generation cancelled",
+            stage="cancelled",
+        )
         return
 
     with session_scope() as session:
-        run = gen_repo.get_run_by_id_sync(session, run_id)
-        if not run:
-            return
-        statuses = [item.status for item in run.items]
-        if any(status in {"queued", "running", "regenerating"} for status in statuses):
-            return
-        completed = sum(1 for status in statuses if status == "completed")
-        failed = sum(1 for status in statuses if status in {"failed", "cancelled"})
-        if failed and completed:
-            status, event, label = "partial", "run.partial", "Dashboard generation partially completed"
-        elif failed and not completed:
-            status, event, label = "failed", "run.failed", "Dashboard generation failed"
-        else:
-            status, event, label = "completed", "run.completed", "Dashboard generation completed"
-        if run.status not in gen_repo.TERMINAL_RUN_STATUSES or run.status != status:
-            gen_repo.finalize_run_sync(session, run_id, status=status, stage=status, stage_label=label)
-            publish_event(run_id, event, label, stage=status)
+        _finalized, event, label = _finalize_idle_run_sync(session, run_id)
+    if event and label:
+        publish_event(run_id, event, label, stage=event.removeprefix("run."))
 
 
 __all__ = [

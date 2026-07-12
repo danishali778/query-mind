@@ -86,6 +86,10 @@ def cancel_signalled(run_id: str) -> bool:
         return bool(run and run.cancel_requested_at)
 
 
+def clear_cancel(run_id: str) -> None:
+    run_stream.clear_typed_cancel(namespace=NAMESPACE, run_id=run_id)
+
+
 class DashboardGenerationReporter:
     def __init__(self, run_id: str):
         self.run_id = run_id
@@ -129,9 +133,29 @@ class DashboardGenerationReporter:
             "execute_sql": ("executing", "Executing"),
         }
         stage, label = labels.get(tool_name, ("generating_sql", "Generating SQL"))
-        self.stage_started(stage, label)
+        self.check_cancelled()
+        with session_scope() as session:
+            gen_repo.update_stage_sync(session, self.run_id, stage=stage, stage_label=label)
+        publish_event(self.run_id, "tool.started", label, stage=stage)
 
     def tool_completed(self, step) -> None:
+        labels = {
+            "list_tables": "Schema search completed",
+            "describe_table": "Table inspection completed",
+            "find_join_path": "Relationship search completed",
+            "validate_sql": "SQL validation completed",
+            "preview_sql": "Query preview completed",
+            "execute_sql": "Query execution completed",
+        }
+        publish_event(
+            self.run_id,
+            "tool.completed",
+            labels.get(getattr(step, "tool", ""), "Analysis step completed"),
+            duration_ms=getattr(step, "duration_ms", None),
+            outcome=getattr(step, "outcome", None),
+            retry_count=getattr(step, "retry_count", None),
+            row_count=getattr(step, "output_row_count", None),
+        )
         self.check_cancelled()
 
     def fallback(self, reason: str | None = None) -> None:
@@ -170,4 +194,5 @@ __all__ = [
     "read_events",
     "signal_cancel",
     "cancel_signalled",
+    "clear_cancel",
 ]

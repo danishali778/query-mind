@@ -143,11 +143,19 @@ def cancel_typed_signalled(*, namespace: str, run_id: str) -> bool:
         return False
 
 
+def clear_typed_cancel(*, namespace: str, run_id: str) -> None:
+    try:
+        redis_client().delete(cancel_key(namespace, run_id))
+    except (RedisError, RuntimeError):
+        pass
+
+
 __all__ = [
     "ensure_stream_available",
     "publish_typed_event",
     "read_typed_events",
     "signal_typed_cancel",
     "cancel_typed_signalled",
+    "clear_typed_cancel",
     "redis_client",
 ]

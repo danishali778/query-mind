@@ -160,7 +160,15 @@ class DashboardWidgetORM(Base):
     order_index: Mapped[int | None] = mapped_column(Integer, default=0, nullable=True)
     source_type: Mapped[str] = mapped_column(Text, nullable=False, default="manual", server_default=text("'manual'"))
     source_prompt: Mapped[str | None] = mapped_column(Text)
-    generation_item_id: Mapped[str | None] = mapped_column(GUID())
+    generation_item_id: Mapped[str | None] = mapped_column(
+        GUID(),
+        ForeignKey(
+            "dashboard_generation_items.id",
+            ondelete="SET NULL",
+            name="fk_dashboard_widgets_generation_item_id",
+            use_alter=True,
+        ),
+    )
     generation_status: Mapped[str] = mapped_column(
         Text, nullable=False, default="ready", server_default=text("'ready'")
     )
@@ -249,13 +257,7 @@ class DashboardGenerationRunORM(Base):
         Index("idx_dashboard_generation_runs_owner_created_at", "owner_id", desc("created_at")),
         Index("idx_dashboard_generation_runs_status_heartbeat", "status", "heartbeat_at"),
         Index("idx_dashboard_generation_runs_dashboard_id", "dashboard_id"),
-        Index(
-            "uq_dashboard_generation_runs_active_owner",
-            "owner_id",
-            unique=True,
-            postgresql_where=text("status IN ('planning', 'queued', 'running')"),
-            sqlite_where=text("status IN ('planning', 'queued', 'running')"),
-        ),
+        Index("idx_dashboard_generation_runs_owner_status", "owner_id", "status"),
     )
 
 

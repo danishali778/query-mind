@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -27,7 +27,7 @@ class UpdateDashboardRequest(BaseModel):
     icon: Optional[str] = None
     filters: Optional[dict] = None
     is_public: Optional[bool] = None
-    lifecycle_status: Optional[str] = None
+    lifecycle_status: Optional[Literal["draft", "ready"]] = None
 
 
 class AddWidgetRequest(BaseModel):
