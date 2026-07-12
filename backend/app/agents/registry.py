@@ -1,4 +1,5 @@
 from app.agents.base import AgentDefinition
+from app.agents.dashboard_planner.planner import plan_dashboard
 from app.agents.insights.generator import generate_widget_insight
 from app.agents.nl_to_sql.graph import run_chat
 from app.agents.nl_to_sql.template_recommender import generate_templates
@@ -18,6 +19,11 @@ class AgentRegistry:
                 "dashboard_insight",
                 generate_widget_insight,
                 "Dashboard insight generator",
+            ),
+            "dashboard_planner": AgentDefinition(
+                "dashboard_planner",
+                plan_dashboard,
+                "AI dashboard plan generator",
             ),
             "template_generator": AgentDefinition(
                 "template_generator",
