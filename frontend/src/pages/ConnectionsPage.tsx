@@ -11,7 +11,7 @@ import { ApiRequestError } from '../services/http';
 import type { QueryRecord, SchemaResponse } from '../types/api';
 import type { ConnectionListItem, LoadState } from '../types/connections';
 import { mapConnectionRecord } from '../mappers/connections';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 
 function stableMessage(error: unknown, fallback: string) {
   if (error instanceof ApiRequestError) {

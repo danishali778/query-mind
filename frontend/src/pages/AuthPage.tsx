@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { T } from '../components/dashboard/tokens';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 import { Mail, ChevronRight, Activity, Globe, LockKeyhole } from 'lucide-react';
 import { LandingOverlay } from '../components/landing/LandingOverlay';
 import { ApiRequestError } from '../services/http';

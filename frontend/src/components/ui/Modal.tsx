@@ -14,14 +14,23 @@ export function Modal({ isOpen, onClose, children, width = 440 }: ModalProps) {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
+    let visibilityTimer: ReturnType<typeof setTimeout> | undefined;
+    let unmountTimer: ReturnType<typeof setTimeout> | undefined;
+    let animationFrame: number | undefined;
     if (isOpen) {
-      setMounted(true);
-      setTimeout(() => setVisible(true), 10);
+      visibilityTimer = setTimeout(() => {
+        setMounted(true);
+        animationFrame = requestAnimationFrame(() => setVisible(true));
+      }, 0);
     } else {
-      setVisible(false);
-      const timer = setTimeout(() => setMounted(false), 300);
-      return () => clearTimeout(timer);
+      visibilityTimer = setTimeout(() => setVisible(false), 0);
+      unmountTimer = setTimeout(() => setMounted(false), 300);
     }
+    return () => {
+      if (visibilityTimer) clearTimeout(visibilityTimer);
+      if (unmountTimer) clearTimeout(unmountTimer);
+      if (animationFrame) cancelAnimationFrame(animationFrame);
+    };
   }, [isOpen]);
 
   if (!mounted) return null;

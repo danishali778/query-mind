@@ -20,7 +20,7 @@ const apiMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../src/services/api', () => apiMocks);
-vi.mock('../src/context/AuthContext', () => ({
+vi.mock('../src/context/useAuth', () => ({
   useAuth: () => ({
     user: { id: 'test-user', email: 'test@example.com' },
     loading: false,

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   getAuthSession,
   refreshAuthSession as refreshAuthSessionRequest,
@@ -8,18 +8,7 @@ import {
 } from '../services/auth';
 import { ApiRequestError } from '../services/http';
 import type { AuthSessionResponse, AuthUserResponse } from '../types/api';
-
-interface AuthContextType {
-  user: AuthUserResponse | null;
-  loading: boolean;
-  signIn: (email: string, password: string) => Promise<AuthSessionResponse>;
-  signUp: (email: string, password: string) => Promise<AuthSessionResponse>;
-  signOut: () => Promise<void>;
-  refreshSession: () => Promise<AuthSessionResponse | null>;
-  isDevMode: boolean;
-}
-
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+import { AuthContext } from './useAuth';
 
 const DEV_MODE = import.meta.env.VITE_DEV_MODE === 'true';
 const MOCK_USER: AuthUserResponse = {
@@ -97,12 +86,4 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       {children}
     </AuthContext.Provider>
   );
-};
-
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
 };

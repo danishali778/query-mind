@@ -510,20 +510,22 @@ function DashboardCanvas({
   onStopWidget?: (widget: DashboardWidgetItem) => void;
   onMarkReady?: () => void;
 }) {
-  if (!activeDash) return <EmptyState />;
-
-  const [localFilters, setLocalFilters] = useState<Record<string, unknown>>(activeDash.filters || {});
+  const [filterDraft, setFilterDraft] = useState<{
+    dashboardId: string | null;
+    filters: Record<string, unknown>;
+  }>(() => ({ dashboardId: activeDash?.id || null, filters: activeDash?.filters || {} }));
   const [refreshInterval, setRefreshInterval] = useState<number | null>(null); // null = off, otherwise ms
-
-  useEffect(() => {
-    setLocalFilters(activeDash.filters || {});
-  }, [activeDash.id, activeDash.filters]);
+  const localFilters = filterDraft.dashboardId === activeDash?.id
+    ? filterDraft.filters
+    : activeDash?.filters || {};
+  const setLocalFilters = (filters: Record<string, unknown>) => {
+    setFilterDraft({ dashboardId: activeDash?.id || null, filters });
+  };
 
   useEffect(() => {
     if (!refreshInterval) return;
 
     const interval = setInterval(() => {
-      console.log('Live Refreshing Dashboard...');
       widgets.forEach(w => {
         if (w.sql) {
           refreshDashboardWidget(w.id).then((updated) => {
@@ -537,6 +539,7 @@ function DashboardCanvas({
   }, [refreshInterval, widgets, onUpdateWidget]);
 
   const handleApplyFilters = async () => {
+    if (!activeDash) return;
     try {
       await updateDashboard(activeDash.id, { filters: localFilters });
       window.location.reload();
@@ -550,8 +553,8 @@ function DashboardCanvas({
       lg: widgets.map((w): GridLayoutItem => {
         const isKPI = w.viz_type === 'kpi';
 
-        let safeW = w.w;
-        let safeH = w.h;
+        const safeW = w.w;
+        const safeH = w.h;
 
         return {
           i: w.id,
@@ -566,8 +569,9 @@ function DashboardCanvas({
     };
   }, [widgets]);
 
+  if (!activeDash) return <EmptyState />;
+
   const handleLayoutChange = (currentLayout: readonly GridLayoutItem[]) => {
-    console.log('🔍 GRID TRIGGERED:', currentLayout.map(i => ({ id: i.i, h: i.h })));
     currentLayout.forEach((item) => {
       const widget = widgets.find(w => w.id === item.i);
       if (widget) {

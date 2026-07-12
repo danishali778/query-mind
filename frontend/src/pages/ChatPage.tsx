@@ -8,7 +8,7 @@ import { ConnectionModal } from '../components/chat/ConnectionModal';
 import { T } from '../components/dashboard/tokens';
 import { BREAKPOINTS, useMediaQuery } from '../hooks/useMediaQuery';
 import * as api from '../services/api';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 import type { ChatMessageView } from '../types/chat';
 import type { ChatResponse, ChatRunEvent, ChatRunSnapshot, DatabaseConnection, SessionMessagesResponse, SessionSummary } from '../types/api';
 import { useChatAgentRun } from '../hooks/useChatAgentRun';

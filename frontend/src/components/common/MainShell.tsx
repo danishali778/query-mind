@@ -34,12 +34,10 @@ export function MainShell({
   hideHeader = false
 }: MainShellProps) {
   const isMobileNav = useMediaQuery(BREAKPOINTS.lg);
-  const [navOpen, setNavOpen] = useState(false);
   const location = useLocation();
-
-  useEffect(() => {
-    setNavOpen(false);
-  }, [location.pathname]);
+  const [navState, setNavState] = useState({ path: location.pathname, open: false });
+  const navOpen = navState.path === location.pathname && navState.open;
+  const setNavOpen = (open: boolean) => setNavState({ path: location.pathname, open });
 
   useEffect(() => {
     document.body.style.overflow = navOpen && isMobileNav ? 'hidden' : '';

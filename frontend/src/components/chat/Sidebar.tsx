@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { T } from '../dashboard/tokens';
 import type { ChatSidebarProps } from '../../types/chat';
 import { DeleteSessionModal } from './DeleteSessionModal';
@@ -9,10 +9,16 @@ export function Sidebar({ sessions, activeSessionId, sessionsState = 'ready', se
   const [editText, setEditText] = useState('');
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
-  const today = new Date().toDateString();
-  const yesterday = new Date(Date.now() - 86400000).toDateString();
-  const weekAgo = Date.now() - 7 * 86400000;
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const today = new Date(now).toDateString();
+  const yesterday = new Date(now - 86400000).toDateString();
+  const weekAgo = now - 7 * 86400000;
 
   const grouped: { label: string; items: ChatSidebarProps['sessions'] }[] = [];
   const todayItems: ChatSidebarProps['sessions'] = [], yesterdayItems: ChatSidebarProps['sessions'] = [], weekItems: ChatSidebarProps['sessions'] = [], olderItems: ChatSidebarProps['sessions'] = [];
@@ -32,7 +38,7 @@ export function Sidebar({ sessions, activeSessionId, sessionsState = 'ready', se
   if (olderItems.length) grouped.push({ label: 'Older', items: olderItems });
 
   const timeAgo = (dateStr: string) => {
-    const diff = Date.now() - new Date(dateStr).getTime();
+    const diff = now - new Date(dateStr).getTime();
     const m = Math.floor(diff / 60000);
     if (m < 60) return `${m}m`;
     const h = Math.floor(m / 60);
