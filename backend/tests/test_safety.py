@@ -5,6 +5,7 @@ normal, edge-case, and adversarial inputs.
 """
 import asyncio
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import anyio
 import pytest
@@ -656,27 +657,30 @@ class TestChatTruncatedMetadata:
         async def fake_add_message(user_id, session_id, message):
             stored_messages.append(message)
 
-        def fake_run_chat(**kwargs):
-            return {
-                "explanation": "Preview is limited.",
-                "sql": "SELECT id FROM items LIMIT 1000000",
-                "columns": ["id"],
-                "rows": [{"id": 1}],
-                "row_count": 500,
-                "execution_time_ms": 12.5,
-                "truncated": True,
-                "chart_recommendation": None,
-                "error": "",
-                "column_metadata": {"id": "numeric"},
-            }
-
         monkeypatch.setattr(chat_service.connection_service, "get_engine", fake_get_engine)
         monkeypatch.setattr(chat_service.connection_service, "get_schema_for_ai", fake_get_schema_for_ai)
         monkeypatch.setattr(chat_service, "create_session", fake_create_session)
         monkeypatch.setattr(chat_service, "rename_session", fake_noop)
         monkeypatch.setattr(chat_service, "record_user_turn", fake_record_user_turn)
         monkeypatch.setattr(chat_service, "add_message", fake_add_message)
-        monkeypatch.setattr(chat_service, "run_chat", fake_run_chat)
+        monkeypatch.setattr(
+            chat_service.analysis_service,
+            "run_analysis",
+            AsyncMock(
+                return_value={
+                    "explanation": "Preview is limited.",
+                    "sql": "SELECT id FROM items LIMIT 1000000",
+                    "columns": ["id"],
+                    "rows": [{"id": 1}],
+                    "row_count": 500,
+                    "execution_time_ms": 12.5,
+                    "truncated": True,
+                    "chart_recommendation": None,
+                    "error": "",
+                    "column_metadata": {"id": "numeric"},
+                }
+            ),
+        )
 
         response = asyncio.run(
             chat_service.send_message(
@@ -792,8 +796,6 @@ class TestChatPersistenceFailures:
         assert history == []
 
     def test_send_message_does_not_call_llm_when_user_message_persistence_fails(self, monkeypatch):
-        called_run_chat = False
-
         async def fake_get_engine(user_id, connection_id):
             return object()
 
@@ -809,22 +811,18 @@ class TestChatPersistenceFailures:
         async def fake_record_user_turn(user_id, session_id, connection_id, message):
             raise RuntimeError("write failed")
 
-        def fake_run_chat(*args, **kwargs):
-            nonlocal called_run_chat
-            called_run_chat = True
-            return {}
-
         monkeypatch.setattr(chat_service.connection_service, "get_engine", fake_get_engine)
         monkeypatch.setattr(chat_service.connection_service, "get_schema_for_ai", fake_get_schema_for_ai)
         monkeypatch.setattr(chat_service, "create_session", fake_create_session)
         monkeypatch.setattr(chat_service, "rename_session", fake_noop)
         monkeypatch.setattr(chat_service, "record_user_turn", fake_record_user_turn)
-        monkeypatch.setattr(chat_service, "run_chat", fake_run_chat)
+        analysis_mock = AsyncMock(side_effect=AssertionError("LLM should not run"))
+        monkeypatch.setattr(chat_service.analysis_service, "run_analysis", analysis_mock)
 
         with pytest.raises(chat_service.ChatPersistenceError):
             asyncio.run(chat_service.send_message("user-1", "connection-1", "show rows"))
 
-        assert called_run_chat is False
+        assert analysis_mock.await_count == 0
 
     def test_send_message_fails_if_assistant_message_persistence_fails_after_llm(self, monkeypatch):
         add_calls = 0
@@ -850,24 +848,27 @@ class TestChatPersistenceFailures:
             add_calls += 1
             raise RuntimeError("assistant write failed")
 
-        def fake_run_chat(*args, **kwargs):
-            return {
-                "explanation": "done",
-                "sql": "SELECT 1",
-                "columns": ["id"],
-                "rows": [{"id": 1}],
-                "row_count": 1,
-                "execution_time_ms": 1.0,
-                "truncated": False,
-            }
-
         monkeypatch.setattr(chat_service.connection_service, "get_engine", fake_get_engine)
         monkeypatch.setattr(chat_service.connection_service, "get_schema_for_ai", fake_get_schema_for_ai)
         monkeypatch.setattr(chat_service, "create_session", fake_create_session)
         monkeypatch.setattr(chat_service, "rename_session", fake_noop)
         monkeypatch.setattr(chat_service, "record_user_turn", fake_record_user_turn)
         monkeypatch.setattr(chat_service, "add_message", fake_add_message)
-        monkeypatch.setattr(chat_service, "run_chat", fake_run_chat)
+        monkeypatch.setattr(
+            chat_service.analysis_service,
+            "run_analysis",
+            AsyncMock(
+                return_value={
+                    "explanation": "done",
+                    "sql": "SELECT 1",
+                    "columns": ["id"],
+                    "rows": [{"id": 1}],
+                    "row_count": 1,
+                    "execution_time_ms": 1.0,
+                    "truncated": False,
+                }
+            ),
+        )
 
         with pytest.raises(chat_service.ChatPersistenceError):
             asyncio.run(chat_service.send_message("user-1", "connection-1", "show rows"))

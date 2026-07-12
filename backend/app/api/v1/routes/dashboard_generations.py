@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Header, Request
+from fastapi import APIRouter, Depends, Header
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import CurrentUserDep, RateLimitChecker
@@ -16,7 +16,6 @@ from app.api.v1.schemas.dashboard_generation import (
     UpdateDashboardPlanRequest,
 )
 from app.services import dashboard_generation_service as generation_service
-from fastapi import Depends
 
 
 router = APIRouter(prefix="/api/dashboard/generations", tags=["Dashboard Generation"])
@@ -48,11 +47,21 @@ async def get_generation(run_id: str, current_user: CurrentUserDep):
 async def stream_generation_events(
     run_id: str,
     current_user: CurrentUserDep,
-    request: Request,
     last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
 ):
+    # Ownership check before opening the stream (also provides an await for the
+    # async route concurrency guard — StreamingResponse itself is sync to create).
+    await generation_service.get_generation(current_user.id, run_id)
     generator = generation_service.stream_events(current_user.id, run_id, last_event_id)
-    return StreamingResponse(generator, media_type="text/event-stream")
+    return StreamingResponse(
+        generator,
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.put("/{run_id}/plan", response_model=DashboardGenerationRunResponse)
