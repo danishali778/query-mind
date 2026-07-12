@@ -31,20 +31,30 @@ class AppError(Exception):
 
 
 class NotFoundError(AppError):
-    def __init__(self, message: str = "Resource not found.") -> None:
-        super().__init__(message, code="not_found", status_code=status.HTTP_404_NOT_FOUND)
+    def __init__(self, message: str = "Resource not found.", *, code: str = "not_found") -> None:
+        super().__init__(message, code=code, status_code=status.HTTP_404_NOT_FOUND)
 
 
 class BadRequestError(AppError):
-    def __init__(self, message: str = "Invalid request.") -> None:
-        super().__init__(message, code="bad_request", status_code=status.HTTP_400_BAD_REQUEST)
+    def __init__(self, message: str = "Invalid request.", *, code: str = "bad_request") -> None:
+        super().__init__(message, code=code, status_code=status.HTTP_400_BAD_REQUEST)
+
+
+class ConflictError(AppError):
+    def __init__(self, message: str = "Conflict.", *, code: str = "conflict") -> None:
+        super().__init__(message, code=code, status_code=status.HTTP_409_CONFLICT)
 
 
 class ServiceUnavailableError(AppError):
-    def __init__(self, message: str = "Service temporarily unavailable.") -> None:
+    def __init__(
+        self,
+        message: str = "Service temporarily unavailable.",
+        *,
+        code: str = "service_unavailable",
+    ) -> None:
         super().__init__(
             message,
-            code="service_unavailable",
+            code=code,
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
 
@@ -128,6 +138,7 @@ def register_exception_handlers(app: FastAPI) -> None:
 __all__ = [
     "AppError",
     "BadRequestError",
+    "ConflictError",
     "NotFoundError",
     "ServiceUnavailableError",
     "register_exception_handlers",

@@ -65,13 +65,15 @@ services:
   agent-worker:
     build: ./backend
     restart: unless-stopped
-    command: celery -A app.workers.worker:app worker --loglevel=info --queues interactive --concurrency=2
+    command: celery -A app.workers.worker:app worker --loglevel=info --queues interactive,dashboards --concurrency=2
     env_file: ./backend/.env
     environment:
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_INTERACTIVE_QUEUE: interactive
+      CELERY_DASHBOARDS_QUEUE: dashboards
       CHAT_STREAMING_ENABLED: "true"
+      DASHBOARD_AI_ENABLED: "true"
     depends_on:
       redis:
         condition: service_healthy
