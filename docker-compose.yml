@@ -62,6 +62,22 @@ services:
         # worker never touches a half-migrated schema.
         condition: service_healthy
 
+  agent-worker:
+    build: ./backend
+    restart: unless-stopped
+    command: celery -A app.workers.worker:app worker --loglevel=info --queues interactive --concurrency=2
+    env_file: ./backend/.env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_INTERACTIVE_QUEUE: interactive
+      CHAT_STREAMING_ENABLED: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+
   beat:
     build: ./backend
     restart: unless-stopped
