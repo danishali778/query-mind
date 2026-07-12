@@ -29,8 +29,14 @@ class Settings(BaseSettings):
     celery_default_queue: str = "default"
     celery_scheduled_queue: str = "scheduled"
     celery_templates_queue: str = "templates"
+    celery_interactive_queue: str = "interactive"
     celery_dispatch_lock_seconds: int = 900
     celery_worker_concurrency: int = 4
+    chat_streaming_enabled: bool = True
+    chat_run_event_ttl_seconds: int = 3600
+    chat_run_event_maxlen: int = 500
+    chat_run_heartbeat_seconds: int = 15
+    chat_run_max_active_per_user: int = 3
 
     db_connect_timeout_seconds: int = 5
     db_connect_rate_limit_attempts: int = 10
@@ -237,6 +243,8 @@ class Settings(BaseSettings):
             "celery_default_queue": self.celery_default_queue,
             "celery_scheduled_queue": self.celery_scheduled_queue,
             "celery_templates_queue": self.celery_templates_queue,
+            "celery_interactive_queue": self.celery_interactive_queue,
+            "chat_streaming_enabled": self.chat_streaming_enabled,
             "db_connect_timeout_seconds": self.db_connect_timeout_seconds,
             "db_connect_rate_limit_attempts": self.db_connect_rate_limit_attempts,
             "db_connect_rate_limit_window_seconds": self.db_connect_rate_limit_window_seconds,

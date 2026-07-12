@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, Text, desc, func, text, true
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, Text, UniqueConstraint, desc, func, text, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -313,6 +313,12 @@ class ChatMessageORM(Base):
     )
     agent_trace: Mapped[list | dict | None] = mapped_column(JsonType, nullable=True)
     agent_tier: Mapped[str | None] = mapped_column(Text, nullable=True)
+    agent_run_id: Mapped[str | None] = mapped_column(
+        GUID(),
+        ForeignKey("chat_agent_runs.id", ondelete="SET NULL"),
+        nullable=True,
+        unique=True,
+    )
 
     session: Mapped[ChatSessionORM] = relationship(
         back_populates="messages",
@@ -325,6 +331,55 @@ class ChatMessageORM(Base):
         Index("idx_chat_messages_connection_id", "connection_id"),
         Index("idx_chat_messages_parent_id", "parent_id"),
         Index("idx_chat_messages_prev_query_id", "prev_query_id"),
+    )
+
+
+class ChatAgentRunORM(Base):
+    __tablename__ = "chat_agent_runs"
+
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    owner_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    session_id: Mapped[str] = mapped_column(
+        GUID(), ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    connection_id: Mapped[str] = mapped_column(
+        GUID(), ForeignKey("database_connections.id", ondelete="CASCADE"), nullable=False
+    )
+    user_message_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    client_request_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    celery_task_id: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="queued", server_default=text("'queued'"))
+    current_stage: Mapped[str] = mapped_column(Text, nullable=False, default="preparing", server_default=text("'preparing'"))
+    current_stage_label: Mapped[str] = mapped_column(
+        Text, nullable=False, default="Preparing your request", server_default=text("'Preparing your request'")
+    )
+    failure_code: Mapped[str | None] = mapped_column(Text)
+    failure_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_utcnow, server_default=func.now())
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, server_default=func.now(), onupdate=_utcnow
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'running', 'cancel_requested', 'completed', 'failed', 'cancelled')",
+            name="chat_agent_runs_status_valid",
+        ),
+        UniqueConstraint("owner_id", "client_request_id", name="uq_chat_agent_runs_owner_client_request"),
+        Index("idx_chat_agent_runs_owner_created_at", "owner_id", desc("created_at")),
+        Index("idx_chat_agent_runs_session_status", "session_id", "status"),
+        Index("idx_chat_agent_runs_status_heartbeat", "status", "heartbeat_at"),
+        Index(
+            "uq_chat_agent_runs_active_session",
+            "session_id",
+            unique=True,
+            postgresql_where=text("status IN ('queued', 'running', 'cancel_requested')"),
+            sqlite_where=text("status IN ('queued', 'running', 'cancel_requested')"),
+        ),
     )
 
 
