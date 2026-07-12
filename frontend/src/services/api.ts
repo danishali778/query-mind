@@ -4,6 +4,9 @@ import type {
   AnalyticsOverviewResponse,
   ApiMessageResponse,
   ChatRequest,
+  ChatRunAccepted,
+  ChatRunRequest,
+  ChatRunSnapshot,
   ChatResponse,
   ConnectDatabaseRequest,
   ConnectDatabaseResponse,
@@ -70,6 +73,18 @@ export function updateConnectionSettings(connectionId: string, data: { ssl_mode?
 
 export function sendMessage(data: ChatRequest) {
   return jsonRequest<ChatResponse>('/chat', 'POST', data);
+}
+
+export function startChatRun(data: ChatRunRequest) {
+  return jsonRequest<ChatRunAccepted>('/chat/runs', 'POST', data);
+}
+
+export function getChatRun(runId: string) {
+  return request<ChatRunSnapshot>(`/chat/runs/${runId}`);
+}
+
+export function cancelChatRun(runId: string) {
+  return request<ChatRunSnapshot>(`/chat/runs/${runId}/cancel`, { method: 'POST' });
 }
 
 export function listSessions() {

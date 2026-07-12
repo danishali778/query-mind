@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 import { ChatPage } from '../src/pages/ChatPage';
@@ -13,6 +13,10 @@ const apiMocks = vi.hoisted(() => ({
   renameSession: vi.fn(),
   editSql: vi.fn(),
   toggleMessagePin: vi.fn(),
+  getSettings: vi.fn(),
+  startChatRun: vi.fn(),
+  getChatRun: vi.fn(),
+  cancelChatRun: vi.fn(),
 }));
 
 vi.mock('../src/services/api', () => apiMocks);
@@ -92,6 +96,7 @@ describe('chat bootstrap states', () => {
     apiMocks.listConnections.mockResolvedValue([connection]);
     apiMocks.listSessions.mockResolvedValue([]);
     apiMocks.getSessionMessages.mockResolvedValue(messagesResponse);
+    apiMocks.getSettings.mockResolvedValue({ stream_responses: false });
   });
 
   it('shows connection loading state during initial bootstrap', async () => {
