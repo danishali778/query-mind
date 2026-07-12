@@ -8,9 +8,11 @@ import { WidgetRenderer } from '../src/components/dashboard/WidgetRenderer';
 import type { DashboardWidgetItem } from '../src/types/dashboard';
 import {
   PROMPT_MAX_LENGTH,
+  applyDashboardGenerationEvent,
   isDescribeFormValid,
   validateDescribeForm,
 } from '../src/utils/dashboardGeneration';
+import type { DashboardGenerationRun } from '../src/types/api';
 
 describe('prompt-to-dashboard describe validation', () => {
   it('requires connection, prompt, and widget count bounds', () => {
@@ -40,6 +42,41 @@ describe('prompt-to-dashboard describe validation', () => {
       timePeriod: '90d',
       extraInstructions: '',
     })).toBe(true);
+  });
+});
+
+describe('dashboard generation live events', () => {
+  const snapshot: DashboardGenerationRun = {
+    id: 'run-1',
+    owner_id: 'owner-1',
+    connection_id: 'connection-1',
+    client_request_id: 'request-1',
+    prompt: 'Revenue dashboard',
+    requested_widget_count: 1,
+    plan_revision: 1,
+    status: 'running',
+    current_stage: 'queued',
+    current_stage_label: 'Queued',
+    items: [],
+  };
+
+  it('applies live stage labels only to the matching durable run', () => {
+    expect(applyDashboardGenerationEvent(snapshot, {
+      run_id: 'run-1',
+      type: 'tool.started',
+      stage: 'executing',
+      label: 'Running a read-only query',
+    })).toMatchObject({
+      current_stage: 'executing',
+      current_stage_label: 'Running a read-only query',
+    });
+
+    expect(applyDashboardGenerationEvent(snapshot, {
+      run_id: 'other-run',
+      type: 'stage.started',
+      stage: 'wrong',
+      label: 'Wrong run',
+    })).toBe(snapshot);
   });
 });
 

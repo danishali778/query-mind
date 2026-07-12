@@ -43,12 +43,12 @@ def test_reject_duplicate_titles():
                 "title": "Sales",
                 "widgets": [
                     {
-                        "client_key": "a",
+                        "client_key": "11111111-1111-1111-1111-111111111111",
                         "title": "Revenue",
                         "question": "What is revenue?",
                     },
                     {
-                        "client_key": "b",
+                        "client_key": "22222222-2222-2222-2222-222222222222",
                         "title": "revenue",
                         "question": "What is profit?",
                     },
@@ -65,7 +65,7 @@ def test_reject_sql_in_question():
                 "title": "Sales",
                 "widgets": [
                     {
-                        "client_key": "a",
+                        "client_key": "11111111-1111-1111-1111-111111111111",
                         "title": "Revenue",
                         "question": "SELECT amount FROM orders;",
                     }
@@ -88,7 +88,7 @@ def test_reject_unknown_fields():
                 "sql": "SELECT 1",
                 "widgets": [
                     {
-                        "client_key": "a",
+                        "client_key": "11111111-1111-1111-1111-111111111111",
                         "title": "Revenue",
                         "question": "What is revenue?",
                     }
@@ -113,3 +113,20 @@ def test_layout_does_not_overlap():
                 cell = (layout["x"] + dx, layout["y"] + dy)
                 assert cell not in occupied
                 occupied.add(cell)
+
+
+def test_reject_non_uuid_client_key():
+    with pytest.raises(ValidationError, match="valid UUID"):
+        parse_dashboard_plan(
+            {
+                "version": 1,
+                "title": "Sales",
+                "widgets": [
+                    {
+                        "client_key": "stable-key",
+                        "title": "Revenue",
+                        "question": "What is revenue?",
+                    }
+                ],
+            }
+        )
