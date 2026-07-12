@@ -109,6 +109,8 @@ class DashboardORM(Base):
     filters: Mapped[dict | None] = mapped_column(JsonType, default=dict, nullable=True)
     is_public: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     share_token: Mapped[str | None] = mapped_column(GUID(), default=_uuid)
+    creation_mode: Mapped[str] = mapped_column(Text, nullable=False, default="manual", server_default=text("'manual'"))
+    lifecycle_status: Mapped[str] = mapped_column(Text, nullable=False, default="ready", server_default=text("'ready'"))
 
     widgets: Mapped[list["DashboardWidgetORM"]] = relationship(
         back_populates="dashboard",
@@ -117,6 +119,8 @@ class DashboardORM(Base):
 
     __table_args__ = (
         CheckConstraint("is_public = false", name="dashboards_private_only"),
+        CheckConstraint("creation_mode IN ('manual', 'ai')", name="dashboards_creation_mode_valid"),
+        CheckConstraint("lifecycle_status IN ('draft', 'ready')", name="dashboards_lifecycle_status_valid"),
         Index("idx_dashboards_owner_id_created_at", "owner_id", desc("created_at")),
         Index("idx_dashboards_share_token", "share_token", unique=True),
     )
@@ -154,14 +158,142 @@ class DashboardWidgetORM(Base):
         comment="Stores the column names for the query results.",
     )
     order_index: Mapped[int | None] = mapped_column(Integer, default=0, nullable=True)
+    source_type: Mapped[str] = mapped_column(Text, nullable=False, default="manual", server_default=text("'manual'"))
+    source_prompt: Mapped[str | None] = mapped_column(Text)
+    generation_item_id: Mapped[str | None] = mapped_column(GUID())
+    generation_status: Mapped[str] = mapped_column(
+        Text, nullable=False, default="ready", server_default=text("'ready'")
+    )
+    generation_error: Mapped[str | None] = mapped_column(Text)
+    assumptions: Mapped[list | None] = mapped_column(JsonType, default=list, nullable=True)
 
     dashboard: Mapped[DashboardORM] = relationship(back_populates="widgets")
 
     __table_args__ = (
+        CheckConstraint("source_type IN ('manual', 'chat', 'ai')", name="dashboard_widgets_source_type_valid"),
+        CheckConstraint(
+            "generation_status IN ('ready', 'queued', 'running', 'failed', 'cancelled', 'regenerating')",
+            name="dashboard_widgets_generation_status_valid",
+        ),
         Index("idx_dashboard_widgets_dashboard_id_order_index", "dashboard_id", "order_index"),
         Index("idx_dashboard_widgets_owner_id", "owner_id"),
         Index("idx_dashboard_widgets_connection_id", "connection_id"),
         Index("idx_dashboard_widgets_next_run_at", "next_run_at"),
+        Index(
+            "idx_dashboard_widgets_generation_item_id",
+            "generation_item_id",
+            unique=True,
+            postgresql_where=text("generation_item_id IS NOT NULL"),
+            sqlite_where=text("generation_item_id IS NOT NULL"),
+        ),
+    )
+
+
+class DashboardGenerationRunORM(Base):
+    __tablename__ = "dashboard_generation_runs"
+
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    owner_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    connection_id: Mapped[str] = mapped_column(
+        GUID(), ForeignKey("database_connections.id", ondelete="CASCADE"), nullable=False
+    )
+    dashboard_id: Mapped[str | None] = mapped_column(
+        GUID(), ForeignKey("dashboards.id", ondelete="SET NULL")
+    )
+    client_request_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    requested_widget_count: Mapped[int] = mapped_column(Integer, nullable=False, default=6, server_default=text("6"))
+    default_time_range: Mapped[str | None] = mapped_column(Text)
+    extra_instructions: Mapped[str | None] = mapped_column(Text)
+    plan_json: Mapped[dict | None] = mapped_column(JsonType)
+    plan_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="planning", server_default=text("'planning'"))
+    current_stage: Mapped[str] = mapped_column(
+        Text, nullable=False, default="reading_objective", server_default=text("'reading_objective'")
+    )
+    current_stage_label: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="Reading the dashboard objective",
+        server_default=text("'Reading the dashboard objective'"),
+    )
+    celery_task_id: Mapped[str | None] = mapped_column(Text)
+    failure_code: Mapped[str | None] = mapped_column(Text)
+    failure_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_utcnow, server_default=func.now())
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, server_default=func.now(), onupdate=_utcnow
+    )
+
+    items: Mapped[list["DashboardGenerationItemORM"]] = relationship(
+        back_populates="run",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ("
+            "'planning', 'awaiting_approval', 'queued', 'running', "
+            "'partial', 'completed', 'failed', 'cancelled')",
+            name="dashboard_generation_runs_status_valid",
+        ),
+        CheckConstraint(
+            "requested_widget_count >= 1 AND requested_widget_count <= 8",
+            name="dashboard_generation_runs_widget_count_valid",
+        ),
+        UniqueConstraint("owner_id", "client_request_id", name="uq_dashboard_generation_runs_owner_client_request"),
+        Index("idx_dashboard_generation_runs_owner_created_at", "owner_id", desc("created_at")),
+        Index("idx_dashboard_generation_runs_status_heartbeat", "status", "heartbeat_at"),
+        Index("idx_dashboard_generation_runs_dashboard_id", "dashboard_id"),
+        Index(
+            "uq_dashboard_generation_runs_active_owner",
+            "owner_id",
+            unique=True,
+            postgresql_where=text("status IN ('planning', 'queued', 'running')"),
+            sqlite_where=text("status IN ('planning', 'queued', 'running')"),
+        ),
+    )
+
+
+class DashboardGenerationItemORM(Base):
+    __tablename__ = "dashboard_generation_items"
+
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    run_id: Mapped[str] = mapped_column(
+        GUID(), ForeignKey("dashboard_generation_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    client_key: Mapped[str] = mapped_column(GUID(), nullable=False)
+    dashboard_widget_id: Mapped[str | None] = mapped_column(
+        GUID(), ForeignKey("dashboard_widgets.id", ondelete="SET NULL"), unique=True
+    )
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    plan_json: Mapped[dict] = mapped_column(JsonType, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="planned", server_default=text("'planned'"))
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    last_error_code: Mapped[str | None] = mapped_column(Text)
+    last_error_message: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_utcnow, server_default=func.now())
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, server_default=func.now(), onupdate=_utcnow
+    )
+
+    run: Mapped[DashboardGenerationRunORM] = relationship(back_populates="items")
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ("
+            "'planned', 'queued', 'running', 'completed', "
+            "'failed', 'cancelled', 'regenerating')",
+            name="dashboard_generation_items_status_valid",
+        ),
+        UniqueConstraint("run_id", "client_key", name="uq_dashboard_generation_items_run_client_key"),
+        Index("idx_dashboard_generation_items_run_order", "run_id", "order_index"),
     )
 
 
@@ -433,12 +565,15 @@ __all__ = [
     "ConnectionAttemptORM",
     "DashboardORM",
     "DashboardWidgetORM",
+    "DashboardGenerationRunORM",
+    "DashboardGenerationItemORM",
     "SavedQueryORM",
     "QueryExecutionORM",
     "TemplateGenerationORM",
     "GeneratedTemplateORM",
     "ChatSessionORM",
     "ChatMessageORM",
+    "ChatAgentRunORM",
     "UserSettingsORM",
     "UserSubscriptionORM",
 ]

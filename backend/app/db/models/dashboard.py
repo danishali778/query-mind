@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -16,6 +16,12 @@ class ChartConfig(BaseModel):
     y_label: Optional[str] = None
 
 
+CreationMode = Literal["manual", "ai"]
+LifecycleStatus = Literal["draft", "ready"]
+WidgetSourceType = Literal["manual", "chat", "ai"]
+WidgetGenerationStatus = Literal["ready", "queued", "running", "failed", "cancelled", "regenerating"]
+
+
 class Dashboard(BaseModel):
     """A dashboard that holds widgets."""
 
@@ -26,6 +32,8 @@ class Dashboard(BaseModel):
     filters: dict = Field(default_factory=dict)
     is_public: bool = False
     share_token: Optional[str] = None
+    creation_mode: CreationMode = "manual"
+    lifecycle_status: LifecycleStatus = "ready"
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -52,6 +60,12 @@ class DashboardWidget(BaseModel):
     minH: int = 5
     bar_orientation: str = "horizontal"
     order_index: int = 0
+    source_type: WidgetSourceType = "manual"
+    source_prompt: Optional[str] = None
+    generation_item_id: Optional[str] = None
+    generation_status: WidgetGenerationStatus = "ready"
+    generation_error: Optional[str] = None
+    assumptions: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -74,6 +88,8 @@ class CreateDashboardInput(BaseModel):
     name: str
     icon: str = "\U0001f4ca"
     filters: Optional[dict] = None
+    creation_mode: CreationMode = "manual"
+    lifecycle_status: LifecycleStatus = "ready"
 
 
 class UpdateDashboardInput(BaseModel):
@@ -83,6 +99,7 @@ class UpdateDashboardInput(BaseModel):
     icon: Optional[str] = None
     filters: Optional[dict] = None
     is_public: Optional[bool] = None
+    lifecycle_status: Optional[LifecycleStatus] = None
 
 
 class AddWidgetInput(BaseModel):
@@ -106,6 +123,12 @@ class AddWidgetInput(BaseModel):
     minH: Optional[int] = None
     bar_orientation: Optional[str] = None
     order_index: Optional[int] = None
+    source_type: WidgetSourceType = "manual"
+    source_prompt: Optional[str] = None
+    generation_item_id: Optional[str] = None
+    generation_status: WidgetGenerationStatus = "ready"
+    generation_error: Optional[str] = None
+    assumptions: list[str] = Field(default_factory=list)
 
 
 class UpdateWidgetInput(BaseModel):
@@ -115,6 +138,9 @@ class UpdateWidgetInput(BaseModel):
     size: Optional[str] = None
     columns: Optional[list[str]] = None
     rows: Optional[list[dict]] = None
+    sql: Optional[str] = None
+    viz_type: Optional[str] = None
+    chart_config: Optional[ChartConfig] = None
     cadence: Optional[str] = None
     x: Optional[int] = None
     y: Optional[int] = None
@@ -124,3 +150,76 @@ class UpdateWidgetInput(BaseModel):
     minH: Optional[int] = None
     bar_orientation: Optional[str] = None
     order_index: Optional[int] = None
+    source_prompt: Optional[str] = None
+    generation_status: Optional[WidgetGenerationStatus] = None
+    generation_error: Optional[str] = None
+    assumptions: Optional[list[str]] = None
+
+
+GenerationRunStatus = Literal[
+    "planning",
+    "awaiting_approval",
+    "queued",
+    "running",
+    "partial",
+    "completed",
+    "failed",
+    "cancelled",
+]
+GenerationItemStatus = Literal[
+    "planned",
+    "queued",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+    "regenerating",
+]
+
+
+class DashboardGenerationItem(BaseModel):
+    """One planned / generating widget within a generation run."""
+
+    id: str
+    run_id: str
+    client_key: str
+    dashboard_widget_id: Optional[str] = None
+    order_index: int = 0
+    plan_json: dict[str, Any] = Field(default_factory=dict)
+    status: GenerationItemStatus = "planned"
+    attempt_count: int = 0
+    last_error_code: Optional[str] = None
+    last_error_message: Optional[str] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class DashboardGenerationRun(BaseModel):
+    """Durable AI dashboard generation run."""
+
+    id: str
+    owner_id: str
+    connection_id: str
+    dashboard_id: Optional[str] = None
+    client_request_id: str
+    prompt: str
+    requested_widget_count: int = 6
+    default_time_range: Optional[str] = None
+    extra_instructions: Optional[str] = None
+    plan_json: Optional[dict[str, Any]] = None
+    plan_revision: int = 0
+    status: GenerationRunStatus = "planning"
+    current_stage: str = "reading_objective"
+    current_stage_label: str = "Reading the dashboard objective"
+    celery_task_id: Optional[str] = None
+    failure_code: Optional[str] = None
+    failure_message: Optional[str] = None
+    items: list[DashboardGenerationItem] = Field(default_factory=list)
+    created_at: Optional[str] = None
+    started_at: Optional[str] = None
+    heartbeat_at: Optional[str] = None
+    cancel_requested_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    updated_at: Optional[str] = None
