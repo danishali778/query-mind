@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import Callable
 
 logger = logging.getLogger("query-mind.db_agent")
 
@@ -36,6 +37,7 @@ class TraceStep:
 @dataclass
 class TraceRecorder:
     steps: list[TraceStep] = field(default_factory=list)
+    on_step: Callable[[TraceStep], None] | None = None
 
     def record(
         self,
@@ -61,6 +63,8 @@ class TraceRecorder:
         )
         self.steps.append(step)
         self._log_step(step)
+        if self.on_step:
+            self.on_step(step)
 
     def _log_step(self, step: TraceStep) -> None:
         detail_parts = [f"[tool] {step.tool}", step.args_summary, f"-> {step.outcome}", f"({step.duration_ms:.0f}ms)"]

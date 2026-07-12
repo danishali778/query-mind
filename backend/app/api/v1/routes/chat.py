@@ -1,12 +1,16 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi.responses import StreamingResponse
 
 from app.api.deps import CurrentUserDep, RateLimitChecker
 from app.api.v1.schemas.chat import (
     ChatMessage,
     ChatRequest,
     ChatResponse,
+    ChatRunAccepted,
+    ChatRunRequest,
+    ChatRunSnapshot,
     EditSqlRequest,
     SessionMessagesResponse,
     SessionSummary,
@@ -15,10 +19,72 @@ from app.api.v1.schemas.chat import (
 from app.api.v1.schemas.common import MessageResponse
 from app.core.errors import BadRequestError, NotFoundError, ServiceUnavailableError
 from app.services import chat_service
+from app.services import chat_run_service
+from app.db.repositories.chat_run_repository import ActiveRunConflictError
 
 
 router = APIRouter(prefix="/api/chat", tags=["Chat"])
 logger = logging.getLogger(__name__)
+
+
+@router.post("/runs", response_model=ChatRunAccepted, status_code=status.HTTP_202_ACCEPTED)
+async def start_chat_run(
+    request: ChatRunRequest,
+    current_user: CurrentUserDep,
+    _: object = Depends(RateLimitChecker("ai")),
+):
+    try:
+        return await chat_run_service.start_run(current_user.id, request)
+    except ActiveRunConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except chat_run_service.RunLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except chat_run_service.StreamingUnavailableError as exc:
+        raise ServiceUnavailableError(str(exc)) from exc
+    except ValueError as exc:
+        detail = str(exc)
+        if "not found" in detail.lower():
+            raise NotFoundError(detail) from exc
+        raise BadRequestError(detail) from exc
+
+
+@router.get("/runs/{run_id}", response_model=ChatRunSnapshot)
+async def get_chat_run(run_id: str, current_user: CurrentUserDep):
+    snapshot = await chat_run_service.get_snapshot(current_user.id, run_id)
+    if not snapshot:
+        raise NotFoundError("Chat run not found.")
+    return snapshot
+
+
+@router.post("/runs/{run_id}/cancel", response_model=ChatRunSnapshot, status_code=status.HTTP_202_ACCEPTED)
+async def cancel_chat_run(run_id: str, current_user: CurrentUserDep):
+    snapshot = await chat_run_service.cancel_run(current_user.id, run_id)
+    if not snapshot:
+        raise NotFoundError("Chat run not found.")
+    return snapshot
+
+
+@router.get("/runs/{run_id}/events")
+async def stream_chat_run_events(
+    run_id: str,
+    current_user: CurrentUserDep,
+    last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
+):
+    if not await chat_run_service.get_snapshot(current_user.id, run_id):
+        raise NotFoundError("Chat run not found.")
+    try:
+        sequence = int((last_event_id or "0").split("-", 1)[0])
+    except ValueError:
+        sequence = 0
+    return StreamingResponse(
+        chat_run_service.stream_events(current_user.id, run_id, sequence),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("", response_model=ChatResponse)

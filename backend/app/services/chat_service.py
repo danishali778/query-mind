@@ -61,6 +61,7 @@ def _run_pipeline_sync(
     message: str,
     schema_context: str,
     history: list[dict],
+    progress=None,
 ) -> dict:
     result = run_chat(
         user_id=user_id,
@@ -70,6 +71,8 @@ def _run_pipeline_sync(
         schema_context=schema_context,
         history=history,
         readonly=True,
+        cancellation_token=getattr(progress, "cancellation_token", None),
+        progress=progress,
     )
     result["tier"] = "pipeline"
     result["trace"] = []
@@ -85,6 +88,7 @@ def _run_agent_sync(
     history: list[dict],
     catalog,
     engine,
+    progress=None,
 ) -> dict:
     from app.agents.schema_context.catalog import build_catalog
     from app.db.repositories import schema_snapshot_repository
@@ -117,6 +121,7 @@ def _run_agent_sync(
         history=history,
         invalidate_catalog=invalidate_sync,
         rebuild_catalog=rebuild_sync,
+        progress=progress,
     )
     return agent_result.as_chat_dict()
 
@@ -133,6 +138,7 @@ async def _execute_chat_turn(
     message: str,
     schema_context: str | None,
     history: list[dict],
+    progress=None,
 ) -> dict:
     failed_agent_trace: list = []
     fallback_reason: str | None = None
@@ -140,11 +146,15 @@ async def _execute_chat_turn(
 
     if settings.agent_mode == "tools":
         try:
+            if progress:
+                progress.stage_started("schema_search", "Searching the database schema")
             control_result = handle_schema_or_control_command(message, None)
             if control_result:
                 return control_result
 
             catalog = await connection_service.get_catalog(user_id, connection_id)
+            if progress:
+                progress.stage_completed("schema_search", "Schema context ready")
             schema_result = handle_schema_or_control_command(message, catalog)
             if schema_result:
                 return schema_result
@@ -166,6 +176,7 @@ async def _execute_chat_turn(
                             history,
                             catalog,
                             engine,
+                            progress,
                         )
                     )
                 except Exception:
@@ -175,6 +186,8 @@ async def _execute_chat_turn(
                     if agent_out.get("success"):
                         try:
                             if agent_out.get("columns") and agent_out.get("rows"):
+                                if progress:
+                                    progress.stage_started("visualization", "Selecting the best visualization")
                                 chart = await anyio.to_thread.run_sync(
                                     functools.partial(
                                         generate_visualization_blueprint,
@@ -185,6 +198,8 @@ async def _execute_chat_turn(
                                     )
                                 )
                                 agent_out["chart_recommendation"] = chart
+                                if progress:
+                                    progress.stage_completed("visualization", "Visualization ready")
                         except Exception:
                             logger.warning("Visualization generation failed after agent success", exc_info=True)
                         logger.info(
@@ -211,6 +226,8 @@ async def _execute_chat_turn(
                         }
                     failed_agent_trace = agent_out.get("trace", []) or []
                     fallback_reason = agent_out.get("fallback_reason") or "agent_failed"
+                    if progress:
+                        progress.fallback(fallback_reason)
                     logger.warning(
                         "Agent run failed (%s); falling back to pipeline",
                         fallback_reason,
@@ -223,7 +240,11 @@ async def _execute_chat_turn(
             agent_error = "agent_exception"
 
     if schema_context is None:
+        if progress:
+            progress.stage_started("schema_search", "Loading schema context")
         schema_context = await _load_pipeline_schema_context(user_id, connection_id)
+        if progress:
+            progress.stage_completed("schema_search", "Schema context ready")
 
     pipeline_result = await anyio.to_thread.run_sync(
         functools.partial(
@@ -234,6 +255,7 @@ async def _execute_chat_turn(
             message,
             schema_context,
             history,
+            progress,
         )
     )
     tier = "fallback" if settings.agent_mode == "tools" else "pipeline"
@@ -305,6 +327,7 @@ async def send_message(
         message=message,
         schema_context=schema_context,
         history=history,
+        progress=None,
     )
 
     assistant_msg_id = ""
@@ -355,6 +378,37 @@ async def send_message(
         "agent_trace": result.get("trace"),
         "agent_tier": result.get("tier"),
     }
+
+
+async def execute_prepared_turn(
+    *,
+    user_id: str,
+    connection_id: str,
+    session_id: str,
+    message: str,
+    history: list[dict],
+    progress,
+) -> dict:
+    """Execute an already-persisted durable turn without creating messages."""
+    progress.check_cancelled()
+    engine = await connection_service.get_engine(user_id, connection_id)
+    if not engine:
+        raise ValueError("Database connection not found. Connect first.")
+    schema_context: str | None = None
+    if settings.agent_mode != "tools":
+        progress.stage_started("schema_search", "Loading schema context")
+        schema_context = await connection_service.get_schema_for_ai(user_id, connection_id)
+        schema_context = schema_context or "No schema available. Please connect to a database first."
+        progress.stage_completed("schema_search", "Schema context ready")
+    return await _execute_chat_turn(
+        user_id=user_id,
+        connection_id=connection_id,
+        session_id=session_id,
+        message=message,
+        schema_context=schema_context,
+        history=history,
+        progress=progress,
+    )
 
 
 async def create_session_summary(user_id: str, connection_id: str | None = None) -> SessionSummary:
@@ -515,6 +569,7 @@ async def toggle_pin_status(
 
 __all__ = [
     "send_message",
+    "execute_prepared_turn",
     "create_session_summary",
     "update_session_summary",
     "get_session_messages_response",

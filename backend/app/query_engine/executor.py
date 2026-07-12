@@ -8,6 +8,7 @@ from app.db.repositories.query_history_repository import log_query as log_query_
 from app.query_engine.results import QueryExecutionResult
 from app.query_engine.result_serializer import serialize_data
 from app.query_engine.safety import sanitize_row_limit, validate_query
+from app.query_engine.cancellation import QueryCancellationToken
 
 QUERY_TIMEOUT = 30
 
@@ -27,6 +28,7 @@ def execute_query(
     *,
     skip_row_limit_wrap: bool = False,
     timeout_seconds: int | None = None,
+    cancellation_token: QueryCancellationToken | None = None,
 ) -> QueryExecutionResult:
     is_safe, error_msg = validate_query(sql)
     if not is_safe:
@@ -38,6 +40,11 @@ def execute_query(
 
     try:
         with engine.connect() as conn:
+            if cancellation_token:
+                cancellation_token.register(conn)
+                if cancellation_token.cancelled:
+                    cancellation_token.unregister()
+                    return QueryExecutionResult(success=False, error="Query cancelled by user.")
             transaction = conn.begin()
             try:
                 conn.execute(text(f"SET statement_timeout = '{effective_timeout * 1000}'"))
@@ -48,6 +55,8 @@ def execute_query(
                 _apply_readonly_guards(conn, engine.dialect.name)
             except Exception:
                 transaction.rollback()
+                if cancellation_token:
+                    cancellation_token.unregister()
                 return _log_and_return(
                     QueryExecutionResult(
                         success=False,
@@ -65,6 +74,8 @@ def execute_query(
             elapsed = (time.time() - start_time) * 1000
             truncated = len(rows) >= row_limit
             transaction.rollback()
+            if cancellation_token:
+                cancellation_token.unregister()
 
             return _log_and_return(
                 QueryExecutionResult(
@@ -80,6 +91,8 @@ def execute_query(
                 safe_sql,
             )
     except Exception as exc:
+        if cancellation_token:
+            cancellation_token.unregister()
         elapsed = (time.time() - start_time) * 1000
         error_text = str(exc)
 
@@ -94,6 +107,8 @@ def execute_query(
             friendly = f"Table or column not found. {error_text.split(chr(10))[0]}"
         elif "syntax error" in lowered:
             friendly = f"SQL syntax error. {error_text.split(chr(10))[0]}"
+        elif cancellation_token and cancellation_token.cancelled:
+            friendly = "Query cancelled by user."
         elif "timeout" in lowered or "cancel" in lowered:
             friendly = f"Query timed out after {effective_timeout} seconds. Try a simpler query or add filters."
         elif "permission" in lowered or "denied" in lowered:

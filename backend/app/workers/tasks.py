@@ -4,7 +4,8 @@ import asyncio
 from datetime import datetime, timezone
 
 from app.core.config import settings
-from app.db.repositories import dashboard_repository, query_library_repository
+from app.db.repositories import chat_run_repository, dashboard_repository, query_library_repository
+from app.services.chat_progress import publish_event
 from app.workers.celery_app import celery_app
 from app.workers.jobs.refresh_dashboard_widget import refresh_dashboard_widget_task
 from app.workers.jobs.run_saved_query import run_saved_query_task
@@ -63,3 +64,11 @@ def dispatch_due_schedules() -> dict[str, int]:
         "dispatched_queries": dispatched_queries,
         "dispatched_widgets": dispatched_widgets,
     }
+
+
+@celery_app.task(name="app.workers.tasks.recover_stale_chat_runs", queue=settings.celery_default_queue)
+def recover_stale_chat_runs() -> dict[str, int]:
+    run_ids = chat_run_repository.fail_stale_runs(settings.agent_wall_clock_seconds + 30)
+    for run_id in run_ids:
+        publish_event(run_id, "run.failed", "Response worker stopped")
+    return {"failed_stale_runs": len(run_ids)}

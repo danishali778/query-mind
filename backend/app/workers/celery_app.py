@@ -15,6 +15,7 @@ celery_app = Celery(
         "app.workers.jobs.run_saved_query",
         "app.workers.jobs.refresh_dashboard_widget",
         "app.workers.jobs.generate_library_templates",
+        "app.workers.jobs.run_chat_agent",
     ],
 )
 
@@ -33,13 +34,19 @@ celery_app.conf.update(
         Queue(settings.celery_default_queue),
         Queue(settings.celery_scheduled_queue),
         Queue(settings.celery_templates_queue),
+        Queue(settings.celery_interactive_queue),
     ),
     beat_schedule={
         "dispatch-due-schedules": {
             "task": "app.workers.tasks.dispatch_due_schedules",
             "schedule": crontab(),
             "options": {"queue": settings.celery_scheduled_queue},
-        }
+        },
+        "recover-stale-chat-runs": {
+            "task": "app.workers.tasks.recover_stale_chat_runs",
+            "schedule": crontab(),
+            "options": {"queue": settings.celery_default_queue},
+        },
     },
 )
 

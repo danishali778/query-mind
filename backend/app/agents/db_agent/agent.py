@@ -152,12 +152,17 @@ def _classify_execution_error(error: str) -> str:
 def _finalize_execution(
     ctx: ToolContext,
     proposal: AnalystProposal,
+    progress=None,
 ) -> tuple[QueryExecutionResult | None, str | None, str | None]:
     if not proposal.sql:
         return None, "Agent did not propose SQL for this analytical question.", "validation"
     is_safe, reason = validate_query(proposal.sql)
     if not is_safe:
         return None, reason or "Final SQL failed validation.", "validation"
+
+    if progress:
+        progress.stage_completed("sql_validation", "Read-only safety checks passed")
+        progress.stage_started("query_execution", "Running a read-only query")
 
     result = execute_query(
         ctx.user_id,
@@ -167,9 +172,12 @@ def _finalize_execution(
         connection_id=ctx.connection_id,
         readonly=True,
         timeout_seconds=settings.agent_query_timeout_seconds,
+        cancellation_token=ctx.cancellation_token,
     )
     if not result.success:
         return None, result.error or "Final SQL execution failed.", "execution"
+    if progress:
+        progress.stage_completed("query_execution", f"Query returned {result.row_count} rows", row_count=result.row_count)
     return result, None, None
 
 
@@ -179,10 +187,13 @@ def build_agent_graph(
     budget: BudgetGuard,
     ctx: ToolContext,
     trace: TraceRecorder,
+    progress=None,
 ):
     """Compile the tool-calling analyst loop as a LangGraph StateGraph."""
 
     def agent_node(state: AgentState) -> dict:
+        if progress:
+            progress.check_cancelled()
         if budget.elapsed_seconds() >= budget.wall_clock_seconds:
             log_agent_event(
                 "[agent] wall-clock budget reached (%.0fs/%ss); forcing finish",
@@ -220,6 +231,8 @@ def build_agent_graph(
             raise
 
         llm_ms = (time.monotonic() - llm_started) * 1000
+        if progress:
+            progress.check_cancelled()
         tool_calls = getattr(response, "tool_calls", None) or []
         if tool_calls:
             tool_names = [call["name"] for call in tool_calls]
@@ -285,10 +298,14 @@ def build_agent_graph(
                 continue
 
             log_agent_event("[tool] %s start %s", name, args)
+            if progress:
+                progress.tool_started(name)
             tool = tool_map.get(name)
             if not tool:
                 log_agent_event("[tool] %s -> error unknown tool", name)
             result = tool.invoke(args) if tool else f"Unknown tool: {name}"
+            if progress:
+                progress.check_cancelled()
             budget.record_call(name, args)
             new_messages.append(ToolMessage(content=str(result), tool_call_id=tool_call["id"]))
 
@@ -412,9 +429,10 @@ def run_agent(
     history: list[dict] | None = None,
     invalidate_catalog=None,
     rebuild_catalog=None,
+    progress=None,
 ) -> AgentRunResult:
     started = time.monotonic()
-    trace = TraceRecorder()
+    trace = TraceRecorder(on_step=progress.tool_completed if progress else None)
     ctx = ToolContext(
         user_id=user_id,
         connection_id=connection_id,
@@ -423,6 +441,7 @@ def run_agent(
         trace=trace,
         invalidate_catalog=invalidate_catalog,
         rebuild_catalog=rebuild_catalog,
+        cancellation_token=getattr(progress, "cancellation_token", None),
     )
     tools = build_tools(ctx)
     tool_map = {tool.name: tool for tool in tools}
@@ -437,7 +456,7 @@ def run_agent(
 
     try:
         llm = _get_llm(tools)
-        agent_graph = build_agent_graph(llm, tool_map, budget, ctx, trace)
+        agent_graph = build_agent_graph(llm, tool_map, budget, ctx, trace, progress)
 
         messages: list[BaseMessage] = [SystemMessage(content=_build_system_prompt(catalog, question))]
         if history:
@@ -450,6 +469,8 @@ def run_agent(
 
         recursion_limit = settings.agent_max_tool_calls * 2 + 10
         final_state = _invoke_graph(agent_graph, messages, recursion_limit)
+        if progress:
+            progress.check_cancelled()
 
         proposal: AnalystProposal | None = final_state["proposal"]
         finish_error: str | None = final_state["finish_error"]
@@ -479,7 +500,11 @@ def run_agent(
         last_stage: str | None = None
 
         while True:
-            execution, exec_error, stage = _finalize_execution(ctx, proposal)
+            if progress:
+                progress.stage_started("sql_validation", "Validating generated SQL")
+            execution, exec_error, stage = _finalize_execution(ctx, proposal, progress)
+            if progress:
+                progress.check_cancelled()
             if execution is not None and exec_error is None:
                 wall_ms = round((time.monotonic() - started) * 1000, 2)
                 log_agent_event(
@@ -561,6 +586,8 @@ def run_agent(
             proposal = repair_state["proposal"]
             repair_messages = repair_state["messages"]
     except Exception as exc:
+        if exc.__class__.__name__ == "AgentRunCancelled":
+            raise
         fallback_reason = "tool_use_failed" if _is_tool_use_failed(exc) else "agent_exception"
         wall_ms = round((time.monotonic() - started) * 1000, 2)
         log_agent_event(

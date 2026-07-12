@@ -48,6 +48,37 @@ class ChatRequest(BaseModel):
         return value
 
 
+class ChatRunRequest(ChatRequest):
+    client_request_id: str = Field(min_length=36, max_length=36)
+
+
+class ChatRunAccepted(BaseModel):
+    run_id: str
+    session_id: str
+    user_message_id: str
+    assistant_message_id: str
+    status: str
+    events_url: str
+
+
+class ChatRunSnapshot(BaseModel):
+    run_id: str
+    session_id: str
+    user_message_id: str
+    assistant_message_id: Optional[str] = None
+    status: str
+    current_stage: str
+    current_stage_label: str
+    failure_code: Optional[str] = None
+    failure_message: Optional[str] = None
+    created_at: str
+    started_at: Optional[str] = None
+    heartbeat_at: Optional[str] = None
+    cancel_requested_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    response: Optional["ChatResponse"] = None
+
+
 class ChatResponse(BaseModel):
     """Response from the AI chat."""
 
@@ -68,6 +99,10 @@ class ChatResponse(BaseModel):
     prev_query_id: Optional[str] = None
     agent_trace: Optional[list] = None
     agent_tier: Optional[str] = None
+    agent_run_id: Optional[str] = None
+    agent_run_status: Optional[str] = None
+    agent_run_stage: Optional[str] = None
+    agent_run_stage_label: Optional[str] = None
 
 
 class ChatMessage(BaseModel):
@@ -152,6 +187,9 @@ __all__ = [
     "ChatMessage",
     "ChatSession",
     "ChatRequest",
+    "ChatRunRequest",
+    "ChatRunAccepted",
+    "ChatRunSnapshot",
     "ChatResponse",
     "SessionSummary",
     "SessionMessagesResponse",
