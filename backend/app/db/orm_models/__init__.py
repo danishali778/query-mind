@@ -2,6 +2,7 @@
 
 from app.db.orm_models.app import (
     ChatMessageORM,
+    ChatAgentRunORM,
     ChatSessionORM,
     ConnectionAttemptORM,
     SchemaSnapshotORM,
@@ -28,6 +29,7 @@ __all__ = [
     "GeneratedTemplateORM",
     "ChatSessionORM",
     "ChatMessageORM",
+    "ChatAgentRunORM",
     "UserSettingsORM",
     "UserSubscriptionORM",
 ]

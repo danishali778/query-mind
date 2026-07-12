@@ -1,4 +1,4 @@
-import type { ChartRecommendation, DatabaseConnection, SessionSummary } from './api';
+import type { ChartRecommendation, ChatRunEvent, ChatRunStatus, DatabaseConnection, SessionSummary } from './api';
 
 export interface ChatMessageView {
   id?: string;
@@ -27,6 +27,12 @@ export interface ChatMessageView {
     retry_count?: number;
   }>;
   agent_tier?: string;
+  agent_run_id?: string;
+  agent_run_status?: ChatRunStatus;
+  agent_run_stage?: string;
+  agent_run_stage_label?: string;
+  agent_run_events?: ChatRunEvent[];
+  agent_stream_state?: 'connecting' | 'connected' | 'reconnecting' | 'closed';
 }
 
 export interface ChatSidebarProps {

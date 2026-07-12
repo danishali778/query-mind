@@ -21,6 +21,7 @@ from app.core.config import settings
 from app.query_engine.executor import execute_query as guarded_execute_query
 from app.query_engine.results import QueryExecutionResult
 from app.query_engine.safety import validate_query
+from app.query_engine.cancellation import QueryCancellationToken
 from app.services.query_execution_service import execute_query
 
 SAMPLE_MAX_VALUES = 15
@@ -41,6 +42,7 @@ class ToolContext:
     drift_refresh_used: bool = False
     scratchpad: list[str] = field(default_factory=list)
     live_query_count: int = 0
+    cancellation_token: QueryCancellationToken | None = None
 
 
 class SearchSchemaInput(BaseModel):
@@ -134,6 +136,7 @@ def _run_live_query(ctx: ToolContext, sql: str, *, row_limit: int = 500, skip_ro
         readonly=True,
         skip_row_limit_wrap=skip_row_limit_wrap,
         timeout_seconds=settings.agent_query_timeout_seconds,
+        cancellation_token=ctx.cancellation_token,
     )
     return result, None
 
@@ -572,6 +575,7 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
             connection_id=ctx.connection_id,
             readonly=True,
             timeout_seconds=settings.agent_query_timeout_seconds,
+            cancellation_token=ctx.cancellation_token,
         )
         if not result.success:
             drift_note = _maybe_refresh_on_drift(ctx, result.error or "", sql)

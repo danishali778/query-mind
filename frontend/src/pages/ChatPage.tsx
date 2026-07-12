@@ -10,7 +10,8 @@ import { BREAKPOINTS, useMediaQuery } from '../hooks/useMediaQuery';
 import * as api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import type { ChatMessageView } from '../types/chat';
-import type { DatabaseConnection, SessionMessagesResponse, SessionSummary } from '../types/api';
+import type { ChatResponse, ChatRunEvent, ChatRunSnapshot, DatabaseConnection, SessionMessagesResponse, SessionSummary } from '../types/api';
+import { useChatAgentRun } from '../hooks/useChatAgentRun';
 
 type LoadState = 'loading' | 'ready' | 'error';
 type MessageLoadState = 'idle' | LoadState;
@@ -39,7 +40,36 @@ function mapSessionMessages(data: SessionMessagesResponse): ChatMessageView[] {
     prev_query_id: message.prev_query_id || undefined,
     agent_trace: message.agent_trace || undefined,
     agent_tier: message.agent_tier || undefined,
+    agent_run_id: message.agent_run_id || undefined,
+    agent_run_status: message.agent_run_status || undefined,
+    agent_run_stage: message.agent_run_stage || undefined,
+    agent_run_stage_label: message.agent_run_stage_label || undefined,
   }));
+}
+
+function applyCompletedResponse(message: ChatMessageView, response: ChatResponse): ChatMessageView {
+  return {
+    ...message,
+    id: response.message_id,
+    content: response.message,
+    sql: response.sql || undefined,
+    columns: response.columns || [],
+    rows: response.rows || [],
+    row_count: response.row_count,
+    truncated: response.truncated,
+    execution_time_ms: response.execution_time_ms,
+    chart_recommendation: response.chart_recommendation || undefined,
+    column_metadata: response.column_metadata || undefined,
+    error: response.error || undefined,
+    is_pinned: response.is_pinned ?? false,
+    prev_query_id: response.prev_query_id || undefined,
+    agent_trace: response.agent_trace || undefined,
+    agent_tier: response.agent_tier || undefined,
+    agent_run_status: 'completed',
+    agent_run_stage: 'completed',
+    agent_run_stage_label: 'Answer ready',
+    agent_stream_state: 'closed',
+  };
 }
 
 function isUsageLimitError(error: unknown) {
@@ -121,12 +151,14 @@ export function ChatPage() {
   const [messagesState, setMessagesState] = useState<MessageLoadState>('idle');
   const [messagesError, setMessagesError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [loadingStatus, setLoadingStatus] = useState('Analyzing question…');
+  const [streamingEnabled, setStreamingEnabled] = useState(true);
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [showPaywall, setShowPaywall] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const skipNextFetch = useRef(false);
   const messageLoadRequestRef = useRef(0);
+  const pendingRequestRef = useRef<string | null>(null);
+  const attachedRunRef = useRef<string | null>(null);
   const isMobile = useMediaQuery(BREAKPOINTS.lg);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -167,6 +199,90 @@ export function ChatPage() {
       return [];
     }
   }, []);
+
+  const updateRunSnapshot = useCallback((snapshot: ChatRunSnapshot) => {
+    setMessages(prev => prev.map(message => {
+      if (message.agent_run_id !== snapshot.run_id) return message;
+      const updated: ChatMessageView = {
+        ...message,
+        agent_run_status: snapshot.status,
+        agent_run_stage: snapshot.current_stage,
+        agent_run_stage_label: snapshot.current_stage_label,
+        agent_stream_state: ['completed', 'failed', 'cancelled'].includes(snapshot.status) ? 'closed' : 'connected',
+        error: snapshot.status === 'failed' || snapshot.status === 'cancelled'
+          ? snapshot.failure_message || message.error
+          : message.error,
+      };
+      return snapshot.response ? applyCompletedResponse(updated, snapshot.response) : updated;
+    }));
+    if (['completed', 'failed', 'cancelled'].includes(snapshot.status)) {
+      attachedRunRef.current = null;
+      setLoading(false);
+      void loadSessions();
+    }
+  }, [loadSessions]);
+
+  const agentRun = useChatAgentRun({
+    onAccepted: accepted => {
+      const pendingId = pendingRequestRef.current;
+      setMessages(prev => {
+        const next = prev.map(message => message.id === pendingId ? { ...message, id: accepted.user_message_id } : message);
+        if (next.some(message => message.agent_run_id === accepted.run_id)) return next;
+        return [...next, {
+          id: accepted.assistant_message_id,
+          role: 'assistant',
+          content: '',
+          parent_id: accepted.user_message_id,
+          agent_run_id: accepted.run_id,
+          agent_run_status: accepted.status,
+          agent_run_stage: 'preparing',
+          agent_run_stage_label: 'Response queued',
+          agent_run_events: [],
+          agent_stream_state: 'connecting',
+        }];
+      });
+      attachedRunRef.current = accepted.run_id;
+      if (!activeSessionId) {
+        skipNextFetch.current = true;
+        setActiveSessionId(accepted.session_id);
+        void loadSessions();
+      }
+    },
+    onEvent: (event: ChatRunEvent) => {
+      setMessages(prev => prev.map(message => {
+        if (message.agent_run_id !== event.run_id) return message;
+        const events = message.agent_run_events || [];
+        const duplicate = events.some(item => item.sequence === event.sequence && item.type === event.type);
+        const status = event.type === 'run.cancel_requested' ? 'cancel_requested'
+          : event.type === 'run.completed' ? 'completed'
+            : event.type === 'run.failed' ? 'failed'
+              : event.type === 'run.cancelled' ? 'cancelled'
+                : event.type === 'run.started' ? 'running'
+                  : message.agent_run_status;
+        return {
+          ...message,
+          agent_run_events: duplicate ? events : [...events, event],
+          agent_run_status: status,
+          agent_run_stage: event.stage || message.agent_run_stage,
+          agent_run_stage_label: event.label || message.agent_run_stage_label,
+          agent_stream_state: 'connected',
+        };
+      }));
+    },
+    onSnapshot: updateRunSnapshot,
+    onError: error => {
+      console.error('Agent stream failed:', error);
+      setMessages(prev => prev.map(message => message.agent_run_id === attachedRunRef.current
+        ? { ...message, agent_stream_state: 'reconnecting' }
+        : message));
+    },
+  });
+  const {
+    start: startAgentRun,
+    attach: attachAgentRun,
+    cancel: cancelAgentRun,
+    disconnect: disconnectAgentRun,
+  } = agentRun;
 
   const loadMessages = useCallback(async (sessionId: string) => {
     const requestId = messageLoadRequestRef.current + 1;
@@ -220,6 +336,9 @@ export function ChatPage() {
     }
     void loadConnections();
     void loadSessions();
+    void api.getSettings()
+      .then(settings => setStreamingEnabled(settings.stream_responses !== false))
+      .catch(() => setStreamingEnabled(true));
   }, [user?.id, loadConnections, loadSessions]);
 
   useEffect(() => {
@@ -238,6 +357,14 @@ export function ChatPage() {
     }
     void loadMessages(activeSessionId);
   }, [activeSessionId, loadMessages]);
+
+  useEffect(() => {
+    const activeRun = messages.find(message => message.agent_run_id && ['queued', 'running', 'cancel_requested'].includes(message.agent_run_status || ''));
+    if (activeRun?.agent_run_id && attachedRunRef.current !== activeRun.agent_run_id) {
+      attachedRunRef.current = activeRun.agent_run_id;
+      void attachAgentRun(activeRun.agent_run_id).catch(error => console.error('Failed to restore agent run:', error));
+    }
+  }, [messages, attachAgentRun]);
 
   useEffect(() => {
     if (typeof messagesEndRef.current?.scrollIntoView === 'function') {
@@ -280,23 +407,6 @@ export function ChatPage() {
     }
   };
 
-  useEffect(() => {
-    if (!loading) return;
-    const statuses = [
-      'Analyzing question…',
-      'Searching schema…',
-      'Inspecting tables…',
-      'Running query…',
-    ];
-    let index = 0;
-    setLoadingStatus(statuses[0]);
-    const timer = window.setInterval(() => {
-      index = (index + 1) % statuses.length;
-      setLoadingStatus(statuses[index]);
-    }, 4000);
-    return () => window.clearInterval(timer);
-  }, [loading]);
-
   const handleSend = async (message: string) => {
     if (!activeConnectionId) {
       setMessagesState('ready');
@@ -304,11 +414,23 @@ export function ChatPage() {
       return;
     }
 
-    const userMsg: ChatMessageView = { role: 'user', content: message };
+    const clientRequestId = crypto.randomUUID();
+    const userMsg: ChatMessageView = { id: clientRequestId, role: 'user', content: message };
+    pendingRequestRef.current = clientRequestId;
     setMessagesState('ready');
     setMessages(prev => [...prev, userMsg]);
     setLoading(true);
     try {
+      if (streamingEnabled) {
+        await startAgentRun({
+          connection_id: activeConnectionId,
+          session_id: activeSessionId || undefined,
+          message,
+          client_request_id: clientRequestId,
+        });
+        setLoading(false);
+        return;
+      }
       const r = await api.sendMessage({ connection_id: activeConnectionId, session_id: activeSessionId || undefined, message });
       const assistantMsg: ChatMessageView = {
         id: r.message_id,
@@ -352,10 +474,11 @@ export function ChatPage() {
       } else {
         setMessages(prev => [...prev, { role: 'assistant', content: '', error: SEND_ERROR }]);
       }
-    } finally { setLoading(false); }
+    } finally { setLoading(false); pendingRequestRef.current = null; }
   };
 
   const handleNewChat = () => {
+    disconnectAgentRun();
     setActiveSessionId(null);
     setMessages([]);
     setMessagesState('idle');
@@ -379,7 +502,8 @@ export function ChatPage() {
 
   const activeConn = connections.find(c => c.id === activeConnectionId);
   const activeSession = sessions.find(s => s.id === activeSessionId);
-  const chatInputDisabled = loading || connectionsState !== 'ready' || !activeConnectionId;
+  const hasActiveRun = messages.some(message => ['queued', 'running', 'cancel_requested'].includes(message.agent_run_status || ''));
+  const chatInputDisabled = loading || hasActiveRun || connectionsState !== 'ready' || !activeConnectionId;
   const chatInputDisabledReason = connectionsState === 'loading'
     ? 'LOADING SOURCES'
     : connectionsState === 'error'
@@ -423,7 +547,7 @@ export function ChatPage() {
           onNavigate={() => setSidebarOpen(false)}
           sessions={sessions} activeSessionId={activeSessionId}
           sessionsState={sessionsState} sessionsError={sessionsError} onRetrySessions={() => { void loadSessions(); }}
-          onSelectSession={setActiveSessionId} onNewChat={handleNewChat}
+          onSelectSession={(id) => { disconnectAgentRun(); attachedRunRef.current = null; setActiveSessionId(id); }} onNewChat={handleNewChat}
           onDeleteSession={handleDeleteSession} onRenameSession={handleRenameSession}
           connections={connections} activeConnectionId={activeConnectionId}
         />
@@ -575,6 +699,7 @@ export function ChatPage() {
                     connectionId={activeConnectionId}
                     onSqlSave={handleSqlSave}
                     onTogglePin={handleTogglePin}
+                    onCancelRun={async (runId) => { await cancelAgentRun(runId); }}
                   />
                 ))}
 
@@ -582,7 +707,7 @@ export function ChatPage() {
                   <div style={{ padding: '24px 12px', display: 'flex', gap: 14, alignItems: 'center' }}>
                     <div style={{ width: 20, height: 20, borderRadius: 0, background: '#1a1a1a', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '0.7rem', fontWeight: 900, fontStyle: 'italic' }}>Q</div>
                     <div style={{ fontFamily: T.fontMono, fontSize: '0.72rem', color: T.text3, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                      {loadingStatus}
+                      Starting response…
                     </div>
                   </div>
                 )}

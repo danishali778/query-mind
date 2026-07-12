@@ -144,6 +144,53 @@ export interface ChatRequest {
   message: string;
 }
 
+export type ChatRunStatus = 'queued' | 'running' | 'cancel_requested' | 'completed' | 'failed' | 'cancelled';
+
+export interface ChatRunRequest extends ChatRequest {
+  client_request_id: string;
+}
+
+export interface ChatRunAccepted {
+  run_id: string;
+  session_id: string;
+  user_message_id: string;
+  assistant_message_id: string;
+  status: ChatRunStatus;
+  events_url: string;
+}
+
+export interface ChatRunEvent {
+  version?: number;
+  run_id: string;
+  sequence?: number;
+  type: string;
+  label?: string;
+  occurred_at?: string;
+  stage?: string;
+  duration_ms?: number;
+  outcome?: string;
+  retry_count?: number;
+  metadata?: { row_count?: number; message_id?: string; reason?: string };
+}
+
+export interface ChatRunSnapshot {
+  run_id: string;
+  session_id: string;
+  user_message_id: string;
+  assistant_message_id?: string | null;
+  status: ChatRunStatus;
+  current_stage: string;
+  current_stage_label: string;
+  failure_code?: string | null;
+  failure_message?: string | null;
+  created_at: string;
+  started_at?: string | null;
+  heartbeat_at?: string | null;
+  cancel_requested_at?: string | null;
+  finished_at?: string | null;
+  response?: ChatResponse | null;
+}
+
 export interface ChatMessageRecord {
   id: string;
   role: 'user' | 'assistant';
@@ -179,6 +226,10 @@ export interface ChatMessageRecord {
     retry_count?: number;
   }> | null;
   agent_tier?: string | null;
+  agent_run_id?: string | null;
+  agent_run_status?: ChatRunStatus | null;
+  agent_run_stage?: string | null;
+  agent_run_stage_label?: string | null;
   timestamp: string;
 }
 

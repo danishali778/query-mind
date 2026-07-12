@@ -9,6 +9,7 @@ from app.agents.visualization.generator import generate_visualization_blueprint
 from app.query_engine.connection_pool import get_cached_engine
 from app.services.query_execution_service import execute_query
 from app.query_engine.safety import validate_query
+from app.query_engine.cancellation import AgentRunCancelled
 
 logger = logging.getLogger("query-mind.graph")
 
@@ -33,13 +34,25 @@ class ChatState(TypedDict):
     max_retries: int
     chart_recommendation: Optional[dict]
     readonly: bool
+    cancellation_token: object | None
+    progress: object | None
 
 
 _DESTRUCTIVE_KEYWORDS = {"delete", "update", "insert", "drop", "truncate", "alter"}
 
 
 def generate_sql_node(state: ChatState) -> dict:
+    token = state.get("cancellation_token")
+    if token and token.cancelled:
+        raise AgentRunCancelled("Chat run cancellation requested.")
+    progress = state.get("progress")
+    if progress:
+        progress.stage_started("sql_generation", "Generating a safe read-only query")
     explanation, metadata, sql = generate_sql(state["llm_messages"])
+    if token and token.cancelled:
+        raise AgentRunCancelled("Chat run cancellation requested.")
+    if progress:
+        progress.stage_completed("sql_generation", "SQL proposal ready")
 
     user_msg = state["user_message"].lower()
     if any(keyword in user_msg for keyword in _DESTRUCTIVE_KEYWORDS):
@@ -57,6 +70,12 @@ def generate_sql_node(state: ChatState) -> dict:
 
 
 def validate_sql_node(state: ChatState) -> dict:
+    token = state.get("cancellation_token")
+    if token and token.cancelled:
+        raise AgentRunCancelled("Chat run cancellation requested.")
+    progress = state.get("progress")
+    if progress:
+        progress.stage_started("sql_validation", "Validating generated SQL")
     sql = state["sql"]
     if not sql:
         return {"error": "No SQL query was generated."}
@@ -65,10 +84,19 @@ def validate_sql_node(state: ChatState) -> dict:
     if not is_safe:
         return {"error": error_msg}
 
+    if progress:
+        progress.stage_completed("sql_validation", "Read-only safety checks passed")
+
     return {"error": ""}
 
 
 def execute_sql_node(state: ChatState) -> dict:
+    token = state.get("cancellation_token")
+    if token and token.cancelled:
+        raise AgentRunCancelled("Chat run cancellation requested.")
+    progress = state.get("progress")
+    if progress:
+        progress.stage_started("query_execution", "Running a read-only query")
     engine = get_cached_engine(state["user_id"], state["connection_id"])
     if not engine:
         return {"error": "Database connection not found."}
@@ -80,9 +108,16 @@ def execute_sql_node(state: ChatState) -> dict:
         row_limit=500,
         connection_id=state["connection_id"],
         readonly=state.get("readonly", True),
+        cancellation_token=state.get("cancellation_token"),
     )
+    if token and token.cancelled:
+        raise AgentRunCancelled("Chat run cancellation requested.")
 
     if result.success:
+        if progress:
+            progress.stage_completed(
+                "query_execution", f"Query returned {result.row_count} rows", row_count=result.row_count
+            )
         logger.info(
             "[execute_sql] Success: %d rows, %d cols",
             result.row_count,
@@ -108,12 +143,18 @@ def analyze_results_node(state: ChatState) -> dict:
     if not columns or not rows:
         return {"chart_recommendation": None}
 
+    progress = state.get("progress")
+    if progress:
+        progress.stage_started("visualization", "Selecting the best visualization")
+
     blueprint = generate_visualization_blueprint(
         user_message=state.get("user_message", ""),
         sql=state.get("sql", ""),
         preview_rows=rows[:5],
         column_metadata=state.get("column_metadata", {}),
     )
+    if progress:
+        progress.stage_completed("visualization", "Visualization ready")
     return {"chart_recommendation": blueprint}
 
 
@@ -185,6 +226,8 @@ def run_chat(
     schema_context: str,
     history: list[dict],
     readonly: bool = True,
+    cancellation_token=None,
+    progress=None,
 ) -> ChatState:
     llm_messages = build_conversation_prompt(
         schema_context=schema_context,
@@ -212,5 +255,7 @@ def run_chat(
         "max_retries": 3,
         "chart_recommendation": None,
         "readonly": readonly,
+        "cancellation_token": cancellation_token,
+        "progress": progress,
     }
     return chat_graph.invoke(initial_state)

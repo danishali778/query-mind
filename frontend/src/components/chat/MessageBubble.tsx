@@ -8,17 +8,20 @@ import { SaveQueryModal } from './SaveQueryModal';
 import { useSmartSave } from '../../hooks/useSmartSave';
 import { Pin, Plus } from 'lucide-react';
 import type { ChatMessageView } from '../../types/chat';
+import { AgentActivity } from './AgentActivity';
 
 export function MessageBubble({
   message,
   connectionId,
   onSqlSave,
-  onTogglePin
+  onTogglePin,
+  onCancelRun,
 }: {
   message: ChatMessageView,
   connectionId?: string,
   onSqlSave?: (messageId: string, newSql: string) => Promise<void>,
-  onTogglePin?: (messageId: string, isPinned: boolean) => Promise<void>
+  onTogglePin?: (messageId: string, isPinned: boolean) => Promise<void>,
+  onCancelRun?: (runId: string) => Promise<void>
 }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
@@ -79,9 +82,23 @@ export function MessageBubble({
     );
   }
   // Assistant
+  const hasRunActivity = Boolean(message.agent_run_id && message.agent_run_status);
   return (
     <div id={message.id ? `msg-${message.id}` : undefined} style={{ padding: '24px 0', display: 'flex', flexDirection: 'column', alignItems: 'stretch', width: '100%', minWidth: 0, maxWidth: '100%' }}>
+      {hasRunActivity && message.agent_run_status && (
+        <div style={{ marginBottom: message.agent_run_status === 'completed' ? 12 : 20 }}>
+          <AgentActivity
+            status={message.agent_run_status}
+            label={message.agent_run_stage_label}
+            events={message.agent_run_events}
+            streamState={message.agent_stream_state}
+            onStop={message.agent_run_id && onCancelRun ? () => { void onCancelRun(message.agent_run_id!); } : undefined}
+          />
+        </div>
+      )}
+
       {/* AI Header & Content */}
+      {(message.content || message.error) && (
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', padding: '0 0 24px' }}>
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -103,6 +120,7 @@ export function MessageBubble({
           )}
         </div>
       </div>
+      )}
 
       {message.agent_trace && message.agent_trace.length > 0 && (
         <div style={{ marginBottom: 16 }}>

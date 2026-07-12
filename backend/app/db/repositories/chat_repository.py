@@ -8,7 +8,7 @@ from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
 from app.db.models.chat import ChatMessage, ChatSession, SessionSummary
-from app.db.orm_models import ChatMessageORM, ChatSessionORM
+from app.db.orm_models import ChatAgentRunORM, ChatMessageORM, ChatSessionORM
 from app.db.session import read_session_scope, session_scope
 
 
@@ -23,7 +23,7 @@ def _iso(value) -> str:
     return str(value)
 
 
-def _map_message(row: ChatMessageORM) -> ChatMessage:
+def _map_message(row: ChatMessageORM, run: ChatAgentRunORM | None = None) -> ChatMessage:
     return ChatMessage(
         id=row.id,
         role=row.role,
@@ -40,6 +40,10 @@ def _map_message(row: ChatMessageORM) -> ChatMessage:
         prev_query_id=row.prev_query_id,
         agent_trace=row.agent_trace if isinstance(row.agent_trace, list) else None,
         agent_tier=row.agent_tier,
+        agent_run_id=row.agent_run_id,
+        agent_run_status=run.status if run else None,
+        agent_run_stage=run.current_stage if run else None,
+        agent_run_stage_label=run.current_stage_label if run else None,
         created_at=_iso(row.created_at),
     )
 
@@ -98,7 +102,14 @@ def _get_session_sync(session: Session, user_id: str, session_id: str) -> Option
         .order_by(ChatMessageORM.created_at.asc())
         .all()
     )
-    messages = [_map_message(message_row) for message_row in message_rows]
+    run_ids = [row.agent_run_id for row in message_rows if row.agent_run_id]
+    run_rows = (
+        session.query(ChatAgentRunORM).filter(ChatAgentRunORM.id.in_(run_ids)).all()
+        if run_ids
+        else []
+    )
+    runs = {row.id: row for row in run_rows}
+    messages = [_map_message(message_row, runs.get(message_row.agent_run_id)) for message_row in message_rows]
     return _map_session(row, reconstruct_dual_chain(messages))
 
 
@@ -253,6 +264,7 @@ def _add_message_sync(session: Session, user_id: str, session_id: str, message: 
         prev_query_id=message.prev_query_id,
         agent_trace=message.agent_trace,
         agent_tier=message.agent_tier,
+        agent_run_id=message.agent_run_id,
     )
     session.add(row)
 
