@@ -439,6 +439,17 @@ export interface CreateDashboardRequest {
   icon?: string;
 }
 
+export type DashboardCreationMode = 'manual' | 'ai';
+export type DashboardLifecycleStatus = 'draft' | 'ready';
+export type WidgetGenerationStatus =
+  | 'ready'
+  | 'queued'
+  | 'running'
+  | 'failed'
+  | 'cancelled'
+  | 'regenerating';
+export type WidgetSourceType = 'manual' | 'chat' | 'ai';
+
 export interface DashboardSummary {
   id: string;
   owner_id?: string;
@@ -447,6 +458,8 @@ export interface DashboardSummary {
   filters: Record<string, unknown>;
   is_public?: boolean;
   share_token?: string | null;
+  creation_mode?: DashboardCreationMode;
+  lifecycle_status?: DashboardLifecycleStatus;
   created_at: string;
   widget_count: number;
 }
@@ -456,6 +469,7 @@ export interface UpdateDashboardRequest {
   icon?: string;
   filters?: Record<string, unknown>;
   is_public?: boolean;
+  lifecycle_status?: DashboardLifecycleStatus;
 }
 
 export interface DashboardChartConfig {
@@ -488,6 +502,12 @@ export interface DashboardWidget {
   minH: number;
   bar_orientation: 'horizontal' | 'vertical';
   order_index: number;
+  source_type?: WidgetSourceType;
+  source_prompt?: string | null;
+  generation_item_id?: string | null;
+  generation_status?: WidgetGenerationStatus;
+  generation_error?: string | null;
+  assumptions?: string[];
   created_at: string;
 }
 
@@ -531,6 +551,150 @@ export interface UpdateDashboardWidgetRequest {
 export interface DashboardStats {
   total_widgets: number;
   viz_breakdown: Record<string, number>;
+}
+
+/* ── AI dashboard generation ─────────────────────────────────── */
+
+export type DashboardGenerationRunStatus =
+  | 'planning'
+  | 'awaiting_approval'
+  | 'queued'
+  | 'running'
+  | 'partial'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export type DashboardPlanVisualization =
+  | 'auto'
+  | 'kpi'
+  | 'bar'
+  | 'line'
+  | 'area'
+  | 'pie'
+  | 'donut'
+  | 'table';
+
+export type DashboardPlanSize = 'quarter' | 'half' | 'three-quarter' | 'full';
+
+export interface WidgetPlan {
+  client_key: string;
+  title: string;
+  question: string;
+  purpose?: string;
+  visualization: DashboardPlanVisualization;
+  size: DashboardPlanSize;
+  time_range?: string | null;
+}
+
+export interface DashboardPlan {
+  version: 1;
+  title: string;
+  description?: string;
+  assumptions?: string[];
+  warnings?: string[];
+  widgets: WidgetPlan[];
+}
+
+export interface CreateDashboardGenerationRequest {
+  connection_id: string;
+  prompt: string;
+  requested_widget_count?: number;
+  default_time_range?: string | null;
+  extra_instructions?: string | null;
+  client_request_id: string;
+}
+
+export interface CreateDashboardGenerationResponse {
+  run_id: string;
+  status: string;
+  events_url: string;
+}
+
+export interface UpdateDashboardPlanRequest {
+  expected_revision: number;
+  plan: DashboardPlan;
+}
+
+export interface ApproveDashboardPlanRequest {
+  expected_revision: number;
+}
+
+export interface ApproveDashboardPlanResponse {
+  run_id: string;
+  dashboard_id?: string | null;
+  status: string;
+  events_url?: string | null;
+}
+
+export interface RegenerateWidgetRequest {
+  instruction?: string | null;
+}
+
+export interface DashboardGenerationItem {
+  id: string;
+  run_id: string;
+  client_key: string;
+  dashboard_widget_id?: string | null;
+  order_index: number;
+  plan_json: Record<string, unknown>;
+  status: string;
+  attempt_count: number;
+  last_error_code?: string | null;
+  last_error_message?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface DashboardGenerationRun {
+  id: string;
+  owner_id: string;
+  connection_id: string;
+  dashboard_id?: string | null;
+  client_request_id: string;
+  prompt: string;
+  requested_widget_count: number;
+  default_time_range?: string | null;
+  extra_instructions?: string | null;
+  plan_json?: DashboardPlan | null;
+  plan_revision: number;
+  status: DashboardGenerationRunStatus | string;
+  current_stage: string;
+  current_stage_label: string;
+  celery_task_id?: string | null;
+  failure_code?: string | null;
+  failure_message?: string | null;
+  items: DashboardGenerationItem[];
+  events_url?: string | null;
+  created_at?: string | null;
+  started_at?: string | null;
+  heartbeat_at?: string | null;
+  cancel_requested_at?: string | null;
+  finished_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface DashboardGenerationEvent {
+  version?: number;
+  run_id: string;
+  sequence?: number;
+  type: string;
+  label?: string;
+  occurred_at?: string;
+  stage?: string;
+  duration_ms?: number;
+  outcome?: string;
+  retry_count?: number;
+  metadata?: {
+    dashboard_id?: string;
+    item_id?: string;
+    widget_id?: string;
+    plan_revision?: number;
+    reason?: string;
+    failure_code?: string;
+  };
 }
 
 export interface AnalyticsOverview {

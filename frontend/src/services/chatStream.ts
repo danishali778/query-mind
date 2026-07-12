@@ -2,13 +2,13 @@ import { API_BASE } from '../config';
 import { refreshAuthSession } from './http';
 import type { ChatRunEvent } from '../types/api';
 
-export interface ParsedSseEvent {
+export interface ParsedSseEvent<T = ChatRunEvent> {
   id?: string;
   event: string;
-  data: ChatRunEvent;
+  data: T;
 }
 
-export function parseSseBlock(block: string): ParsedSseEvent | null {
+export function parseSseBlock<T = ChatRunEvent>(block: string): ParsedSseEvent<T> | null {
   let id: string | undefined;
   let event = 'message';
   const data: string[] = [];
@@ -23,7 +23,7 @@ export function parseSseBlock(block: string): ParsedSseEvent | null {
     else if (field === 'data') data.push(value);
   }
   if (!data.length) return null;
-  return { id, event, data: JSON.parse(data.join('\n')) as ChatRunEvent };
+  return { id, event, data: JSON.parse(data.join('\n')) as T };
 }
 
 async function openStream(runId: string, lastEventId: string | undefined, signal: AbortSignal, refreshed = false) {

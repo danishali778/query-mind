@@ -3,7 +3,9 @@ import { Responsive, WidthProvider } from 'react-grid-layout/legacy';
 import 'react-grid-layout/css/styles.css';
 import { MainShell } from '../components/common/MainShell';
 import { HeaderIcons } from '../components/common/AppHeader';
-import { DashboardCreateForm } from '../components/dashboard/DashboardCreateForm';
+import { DashboardCreateChoiceModal } from '../components/dashboard/DashboardCreateChoiceModal';
+import { DashboardAiWizard } from '../components/dashboard/DashboardAiWizard';
+import { GenerationBanner } from '../components/dashboard/GenerationBanner';
 import { WidgetRenderer } from '../components/dashboard/WidgetRenderer';
 import { T } from '../components/dashboard/tokens';
 import { DashboardFilterBar } from '../components/dashboard/DashboardFilterBar';
@@ -17,11 +19,22 @@ import {
   deleteDashboardWidget,
   getDashboardStats,
   updateDashboardWidget,
+  retryDashboardGenerationItem,
+  regenerateDashboardGenerationItem,
 } from '../services/api';
 import { useDashboardCatalog } from '../hooks/useDashboardCatalog';
+import { useDashboardGenerationRun } from '../hooks/useDashboardGenerationRun';
 import type { DashboardItem, DashboardMetrics, DashboardWidgetItem } from '../types/dashboard';
-import type { UpdateDashboardWidgetRequest } from '../types/api';
+import type { DashboardGenerationRun, UpdateDashboardWidgetRequest } from '../types/api';
 import { DeleteDashboardModal } from '../components/dashboard/DeleteDashboardModal';
+import {
+  FAILED_WIDGET_STATUSES,
+  IN_PROGRESS_WIDGET_STATUSES,
+  clearGenerationRun,
+  recallGenerationRun,
+  rememberGenerationRun,
+  widgetHasActiveGeneration,
+} from '../utils/dashboardGeneration';
 
 /* ── SVG Icons ─────────────────────────────────────────────────── */
 
@@ -81,13 +94,7 @@ function DashboardRail({
   onSelect,
   onDelete,
   onRename,
-  showCreateForm,
-  onShowCreateForm,
-  newDashName,
-  onNewDashNameChange,
-  onCreate,
-  onCancelCreate,
-  creating,
+  onShowCreate,
   externalHover,
 }: {
   dashboards: DashboardItem[];
@@ -95,13 +102,7 @@ function DashboardRail({
   onSelect: (id: string) => void;
   onDelete: (dashboard: DashboardItem) => void;
   onRename: (id: string, name: string) => void;
-  showCreateForm: boolean;
-  onShowCreateForm: () => void;
-  newDashName: string;
-  onNewDashNameChange: (value: string) => void;
-  onCreate: () => void;
-  onCancelCreate: () => void;
-  creating: boolean;
+  onShowCreate: () => void;
   externalHover: boolean;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -119,7 +120,7 @@ function DashboardRail({
     setEditingId(null);
   };
 
-  const isExpanded = isHovered || editingId !== null || showCreateForm || externalHover;
+  const isExpanded = isHovered || editingId !== null || externalHover;
 
   return (
     <div style={{ width: 0, flexShrink: 0, position: 'relative', zIndex: 40 }}>
@@ -189,48 +190,34 @@ function DashboardRail({
           <div className="dash-scroll" style={{ flex: 1, overflowY: 'auto', padding: '8px 4px 8px 8px' }}>
             {/* New Dashboard at top */}
             <div style={{ padding: '8px 12px', marginBottom: 12 }}>
-              {!showCreateForm ? (
-                <button
-                  onClick={onShowCreateForm}
-                  className="new-dash-cta"
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 14,
-                    padding: '12px 20px', borderRadius: 0,
-                    border: `1px solid ${T.border}`,
-                    background: T.s2,
-                    cursor: 'pointer', width: '100%',
-                    color: T.text,
-                    fontFamily: T.fontMono, fontSize: '0.72rem',
-                    fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px',
-                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                  }}
-                >
-                  <div style={{
-                    width: 22, height: 22, borderRadius: 0, flexShrink: 0,
-                    background: 'transparent',
-                    border: `1px solid ${T.accent}`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: T.accent
-                  }}>
-                    <IconPlus />
-                  </div>
-                  <span style={{ transition: 'opacity 0.3s', opacity: isExpanded ? 1 : 0 }}>
-                    NEW_DASHBOARD
-                  </span>
-                </button>
-              ) : (
-                <div style={{ transition: 'opacity 0.2s', opacity: isExpanded ? 1 : 0 }}>
-                  <DashboardCreateForm
-                    value={newDashName}
-                    onChange={onNewDashNameChange}
-                    onCreate={onCreate}
-                    onCancel={onCancelCreate}
-                    creating={creating}
-                    compact
-                    ctaLabel="Add"
-                  />
+              <button
+                onClick={onShowCreate}
+                className="new-dash-cta"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 14,
+                  padding: '12px 20px', borderRadius: 0,
+                  border: `1px solid ${T.border}`,
+                  background: T.s2,
+                  cursor: 'pointer', width: '100%',
+                  color: T.text,
+                  fontFamily: T.fontMono, fontSize: '0.72rem',
+                  fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px',
+                  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                }}
+              >
+                <div style={{
+                  width: 22, height: 22, borderRadius: 0, flexShrink: 0,
+                  background: 'transparent',
+                  border: `1px solid ${T.accent}`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: T.accent
+                }}>
+                  <IconPlus />
                 </div>
-              )}
+                <span style={{ transition: 'opacity 0.3s', opacity: isExpanded ? 1 : 0 }}>
+                  NEW_DASHBOARD
+                </span>
+              </button>
             </div>
 
             {dashboards.map((dashboard, index) => {
@@ -499,12 +486,26 @@ function DashboardCanvas({
   widgets,
   onDeleteWidget,
   onUpdateWidget,
+  generationStageLabel,
+  generationBusy,
+  onCancelGeneration,
+  onRetryFailed,
+  onRetryWidget,
+  onRegenerateWidget,
+  onStopWidget,
 }: {
   activeDash?: DashboardItem;
   stats: DashboardMetrics;
   widgets: DashboardWidgetItem[];
   onDeleteWidget: (id: string) => void;
   onUpdateWidget: (id: string, patch: UpdateDashboardWidgetRequest) => void;
+  generationStageLabel?: string | null;
+  generationBusy?: boolean;
+  onCancelGeneration?: () => void;
+  onRetryFailed?: () => void;
+  onRetryWidget?: (widget: DashboardWidgetItem) => void;
+  onRegenerateWidget?: (widget: DashboardWidgetItem, instruction?: string) => void;
+  onStopWidget?: (widget: DashboardWidgetItem) => void;
 }) {
   if (!activeDash) return <EmptyState />;
 
@@ -579,6 +580,9 @@ function DashboardCanvas({
     });
   };
 
+  const lifecycle = activeDash.lifecycle_status || 'ready';
+  const creationMode = activeDash.creation_mode || 'manual';
+
   return (
     <>
       <div className="dash-command-bar" style={{
@@ -623,6 +627,11 @@ function DashboardCanvas({
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <StatChip label={`${stats.total_widgets} widgets`} />
+              <StatChip
+                label={lifecycle === 'draft' ? 'Draft' : 'Ready'}
+                accent={lifecycle === 'draft'}
+              />
+              {creationMode === 'ai' && <StatChip label="AI" muted />}
               <StatChip label={`Created ${new Date(activeDash.created_at).toLocaleDateString()}`} muted />
               <button
                 type="button"
@@ -662,6 +671,14 @@ function DashboardCanvas({
         )}
       </div>
 
+      <GenerationBanner
+        widgets={widgets}
+        stageLabel={generationStageLabel}
+        busy={generationBusy}
+        onCancel={onCancelGeneration}
+        onRetryFailed={onRetryFailed}
+      />
+
       <div style={{ padding: '0 clamp(20px, 4vw, 40px)' }}>
       <DashboardFilterBar
         filters={localFilters}
@@ -688,6 +705,10 @@ function DashboardCanvas({
                   widget={widget}
                   onDelete={onDeleteWidget}
                   onUpdateWidget={onUpdateWidget}
+                  generationBusy={generationBusy}
+                  onRetryGeneration={onRetryWidget}
+                  onRegenerateGeneration={onRegenerateWidget}
+                  onStopGeneration={onStopWidget}
                 />
               </div>
             ))}
@@ -756,11 +777,15 @@ export function DashboardPage() {
   const [activeDashId, setActiveDashId] = useState<string | null>(null);
   const [widgets, setWidgets] = useState<DashboardWidgetItem[]>([]);
   const [stats, setStats] = useState<DashboardMetrics>({ total_widgets: 0, viz_breakdown: {} });
-  const [newDashName, setNewDashName] = useState('');
-  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showChoiceModal, setShowChoiceModal] = useState(false);
+  const [wizardMode, setWizardMode] = useState<'manual' | 'ai' | null>(null);
   const [dashboardToDelete, setDashboardToDelete] = useState<DashboardItem | null>(null);
   const [sidebarTriggeredHover, setSidebarTriggeredHover] = useState(false);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const [generationSnapshot, setGenerationSnapshot] = useState<DashboardGenerationRun | null>(null);
+  const [generationBusy, setGenerationBusy] = useState(false);
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const attachedRunRef = useRef<string | null>(null);
 
   const handleSidebarHover = (isHovering: boolean) => {
     if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
@@ -778,7 +803,7 @@ export function DashboardPage() {
   }, [dashboards, activeDashId]);
 
   const loadActiveDashboard = useCallback(async () => {
-    if (!activeDashId) return;
+    if (!activeDashId) return [] as DashboardWidgetItem[];
     try {
       const [data, s] = await Promise.all([
         listDashboardWidgets(activeDashId),
@@ -786,25 +811,169 @@ export function DashboardPage() {
       ]);
       setWidgets(data);
       setStats(s);
+      return data;
     } catch (err) {
       console.error('Failed to load dashboard:', err);
+      return [] as DashboardWidgetItem[];
     }
   }, [activeDashId]);
 
-  useEffect(() => {
-    loadActiveDashboard();
-  }, [loadActiveDashboard]);
+  const { attach, cancel, disconnect } = useDashboardGenerationRun({
+    onSnapshot: (snapshot) => {
+      setGenerationSnapshot(snapshot);
+      if (snapshot.dashboard_id) {
+        rememberGenerationRun(snapshot.dashboard_id, snapshot.id);
+        if (snapshot.dashboard_id === activeDashId) {
+          void loadActiveDashboard();
+          void reloadDashboards();
+        }
+      }
+      if (['completed', 'failed', 'cancelled', 'partial'].includes(snapshot.status)) {
+        setGenerationBusy(false);
+        if (snapshot.dashboard_id && ['completed', 'cancelled'].includes(snapshot.status)) {
+          clearGenerationRun(snapshot.dashboard_id);
+        }
+      }
+    },
+    onError: (err) => {
+      console.error('Dashboard generation stream error:', err);
+    },
+  });
 
-  const handleCreateDashboard = async () => {
-    if (!newDashName.trim()) return;
+  useEffect(() => {
+    if (!activeDashId) {
+      setWidgets([]);
+      setStats({ total_widgets: 0, viz_breakdown: {} });
+      setActiveRunId(null);
+      setGenerationSnapshot(null);
+      return;
+    }
+    let cancelled = false;
+    attachedRunRef.current = null;
+
+    const loadAndMaybeReconnect = async () => {
+      const data = await loadActiveDashboard();
+      if (cancelled) return;
+      const needsRun = data.some((widget) => {
+        const status = widget.generation_status || 'ready';
+        return IN_PROGRESS_WIDGET_STATUSES.has(status as 'queued' | 'running' | 'regenerating')
+          || FAILED_WIDGET_STATUSES.has(status as 'failed' | 'cancelled');
+      });
+      if (!needsRun) {
+        setActiveRunId(null);
+        setGenerationSnapshot(null);
+        return;
+      }
+      const stored = recallGenerationRun(activeDashId);
+      if (!stored) return;
+      attachedRunRef.current = stored;
+      setActiveRunId(stored);
+      try {
+        await attach(stored, 'execution');
+      } catch (err) {
+        console.error('Failed to reconnect generation run:', err);
+      }
+    };
+
+    void loadAndMaybeReconnect();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeDashId, attach, loadActiveDashboard]);
+
+  useEffect(() => () => disconnect(), [disconnect]);
+
+  const openCreateChoice = () => {
+    setShowChoiceModal(true);
+  };
+
+  const handleManualCreate = async (name: string) => {
+    if (!name.trim()) return;
     try {
-      const newDash = await createNewDashboard({ name: newDashName });
-      setNewDashName('');
-      setShowCreateForm(false);
+      const newDash = await createNewDashboard({ name });
+      setWizardMode(null);
+      setShowChoiceModal(false);
       setActiveDashId(newDash.id);
     } catch (err) {
       console.error('Failed to create dashboard:', err);
     }
+  };
+
+  const handleApproved = async (dashboardId: string, runId: string) => {
+    rememberGenerationRun(dashboardId, runId);
+    setActiveRunId(runId);
+    attachedRunRef.current = runId;
+    setWizardMode(null);
+    await reloadDashboards();
+    setActiveDashId(dashboardId);
+    try {
+      await attach(runId, 'execution');
+    } catch (err) {
+      console.error('Failed to attach generation run:', err);
+    }
+  };
+
+  const handleCancelGeneration = async () => {
+    if (!activeRunId) return;
+    setGenerationBusy(true);
+    try {
+      await cancel(activeRunId);
+      await loadActiveDashboard();
+    } catch (err) {
+      console.error('Failed to cancel generation:', err);
+    } finally {
+      setGenerationBusy(false);
+    }
+  };
+
+  const handleRetryFailed = async () => {
+    if (!activeRunId) return;
+    setGenerationBusy(true);
+    try {
+      const failed = widgets.filter((widget) => FAILED_WIDGET_STATUSES.has((widget.generation_status || 'ready') as 'failed' | 'cancelled'));
+      for (const widget of failed) {
+        if (!widget.generation_item_id) continue;
+        await retryDashboardGenerationItem(activeRunId, widget.generation_item_id);
+      }
+      await attach(activeRunId, 'execution');
+      await loadActiveDashboard();
+    } catch (err) {
+      console.error('Failed to retry widgets:', err);
+    } finally {
+      setGenerationBusy(false);
+    }
+  };
+
+  const handleRetryWidget = async (widget: DashboardWidgetItem) => {
+    if (!activeRunId || !widget.generation_item_id) return;
+    setGenerationBusy(true);
+    try {
+      await retryDashboardGenerationItem(activeRunId, widget.generation_item_id);
+      await attach(activeRunId, 'execution');
+      await loadActiveDashboard();
+    } catch (err) {
+      console.error('Failed to retry widget:', err);
+    } finally {
+      setGenerationBusy(false);
+    }
+  };
+
+  const handleRegenerateWidget = async (widget: DashboardWidgetItem, instruction?: string) => {
+    if (!activeRunId || !widget.generation_item_id) return;
+    setGenerationBusy(true);
+    try {
+      await regenerateDashboardGenerationItem(activeRunId, widget.generation_item_id, { instruction });
+      await attach(activeRunId, 'execution');
+      await loadActiveDashboard();
+    } catch (err) {
+      console.error('Failed to regenerate widget:', err);
+    } finally {
+      setGenerationBusy(false);
+    }
+  };
+
+  const handleStopWidget = async () => {
+    await handleCancelGeneration();
   };
 
   const handleDeleteWidget = async (id: string) => {
@@ -839,6 +1008,7 @@ export function DashboardPage() {
     if (!dashboardToDelete) return;
     try {
       await deleteDashboard(dashboardToDelete.id);
+      clearGenerationRun(dashboardToDelete.id);
       setDashboardToDelete(null);
       await reloadDashboards();
       if (activeDashId === dashboardToDelete.id) {
@@ -850,6 +1020,7 @@ export function DashboardPage() {
   };
 
   const activeDash = dashboards.find(d => d.id === activeDashId);
+  const showGenerationChrome = widgets.some(widgetHasActiveGeneration);
 
   return (
     <MainShell
@@ -888,7 +1059,7 @@ export function DashboardPage() {
             cursor: 'pointer', transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
             textTransform: 'uppercase', letterSpacing: '2px'
           }}
-            onClick={() => setShowCreateForm(true)}
+            onClick={openCreateChoice}
           >
             <HeaderIcons.Plus width={14} height={14} /> NEW_DASHBOARD
           </button>
@@ -902,13 +1073,7 @@ export function DashboardPage() {
           onSelect={setActiveDashId}
           onDelete={setDashboardToDelete}
           onRename={handleRenameDashboard}
-          showCreateForm={showCreateForm}
-          onShowCreateForm={() => setShowCreateForm(true)}
-          newDashName={newDashName}
-          onNewDashNameChange={setNewDashName}
-          onCreate={handleCreateDashboard}
-          onCancelCreate={() => setShowCreateForm(false)}
-          creating={creating}
+          onShowCreate={openCreateChoice}
           externalHover={sidebarTriggeredHover}
         />
 
@@ -927,9 +1092,38 @@ export function DashboardPage() {
             widgets={widgets}
             onDeleteWidget={handleDeleteWidget}
             onUpdateWidget={handleUpdateWidget}
+            generationStageLabel={showGenerationChrome ? generationSnapshot?.current_stage_label : null}
+            generationBusy={generationBusy}
+            onCancelGeneration={activeRunId ? handleCancelGeneration : undefined}
+            onRetryFailed={activeRunId ? handleRetryFailed : undefined}
+            onRetryWidget={activeRunId ? handleRetryWidget : undefined}
+            onRegenerateWidget={activeRunId ? handleRegenerateWidget : undefined}
+            onStopWidget={activeRunId ? handleStopWidget : undefined}
           />}
         </div>
       </div>
+
+      <DashboardCreateChoiceModal
+        isOpen={showChoiceModal && !wizardMode}
+        onClose={() => setShowChoiceModal(false)}
+        onChooseAi={() => {
+          setShowChoiceModal(false);
+          setWizardMode('ai');
+        }}
+        onChooseManual={() => {
+          setShowChoiceModal(false);
+          setWizardMode('manual');
+        }}
+      />
+
+      <DashboardAiWizard
+        isOpen={wizardMode !== null}
+        mode={wizardMode || 'ai'}
+        onClose={() => setWizardMode(null)}
+        onApproved={handleApproved}
+        onManualCreate={handleManualCreate}
+        creatingManual={creating}
+      />
 
       <DeleteDashboardModal
         isOpen={!!dashboardToDelete}

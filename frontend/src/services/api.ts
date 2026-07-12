@@ -3,6 +3,8 @@ import type {
   AddDashboardWidgetRequest,
   AnalyticsOverviewResponse,
   ApiMessageResponse,
+  ApproveDashboardPlanRequest,
+  ApproveDashboardPlanResponse,
   ChatRequest,
   ChatRunAccepted,
   ChatRunRequest,
@@ -10,7 +12,10 @@ import type {
   ChatResponse,
   ConnectDatabaseRequest,
   ConnectDatabaseResponse,
+  CreateDashboardGenerationRequest,
+  CreateDashboardGenerationResponse,
   CreateDashboardRequest,
+  DashboardGenerationRun,
   DashboardStats,
   DashboardSummary,
   DashboardWidget,
@@ -21,6 +26,7 @@ import type {
   QueryRecord,
   QueryRunHistoryRecord,
   QueryStats,
+  RegenerateWidgetRequest,
   RunSavedQueryResponse,
   SaveQueryRequest,
   SaveQueryResponse,
@@ -32,6 +38,7 @@ import type {
   SessionSummary,
   TestConnectionRequest,
   TestConnectionResponse,
+  UpdateDashboardPlanRequest,
   UpdateDashboardWidgetRequest,
   UpdateDashboardRequest,
   UpdateSavedQueryRequest,
@@ -261,6 +268,44 @@ export function getSharedDashboard(token: string) {
 
 export function getSharedDashboardWidgets(token: string) {
   return request<DashboardWidget[]>(`/dashboard/shared/${token}/widgets`);
+}
+
+export function createDashboardGeneration(data: CreateDashboardGenerationRequest) {
+  return jsonRequest<CreateDashboardGenerationResponse>('/dashboard/generations', 'POST', data);
+}
+
+export function getDashboardGeneration(runId: string) {
+  return request<DashboardGenerationRun>(`/dashboard/generations/${runId}`);
+}
+
+export function updateDashboardGenerationPlan(runId: string, data: UpdateDashboardPlanRequest) {
+  return jsonRequest<DashboardGenerationRun>(`/dashboard/generations/${runId}/plan`, 'PUT', data);
+}
+
+export function approveDashboardGeneration(runId: string, data: ApproveDashboardPlanRequest) {
+  return jsonRequest<ApproveDashboardPlanResponse>(`/dashboard/generations/${runId}/approve`, 'POST', data);
+}
+
+export function cancelDashboardGeneration(runId: string) {
+  return request<DashboardGenerationRun>(`/dashboard/generations/${runId}/cancel`, { method: 'POST' });
+}
+
+export function retryDashboardGenerationItem(runId: string, itemId: string) {
+  return request<DashboardGenerationRun>(`/dashboard/generations/${runId}/items/${itemId}/retry`, {
+    method: 'POST',
+  });
+}
+
+export function regenerateDashboardGenerationItem(
+  runId: string,
+  itemId: string,
+  data: RegenerateWidgetRequest = {},
+) {
+  return jsonRequest<DashboardGenerationRun>(
+    `/dashboard/generations/${runId}/items/${itemId}/regenerate`,
+    'POST',
+    data,
+  );
 }
 
 export function getAnalyticsOverview() {
