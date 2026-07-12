@@ -6,6 +6,7 @@ import {
   Monitor, Smartphone, ChevronRight
 } from 'lucide-react';
 import { MainShell } from '../components/common/MainShell';
+import { Skeleton } from '../components/common/Skeleton';
 import { T } from '../components/dashboard/tokens';
 import { useSettingsStore } from '../store/settingsStore';
 import { useAuth } from '../context/AuthContext';
@@ -28,7 +29,19 @@ export function SettingsPage() {
   if (isLoading && !settings) {
     return (
       <MainShell title="USER_SETTINGS" subtitle="PREFERENCES AND SECURITY CONFIGURATION">
-        <div style={{ padding: 40, color: T.text3, fontFamily: T.fontMono, fontSize: '0.72rem' }}>AWAITING_TELEMETRY...</div>
+        <div style={{ maxWidth: 900, width: '100%', margin: '0 auto', padding: 'clamp(32px, 5vw, 64px) clamp(20px, 5vw, 80px)' }}>
+          <Skeleton className="w-48" style={{ height: 14, marginBottom: 40 }} />
+          <div style={{ border: `1px solid ${T.border}`, marginBottom: 32 }}>
+            <div style={{ padding: '32px 40px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Skeleton className="w-32" style={{ height: 12 }} />
+                  <Skeleton className="w-56" style={{ height: 32 }} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </MainShell>
     );
   }

@@ -6,6 +6,7 @@ import { AnalyticsHero } from '../components/analytics/AnalyticsHero';
 import { AnalyticsSectionCard } from '../components/analytics/AnalyticsSectionCard';
 import { AnalyticsStatCard } from '../components/analytics/AnalyticsStatCard';
 import { AnalyticsQueryTable } from '../components/analytics/AnalyticsQueryTable';
+import { Skeleton } from '../components/common/Skeleton';
 import { T } from '../components/dashboard/tokens';
 import { getAnalyticsOverview } from '../services/api';
 import type { AnalyticsOverviewResponse } from '../types/api';
@@ -14,11 +15,11 @@ const HEALTH_COLORS = [T.green, T.red];
 
 function AnalyticsEmptyState() {
   return (
-    <div style={{ 
-      border: `1px solid rgba(0,0,0,0.08)`, 
-      borderRadius: 0, 
-      padding: '100px 40px', 
-      background: '#fff', 
+    <div style={{
+      border: `1px solid rgba(0,0,0,0.08)`,
+      borderRadius: 0,
+      padding: '100px 40px',
+      background: '#fff',
       textAlign: 'center',
       display: 'flex',
       flexDirection: 'column',
@@ -70,6 +71,30 @@ function AnalyticsEmptyState() {
   );
 }
 
+function AnalyticsSkeleton() {
+  return (
+    <>
+      <div className="responsive-grid-4" style={{ marginBottom: 24 }}>
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} style={{ background: '#fff', border: '1px solid rgba(0,0,0,0.08)', padding: 24, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Skeleton className="w-24" style={{ height: 10 }} />
+            <Skeleton className="w-16" style={{ height: 28 }} />
+            <Skeleton className="w-32" style={{ height: 8 }} />
+          </div>
+        ))}
+      </div>
+      <div className="responsive-grid-2-wide">
+        {[0, 1].map((i) => (
+          <div key={i} style={{ background: '#fff', border: '1px solid rgba(0,0,0,0.08)', padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <Skeleton className="w-40" style={{ height: 10 }} />
+            <Skeleton style={{ height: 200 }} />
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
 export function AnalyticsPage() {
   const [data, setData] = useState<AnalyticsOverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -117,9 +142,7 @@ export function AnalyticsPage() {
         <AnalyticsHero />
 
         {loading ? (
-          <div style={{ padding: '120px 0', textAlign: 'center', color: T.text3, fontFamily: T.fontMono, fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-            Synchronizing telemetry...
-          </div>
+          <AnalyticsSkeleton />
         ) : error ? (
           <div style={{ padding: '120px 0', textAlign: 'center', color: T.red, fontFamily: T.fontMono, fontSize: '0.72rem', textTransform: 'uppercase' }}>
             Transmission Error: {error}
