@@ -19,6 +19,7 @@ import { DashboardLineChart } from './charts/DashboardLineChart';
 import { DashboardAreaChart } from './charts/DashboardAreaChart';
 import { DashboardPieChart } from './charts/DashboardPieChart';
 import { exportToPNG, exportToCSV } from '../../utils/exportUtils';
+import { WidgetGenerationPlaceholder } from './WidgetGenerationPlaceholder';
 
 
 const CHART_TYPES = [
@@ -369,9 +370,11 @@ function KpiCard({ widget, onDelete }: {
   onDelete: (id: string) => void;
 }) {
   const [isHovered, setIsHovered] = useState(false);
+  const rows = Array.isArray(widget.rows) ? widget.rows : [];
+  const columns = Array.isArray(widget.columns) ? widget.columns : [];
   const metricCol = (widget.chart_config?.y_columns || []).find(Boolean)
-    || widget.columns.find((c) => widget.rows.some((r) => typeof r[c] === 'number'));
-  const primaryRow = widget.rows[widget.rows.length - 1] || widget.rows[0] || {};
+    || columns.find((c) => rows.some((r) => typeof r[c] === 'number'));
+  const primaryRow = rows[rows.length - 1] || rows[0] || {};
   const metric = metricCol ? primaryRow[metricCol] : undefined;
 
   return (
@@ -452,7 +455,7 @@ function KpiCard({ widget, onDelete }: {
         </div>
       </motion.div>
       <motion.div layout style={{ padding: '0 0 0 0', borderTop: '1px solid rgba(0,0,0,0.05)' }}>
-        <Sparkline rows={widget.rows} yColumn={metricCol} color={T.text} />
+        <Sparkline rows={rows} yColumn={metricCol} color={T.text} />
       </motion.div>
     </motion.div>
   );
@@ -464,13 +467,24 @@ export function WidgetRenderer({
   widget,
   onDelete,
   onUpdateWidget,
+  onRetryGeneration,
+  onRegenerateGeneration,
+  onStopGeneration,
+  generationBusy = false,
 }: {
   widget: DashboardWidgetItem;
   onDelete: (id: string) => void;
   onUpdateWidget: (id: string, patch: UpdateDashboardWidgetRequest) => void;
+  onRetryGeneration?: (widget: DashboardWidgetItem) => void;
+  onRegenerateGeneration?: (widget: DashboardWidgetItem, instruction?: string) => void;
+  onStopGeneration?: (widget: DashboardWidgetItem) => void;
+  generationBusy?: boolean;
 }) {
-  const size = resolveWidgetSize(widget.size, widget.viz_type, widget.rows.length);
+  const rows = Array.isArray(widget.rows) ? widget.rows : [];
+  const columns = Array.isArray(widget.columns) ? widget.columns : [];
+  const size = resolveWidgetSize(widget.size, widget.viz_type, rows.length);
   const badge = widgetBadge(widget.viz_type);
+  const generationStatus = widget.generation_status || 'ready';
 
   const isChartType = (t: string): t is ChartType => ['bar', 'line', 'area', 'pie'].includes(t);
   const initialType: ChartType = isChartType(widget.viz_type) ? widget.viz_type : 'bar';
@@ -480,7 +494,24 @@ export function WidgetRenderer({
   const [refreshing, setRefreshing] = useState(false);
   const [insight, setInsight] = useState<string | null>(null);
   const [loadingInsight, setLoadingInsight] = useState(false);
+  const [lineageOpen, setLineageOpen] = useState(false);
+  const [regenOpen, setRegenOpen] = useState(false);
+  const [regenInstruction, setRegenInstruction] = useState('');
   const titleInputRef = useRef<HTMLInputElement>(null);
+
+  if (generationStatus !== 'ready') {
+    return (
+      <WidgetGenerationPlaceholder
+        widget={{ ...widget, rows, columns }}
+        busy={generationBusy}
+        onRetry={onRetryGeneration ? () => onRetryGeneration(widget) : undefined}
+        onRegenerate={onRegenerateGeneration
+          ? (instruction) => onRegenerateGeneration(widget, instruction)
+          : undefined}
+        onStop={onStopGeneration ? () => onStopGeneration(widget) : undefined}
+      />
+    );
+  }
 
   const commitTitle = () => {
     setEditingTitle(false);
@@ -522,11 +553,11 @@ export function WidgetRenderer({
   };
 
   const handleExportCSV = () => {
-    exportToCSV(widget.rows, `${widget.title}_Data`);
+    exportToCSV(rows, `${widget.title}_Data`);
   };
 
   if (widget.viz_type === 'kpi') {
-    return <KpiCard widget={widget} onDelete={onDelete} />;
+    return <KpiCard widget={{ ...widget, rows, columns }} onDelete={onDelete} />;
   }
 
    const onToggleSize = () => {
@@ -620,7 +651,7 @@ export function WidgetRenderer({
             marginTop: 4, display: 'flex', alignItems: 'center', gap: 8,
             letterSpacing: '0.05em', textTransform: 'uppercase'
           }}>
-            <span>{widget.rows.length} OBSERVATIONS</span>
+            <span>{rows.length} OBSERVATIONS</span>
             <span style={{
               width: 3, height: 3, borderRadius: '50%',
               background: 'rgba(0,0,0,0.1)', display: 'inline-block',
@@ -809,12 +840,150 @@ export function WidgetRenderer({
 
       {/* Body */}
       <div style={{ padding: isChart ? '0 0 12px' : '12px 16px 16px', position: 'relative', height: isChart ? 320 : 'auto' }}>
-        {isChart && chartType === 'bar' && <DashboardBarChart widget={widget} size={size} />}
-        {isChart && chartType === 'line' && <DashboardLineChart widget={widget} size={size} />}
-        {isChart && chartType === 'area' && <DashboardAreaChart widget={widget} size={size} />}
-        {isChart && (chartType === 'pie' || chartType === 'donut') && <DashboardPieChart widget={widget} size={size} />}
-        {widget.viz_type === 'table' && <TableViz columns={widget.columns} rows={widget.rows} compact={size !== 'full'} />}
+        {isChart && chartType === 'bar' && <DashboardBarChart widget={{ ...widget, rows, columns }} size={size} />}
+        {isChart && chartType === 'line' && <DashboardLineChart widget={{ ...widget, rows, columns }} size={size} />}
+        {isChart && chartType === 'area' && <DashboardAreaChart widget={{ ...widget, rows, columns }} size={size} />}
+        {isChart && (chartType === 'pie' || chartType === 'donut') && <DashboardPieChart widget={{ ...widget, rows, columns }} size={size} />}
+        {widget.viz_type === 'table' && <TableViz columns={columns} rows={rows} compact={size !== 'full'} />}
       </div>
+
+      {(widget.source_type === 'ai' || widget.source_prompt || (widget.assumptions && widget.assumptions.length > 0) || widget.sql) && (
+        <div style={{ borderTop: '1px solid rgba(0,0,0,0.05)', padding: '10px 16px 14px' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button
+              type="button"
+              onClick={() => setLineageOpen((v) => !v)}
+              style={{
+                padding: '6px 10px',
+                borderRadius: 6,
+                border: `1px solid ${T.border}`,
+                background: T.s2,
+                color: T.text2,
+                fontFamily: T.fontMono,
+                fontSize: '0.62rem',
+                fontWeight: 800,
+                letterSpacing: '0.04em',
+                cursor: 'pointer',
+              }}
+            >
+              {lineageOpen ? 'HIDE LINEAGE' : 'SHOW LINEAGE'}
+            </button>
+            {onRegenerateGeneration && widget.source_type === 'ai' && (
+              <button
+                type="button"
+                onClick={() => setRegenOpen((v) => !v)}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 6,
+                  border: `1px solid ${T.border}`,
+                  background: T.s1,
+                  color: T.text,
+                  fontFamily: T.fontMono,
+                  fontSize: '0.62rem',
+                  fontWeight: 800,
+                  letterSpacing: '0.04em',
+                  cursor: 'pointer',
+                }}
+              >
+                REGENERATE
+              </button>
+            )}
+          </div>
+
+          {regenOpen && onRegenerateGeneration && (
+            <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+              <input
+                value={regenInstruction}
+                onChange={(e) => setRegenInstruction(e.target.value)}
+                placeholder="Optional instruction for regenerate…"
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  border: `1px solid ${T.border}`,
+                  borderRadius: 8,
+                  fontFamily: T.fontBody,
+                  fontSize: '0.8rem',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+              />
+              <button
+                type="button"
+                disabled={generationBusy}
+                onClick={() => {
+                  onRegenerateGeneration(widget, regenInstruction.trim() || undefined);
+                  setRegenOpen(false);
+                  setRegenInstruction('');
+                }}
+                style={{
+                  justifySelf: 'start',
+                  padding: '7px 12px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: T.text,
+                  color: T.bg,
+                  fontFamily: T.fontMono,
+                  fontSize: '0.66rem',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                }}
+              >
+                RUN REGENERATE
+              </button>
+            </div>
+          )}
+
+          {lineageOpen && (
+            <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
+              {widget.source_prompt && (
+                <LineageBlock label="Source prompt" value={widget.source_prompt} />
+              )}
+              {(widget.assumptions || []).length > 0 && (
+                <LineageBlock
+                  label="Assumptions"
+                  value={(widget.assumptions || []).map((item) => `• ${item}`).join('\n')}
+                />
+              )}
+              {widget.sql && (
+                <LineageBlock label="SQL" value={widget.sql} mono />
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LineageBlock({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div>
+      <div style={{
+        fontFamily: T.fontMono,
+        fontSize: '0.58rem',
+        fontWeight: 800,
+        letterSpacing: '0.08em',
+        textTransform: 'uppercase',
+        color: T.text3,
+        marginBottom: 4,
+      }}>
+        {label}
+      </div>
+      <pre style={{
+        margin: 0,
+        padding: 10,
+        borderRadius: 8,
+        background: T.s2,
+        border: `1px solid ${T.border}`,
+        color: T.text2,
+        fontFamily: mono ? T.fontMono : T.fontBody,
+        fontSize: mono ? '0.72rem' : '0.78rem',
+        whiteSpace: 'pre-wrap',
+        overflowWrap: 'anywhere',
+        lineHeight: 1.5,
+      }}>
+        {value}
+      </pre>
     </div>
   );
 }
