@@ -16,13 +16,14 @@ DASHBOARD_RUN_EVENT_MAXLEN=500
 DASHBOARD_RUN_HEARTBEAT_SECONDS=15
 ```
 
-The interactive Celery worker must listen to both `interactive` and `dashboards`:
+Run dashboard generation on a dedicated worker so long dashboard jobs cannot
+consume interactive chat capacity:
 
 ```text
-celery -A app.workers.worker:app worker --loglevel=info --queues interactive,dashboards
+celery -A app.workers.worker:app worker --loglevel=info --queues dashboards --concurrency=2
 ```
 
-Docker Compose `agent-worker` is configured for this queue pair.
+Docker Compose provides separate `agent-worker` and `dashboard-worker` services.
 
 ## Workflow
 
