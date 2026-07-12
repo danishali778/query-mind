@@ -1,4 +1,6 @@
 import type {
+  DashboardGenerationEvent,
+  DashboardGenerationRun,
   DashboardPlan,
   DashboardWidget,
   WidgetGenerationStatus,
@@ -196,4 +198,16 @@ export function stageLabelForWidget(status: WidgetGenerationStatus | string | un
     default:
       return 'Ready';
   }
+}
+
+export function applyDashboardGenerationEvent(
+  snapshot: DashboardGenerationRun | null,
+  event: DashboardGenerationEvent,
+): DashboardGenerationRun | null {
+  if (!snapshot || snapshot.id !== event.run_id) return snapshot;
+  return {
+    ...snapshot,
+    current_stage: event.stage || snapshot.current_stage,
+    current_stage_label: event.label || snapshot.current_stage_label,
+  };
 }

@@ -278,6 +278,12 @@ export function getDashboardGeneration(runId: string) {
   return request<DashboardGenerationRun>(`/dashboard/generations/${runId}`);
 }
 
+export function getDashboardGenerationForDashboard(dashboardId: string) {
+  return request<DashboardGenerationRun>(
+    `/dashboard/generations?dashboard_id=${encodeURIComponent(dashboardId)}`,
+  );
+}
+
 export function updateDashboardGenerationPlan(runId: string, data: UpdateDashboardPlanRequest) {
   return jsonRequest<DashboardGenerationRun>(`/dashboard/generations/${runId}/plan`, 'PUT', data);
 }

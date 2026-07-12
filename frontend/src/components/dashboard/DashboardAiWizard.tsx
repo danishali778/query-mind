@@ -15,6 +15,7 @@ import {
   WIDGET_COUNT_DEFAULT,
   WIDGET_COUNT_MAX,
   WIDGET_COUNT_MIN,
+  applyDashboardGenerationEvent,
   createEmptyWidgetPlan,
   isDescribeFormValid,
   normalizePlan,
@@ -114,6 +115,9 @@ export function DashboardAiWizard({
   }, []);
 
   const { startPlanning, cancel, disconnect } = useDashboardGenerationRun({
+    onEvent: (event) => {
+      setSnapshot((current) => applyDashboardGenerationEvent(current, event));
+    },
     onSnapshot: (next) => {
       setSnapshot(next);
       if (next.plan_json) setPlanDraft(normalizePlan(next.plan_json));

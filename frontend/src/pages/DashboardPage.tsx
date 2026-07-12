@@ -18,6 +18,7 @@ import {
   listDashboardWidgets,
   deleteDashboardWidget,
   getDashboardStats,
+  getDashboardGenerationForDashboard,
   updateDashboardWidget,
   retryDashboardGenerationItem,
   regenerateDashboardGenerationItem,
@@ -25,11 +26,11 @@ import {
 import { useDashboardCatalog } from '../hooks/useDashboardCatalog';
 import { useDashboardGenerationRun } from '../hooks/useDashboardGenerationRun';
 import type { DashboardItem, DashboardMetrics, DashboardWidgetItem } from '../types/dashboard';
-import type { DashboardGenerationRun, UpdateDashboardWidgetRequest } from '../types/api';
+import type { DashboardGenerationEvent, DashboardGenerationRun, UpdateDashboardWidgetRequest } from '../types/api';
 import { DeleteDashboardModal } from '../components/dashboard/DeleteDashboardModal';
 import {
   FAILED_WIDGET_STATUSES,
-  IN_PROGRESS_WIDGET_STATUSES,
+  applyDashboardGenerationEvent,
   clearGenerationRun,
   recallGenerationRun,
   rememberGenerationRun,
@@ -493,6 +494,7 @@ function DashboardCanvas({
   onRetryWidget,
   onRegenerateWidget,
   onStopWidget,
+  onMarkReady,
 }: {
   activeDash?: DashboardItem;
   stats: DashboardMetrics;
@@ -506,6 +508,7 @@ function DashboardCanvas({
   onRetryWidget?: (widget: DashboardWidgetItem) => void;
   onRegenerateWidget?: (widget: DashboardWidgetItem, instruction?: string) => void;
   onStopWidget?: (widget: DashboardWidgetItem) => void;
+  onMarkReady?: () => void;
 }) {
   if (!activeDash) return <EmptyState />;
 
@@ -632,6 +635,26 @@ function DashboardCanvas({
                 accent={lifecycle === 'draft'}
               />
               {creationMode === 'ai' && <StatChip label="AI" muted />}
+              {creationMode === 'ai' && lifecycle === 'draft' && onMarkReady && (
+                <button
+                  type="button"
+                  onClick={onMarkReady}
+                  style={{
+                    padding: '5px 10px',
+                    border: `1px solid ${T.border}`,
+                    background: T.s2,
+                    color: T.text,
+                    fontFamily: T.fontMono,
+                    fontSize: '0.62rem',
+                    fontWeight: 800,
+                    letterSpacing: '0.04em',
+                    textTransform: 'uppercase',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Mark ready
+                </button>
+              )}
               <StatChip label={`Created ${new Date(activeDash.created_at).toLocaleDateString()}`} muted />
               <button
                 type="button"
@@ -819,6 +842,12 @@ export function DashboardPage() {
   }, [activeDashId]);
 
   const { attach, cancel, disconnect } = useDashboardGenerationRun({
+    onEvent: (event: DashboardGenerationEvent) => {
+      setGenerationSnapshot((current) => applyDashboardGenerationEvent(current, event));
+      if (event.type.startsWith('widget.') || event.type === 'dashboard.created') {
+        void loadActiveDashboard();
+      }
+    },
     onSnapshot: (snapshot) => {
       setGenerationSnapshot(snapshot);
       if (snapshot.dashboard_id) {
@@ -830,9 +859,6 @@ export function DashboardPage() {
       }
       if (['completed', 'failed', 'cancelled', 'partial'].includes(snapshot.status)) {
         setGenerationBusy(false);
-        if (snapshot.dashboard_id && ['completed', 'cancelled'].includes(snapshot.status)) {
-          clearGenerationRun(snapshot.dashboard_id);
-        }
       }
     },
     onError: (err) => {
@@ -850,26 +876,30 @@ export function DashboardPage() {
     }
     let cancelled = false;
     attachedRunRef.current = null;
+    disconnect();
 
     const loadAndMaybeReconnect = async () => {
-      const data = await loadActiveDashboard();
+      await loadActiveDashboard();
       if (cancelled) return;
-      const needsRun = data.some((widget) => {
-        const status = widget.generation_status || 'ready';
-        return IN_PROGRESS_WIDGET_STATUSES.has(status as 'queued' | 'running' | 'regenerating')
-          || FAILED_WIDGET_STATUSES.has(status as 'failed' | 'cancelled');
-      });
-      if (!needsRun) {
+      let runId = recallGenerationRun(activeDashId);
+      let durableSnapshot: DashboardGenerationRun | null = null;
+      try {
+        durableSnapshot = await getDashboardGenerationForDashboard(activeDashId);
+        runId = durableSnapshot.id;
+      } catch {
+        // Manual dashboards and legacy AI dashboards may not have a generation run.
+      }
+      if (cancelled) return;
+      if (!runId) {
         setActiveRunId(null);
         setGenerationSnapshot(null);
         return;
       }
-      const stored = recallGenerationRun(activeDashId);
-      if (!stored) return;
-      attachedRunRef.current = stored;
-      setActiveRunId(stored);
+      attachedRunRef.current = runId;
+      setActiveRunId(runId);
+      if (durableSnapshot) setGenerationSnapshot(durableSnapshot);
       try {
-        await attach(stored, 'execution');
+        await attach(runId, 'execution');
       } catch (err) {
         console.error('Failed to reconnect generation run:', err);
       }
@@ -879,7 +909,7 @@ export function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeDashId, attach, loadActiveDashboard]);
+  }, [activeDashId, attach, disconnect, loadActiveDashboard]);
 
   useEffect(() => () => disconnect(), [disconnect]);
 
@@ -1004,6 +1034,16 @@ export function DashboardPage() {
     }
   };
 
+  const handleMarkDashboardReady = async () => {
+    if (!activeDashId) return;
+    try {
+      await updateDashboard(activeDashId, { lifecycle_status: 'ready' });
+      await reloadDashboards();
+    } catch (err) {
+      console.error('Failed to mark dashboard ready:', err);
+    }
+  };
+
   const handleDeleteDashboard = async () => {
     if (!dashboardToDelete) return;
     try {
@@ -1099,6 +1139,7 @@ export function DashboardPage() {
             onRetryWidget={activeRunId ? handleRetryWidget : undefined}
             onRegenerateWidget={activeRunId ? handleRegenerateWidget : undefined}
             onStopWidget={activeRunId ? handleStopWidget : undefined}
+            onMarkReady={handleMarkDashboardReady}
           />}
         </div>
       </div>

@@ -56,6 +56,7 @@ export function useDashboardGenerationRun(callbacks: {
             if (stopEvents.has(event) || stopEvents.has(data.type)) stopSeen = true;
           },
         });
+        failures = 0;
         const snapshot = await api.getDashboardGeneration(runId);
         callbacksRef.current.onSnapshot(snapshot);
         if (pauseStatuses.has(snapshot.status)) return;
@@ -90,6 +91,11 @@ export function useDashboardGenerationRun(callbacks: {
   const startPlanning = useCallback(async (request: CreateDashboardGenerationRequest) => {
     const accepted = await api.createDashboardGeneration(request);
     callbacksRef.current.onAccepted?.(accepted);
+    try {
+      callbacksRef.current.onSnapshot(await api.getDashboardGeneration(accepted.run_id));
+    } catch {
+      // The stream remains authoritative if the initial snapshot races dispatch.
+    }
     void connect(accepted.run_id, 'planning');
     return accepted;
   }, [connect]);
