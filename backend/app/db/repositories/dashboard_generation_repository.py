@@ -23,6 +23,7 @@ from app.db.orm_models import (
     DashboardWidgetORM,
 )
 from app.db.repositories.dashboard_repository import _map_dashboard, _map_widget
+from app.db.repositories import semantic_repository
 from app.db.session import read_session_scope, session_scope
 
 
@@ -95,6 +96,9 @@ def _map_run(
         default_time_range=row.default_time_range,
         extra_instructions=row.extra_instructions,
         plan_json=dict(row.plan_json) if row.plan_json else None,
+        semantic_context_json=(
+            dict(row.semantic_context_json) if row.semantic_context_json else None
+        ),
         plan_revision=row.plan_revision or 0,
         status=row.status,  # type: ignore[arg-type]
         current_stage=row.current_stage,
@@ -421,6 +425,7 @@ def save_plan_sync(
     *,
     expected_revision: int | None = None,
     mark_awaiting_approval: bool = False,
+    semantic_context_json: dict[str, Any] | None = None,
 ) -> DashboardGenerationRun:
     row = (
         session.query(DashboardGenerationRunORM)
@@ -436,6 +441,9 @@ def save_plan_sync(
     if row.status in TERMINAL_RUN_STATUSES:
         raise GenerationNotApprovableError("Terminal generation runs cannot be updated.")
 
+    if semantic_context_json is not None:
+        row.semantic_context_json = semantic_context_json
+    _validate_plan_semantic_refs(plan, row.semantic_context_json)
     row.plan_json = plan
     row.plan_revision = (row.plan_revision or 0) + 1
     row.heartbeat_at = _now()
@@ -454,6 +462,7 @@ async def save_plan(
     *,
     expected_revision: int | None = None,
     mark_awaiting_approval: bool = False,
+    semantic_context_json: dict[str, Any] | None = None,
 ) -> DashboardGenerationRun:
     def _run() -> DashboardGenerationRun:
         with session_scope() as session:
@@ -464,6 +473,7 @@ async def save_plan(
                 plan,
                 expected_revision=expected_revision,
                 mark_awaiting_approval=mark_awaiting_approval,
+                semantic_context_json=semantic_context_json,
             )
 
     return await anyio.to_thread.run_sync(_run)
@@ -510,6 +520,11 @@ def approve_plan_sync(
         raise GenerationNotApprovableError("Plan has no widgets.")
 
     layouts = compute_placeholder_layouts(widgets_plan)
+    context_by_ref = {
+        str(entry.get("reference")): entry
+        for entry in (row.semantic_context_json or {}).get("definitions", [])
+        if isinstance(entry, dict) and entry.get("reference")
+    }
     dashboard = DashboardORM(
         id=str(uuid.uuid4()),
         owner_id=owner_id,
@@ -524,7 +539,12 @@ def approve_plan_sync(
     session.flush()
 
     created_widgets: list[DashboardWidgetORM] = []
+    run_version_ids: set[str] = set()
     for index, (plan, layout) in enumerate(zip(widgets_plan, layouts)):
+        widget_lineage = _lineage_for_refs(plan.get("semantic_refs") or [], context_by_ref)
+        run_version_ids.update(
+            item["version_id"] for item in widget_lineage if item.get("version_id")
+        )
         item = DashboardGenerationItemORM(
             id=str(uuid.uuid4()),
             run_id=row.id,
@@ -568,10 +588,20 @@ def approve_plan_sync(
             generation_status="queued",
             generation_error=None,
             assumptions=[],
+            semantic_lineage=widget_lineage,
         )
         session.add(widget)
         session.flush()
         item.dashboard_widget_id = widget.id
+        semantic_repository.record_usages_sync(
+            session,
+            owner_id=owner_id,
+            connection_id=row.connection_id,
+            version_ids=[item["version_id"] for item in widget_lineage],
+            consumer_type="dashboard_widget",
+            consumer_id=widget.id,
+            usage_role="applied",
+        )
         created_widgets.append(widget)
 
     row.dashboard_id = dashboard.id
@@ -579,6 +609,15 @@ def approve_plan_sync(
     row.current_stage = "queued"
     row.current_stage_label = "Queued for generation"
     row.heartbeat_at = _now()
+    semantic_repository.record_usages_sync(
+        session,
+        owner_id=owner_id,
+        connection_id=row.connection_id,
+        version_ids=sorted(run_version_ids),
+        consumer_type="dashboard_generation",
+        consumer_id=row.id,
+        usage_role="applied",
+    )
     session.flush()
     return (
         _map_run(row),
@@ -586,6 +625,88 @@ def approve_plan_sync(
         [_map_widget(w) for w in created_widgets],
         True,
     )
+
+
+def _validate_plan_semantic_refs(
+    plan: dict[str, Any], semantic_context_json: dict[str, Any] | None
+) -> None:
+    allowed = {
+        str(entry.get("reference"))
+        for entry in (semantic_context_json or {}).get("definitions", [])
+        if isinstance(entry, dict) and entry.get("reference")
+    }
+    requested = {
+        str(reference)
+        for widget in plan.get("widgets", [])
+        if isinstance(widget, dict)
+        for reference in widget.get("semantic_refs", [])
+    }
+    if requested - allowed:
+        raise GenerationNotApprovableError(
+            "The plan contains semantic references outside its frozen context."
+        )
+
+
+def _lineage_for_refs(
+    references: list[str], context_by_ref: dict[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
+    lineage: list[dict[str, Any]] = []
+    for reference in dict.fromkeys(references):
+        entry = context_by_ref.get(reference)
+        if not entry:
+            raise GenerationNotApprovableError("Unknown semantic reference in widget plan.")
+        lineage.append(
+            {
+                "definition_id": entry["definition_id"],
+                "version_id": entry["version_id"],
+                "reference": reference,
+                "kind": entry["kind"],
+                "display_name": entry["display_name"],
+                "version": entry["version"],
+                "usage_role": "applied",
+                "verification_status": "verified",
+            }
+        )
+    return lineage
+
+
+def update_item_semantic_context_sync(
+    session: Session,
+    *,
+    owner_id: str,
+    run_id: str,
+    item_id: str,
+    plan_json: dict[str, Any],
+    semantic_context_json: dict[str, Any],
+) -> None:
+    row = (
+        session.query(DashboardGenerationRunORM)
+        .filter(
+            DashboardGenerationRunORM.id == run_id,
+            DashboardGenerationRunORM.owner_id == owner_id,
+        )
+        .one_or_none()
+    )
+    if not row:
+        raise GenerationNotFoundError(run_id)
+    item = next((entry for entry in row.items if entry.id == item_id), None)
+    if not item:
+        raise GenerationItemNotFoundError(item_id)
+    existing = dict(row.semantic_context_json or {})
+    by_reference = {
+        str(entry.get("reference")): entry
+        for entry in existing.get("definitions", [])
+        if isinstance(entry, dict) and entry.get("reference")
+    }
+    for entry in semantic_context_json.get("definitions", []):
+        if isinstance(entry, dict) and entry.get("reference"):
+            by_reference[str(entry["reference"])] = entry
+    existing.update(semantic_context_json)
+    existing["definitions"] = list(by_reference.values())
+    row.semantic_context_json = existing
+    item.plan_json = plan_json
+    row.heartbeat_at = _now()
+    session.flush()
 
 
 async def approve_plan(

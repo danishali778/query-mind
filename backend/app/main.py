@@ -11,7 +11,11 @@ from app.core.middleware import configure_cors
 from app.core.secrets import validate_core_credentials
 from app.lifespan import lifespan
 from app.services.chat_progress import ensure_available
-from app.db.repositories import chat_run_repository, dashboard_generation_repository
+from app.db.repositories import (
+    chat_run_repository,
+    dashboard_generation_repository,
+    semantic_repository,
+)
 from app.workers.celery_app import celery_app
 
 
@@ -47,6 +51,7 @@ def streaming_health_check():
         redis_status = "unavailable"
     interactive_worker_status = "unavailable"
     dashboard_worker_status = "unavailable"
+    semantics_worker_status = "unavailable"
     try:
         queues = celery_app.control.inspect(timeout=0.75).active_queues() or {}
         if any(
@@ -61,6 +66,12 @@ def streaming_health_check():
             for queue in worker_queues
         ):
             dashboard_worker_status = "healthy"
+        if any(
+            queue.get("name") == settings.celery_semantics_queue
+            for worker_queues in queues.values()
+            for queue in worker_queues
+        ):
+            semantics_worker_status = "healthy"
     except Exception:
         pass
     try:
@@ -73,15 +84,33 @@ def streaming_health_check():
         )
     except Exception:
         dashboard_counts = {"active_runs": 0, "stale_runs": 0}
+    try:
+        semantic_counts = semantic_repository.semantic_health_counts()
+    except Exception:
+        semantic_counts = {
+            "active_verified_definitions": 0,
+            "stale_definitions": 0,
+            "invalid_definitions": 0,
+            "failed_previews": 0,
+            "suggestion_active_runs": 0,
+            "suggestion_failed_runs": 0,
+            "suggestion_failure_rate": 0.0,
+            "suggestion_average_duration_seconds": 0.0,
+        }
     dashboard_healthy = (
         not settings.dashboard_ai_enabled
         or (dashboard_worker_status == "healthy" and dashboard_counts["stale_runs"] == 0)
+    )
+    semantics_healthy = (
+        not settings.semantic_suggestions_enabled
+        or semantics_worker_status == "healthy"
     )
     healthy = (
         redis_status == "healthy"
         and interactive_worker_status == "healthy"
         and counts["stale_runs"] == 0
         and dashboard_healthy
+        and semantics_healthy
     )
     return {
         "status": "ok" if healthy else "degraded",
@@ -93,6 +122,11 @@ def streaming_health_check():
         "dashboard_queue": settings.celery_dashboards_queue,
         "dashboard_active_runs": dashboard_counts["active_runs"],
         "dashboard_stale_runs": dashboard_counts["stale_runs"],
+        "semantic_layer_enabled": settings.semantic_layer_enabled,
+        "semantic_suggestions_enabled": settings.semantic_suggestions_enabled,
+        "semantics_worker": semantics_worker_status,
+        "semantics_queue": settings.celery_semantics_queue,
+        **semantic_counts,
         **counts,
     }
 

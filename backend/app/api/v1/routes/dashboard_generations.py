@@ -128,4 +128,5 @@ async def regenerate_generation_item(
         run_id,
         item_id,
         instruction=request.instruction,
+        use_latest_definitions=request.use_latest_definitions,
     )

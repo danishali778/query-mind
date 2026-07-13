@@ -46,6 +46,14 @@ class Settings(BaseSettings):
     dashboard_run_event_ttl_seconds: int = 3600
     dashboard_run_event_maxlen: int = 500
     dashboard_run_heartbeat_seconds: int = 15
+    semantic_layer_enabled: bool = True
+    semantic_suggestions_enabled: bool = True
+    semantic_context_max_definitions: int = Field(default=20, ge=1, le=100)
+    semantic_context_max_characters: int = Field(default=12000, ge=1000, le=50000)
+    semantic_preview_timeout_seconds: int = Field(default=5, ge=1, le=30)
+    semantic_relationship_sample_limit: int = Field(default=1000, ge=100, le=5000)
+    semantic_suggestion_max_candidates: int = Field(default=25, ge=1, le=100)
+    celery_semantics_queue: str = "semantics"
 
     db_connect_timeout_seconds: int = 5
     db_connect_rate_limit_attempts: int = 10
@@ -256,6 +264,9 @@ class Settings(BaseSettings):
             "celery_dashboards_queue": self.celery_dashboards_queue,
             "chat_streaming_enabled": self.chat_streaming_enabled,
             "dashboard_ai_enabled": self.dashboard_ai_enabled,
+            "semantic_layer_enabled": self.semantic_layer_enabled,
+            "semantic_suggestions_enabled": self.semantic_suggestions_enabled,
+            "celery_semantics_queue": self.celery_semantics_queue,
             "db_connect_timeout_seconds": self.db_connect_timeout_seconds,
             "db_connect_rate_limit_attempts": self.db_connect_rate_limit_attempts,
             "db_connect_rate_limit_window_seconds": self.db_connect_rate_limit_window_seconds,

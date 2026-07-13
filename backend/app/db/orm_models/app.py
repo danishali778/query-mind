@@ -174,6 +174,7 @@ class DashboardWidgetORM(Base):
     )
     generation_error: Mapped[str | None] = mapped_column(Text)
     assumptions: Mapped[list | None] = mapped_column(JsonType, default=list, nullable=True)
+    semantic_lineage: Mapped[list | None] = mapped_column(JsonType, default=list, nullable=True)
 
     dashboard: Mapped[DashboardORM] = relationship(back_populates="widgets")
 
@@ -214,6 +215,7 @@ class DashboardGenerationRunORM(Base):
     default_time_range: Mapped[str | None] = mapped_column(Text)
     extra_instructions: Mapped[str | None] = mapped_column(Text)
     plan_json: Mapped[dict | None] = mapped_column(JsonType)
+    semantic_context_json: Mapped[dict | None] = mapped_column(JsonType)
     plan_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
     status: Mapped[str] = mapped_column(Text, nullable=False, default="planning", server_default=text("'planning'"))
     current_stage: Mapped[str] = mapped_column(
@@ -309,6 +311,7 @@ class SavedQueryORM(Base):
     sql: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     metadata_: Mapped[dict | None] = mapped_column("metadata", JsonType, default=dict, nullable=True)
+    semantic_lineage: Mapped[list | None] = mapped_column(JsonType, default=list, nullable=True)
     schedule: Mapped[dict | None] = mapped_column(JsonType, default=dict, nullable=True)
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_run_status: Mapped[str | None] = mapped_column(Text)
@@ -447,6 +450,7 @@ class ChatMessageORM(Base):
     )
     agent_trace: Mapped[list | dict | None] = mapped_column(JsonType, nullable=True)
     agent_tier: Mapped[str | None] = mapped_column(Text, nullable=True)
+    semantic_lineage: Mapped[list | None] = mapped_column(JsonType, default=list, nullable=True)
     agent_run_id: Mapped[str | None] = mapped_column(
         GUID(),
         ForeignKey("chat_agent_runs.id", ondelete="SET NULL"),
@@ -517,6 +521,187 @@ class ChatAgentRunORM(Base):
     )
 
 
+class SemanticDefinitionORM(Base):
+    __tablename__ = "semantic_definitions"
+
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    owner_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    connection_id: Mapped[str] = mapped_column(
+        GUID(), ForeignKey("database_connections.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    key: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, server_default=func.now()
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, server_default=func.now(), onupdate=_utcnow
+    )
+
+    versions: Mapped[list["SemanticDefinitionVersionORM"]] = relationship(
+        back_populates="definition",
+        cascade="all, delete-orphan",
+        order_by="SemanticDefinitionVersionORM.version",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('table', 'column', 'entity', 'dimension', 'metric', "
+            "'relationship', 'filter', 'date_policy', 'synonym')",
+            name="semantic_definitions_kind_valid",
+        ),
+        UniqueConstraint(
+            "owner_id", "connection_id", "kind", "key",
+            name="uq_semantic_definitions_owner_connection_kind_key",
+        ),
+        Index("idx_semantic_definitions_owner_connection_kind", "owner_id", "connection_id", "kind"),
+    )
+
+
+class SemanticDefinitionVersionORM(Base):
+    __tablename__ = "semantic_definition_versions"
+
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    definition_id: Mapped[str] = mapped_column(
+        GUID(), ForeignKey("semantic_definitions.id", ondelete="CASCADE"), nullable=False
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="draft", server_default=text("'draft'"))
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default=text("''"))
+    payload: Mapped[dict] = mapped_column(JsonType, nullable=False)
+    schema_hash: Mapped[str | None] = mapped_column(Text)
+    validation_status: Mapped[str] = mapped_column(
+        Text, nullable=False, default="unvalidated", server_default=text("'unvalidated'")
+    )
+    validation_report: Mapped[dict | None] = mapped_column(JsonType, default=dict)
+    change_note: Mapped[str | None] = mapped_column(Text)
+    draft_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
+    created_by: Mapped[str] = mapped_column(GUID(), nullable=False)
+    verified_by: Mapped[str | None] = mapped_column(GUID())
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, server_default=func.now()
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, server_default=func.now(), onupdate=_utcnow
+    )
+    validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deprecated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    definition: Mapped[SemanticDefinitionORM] = relationship(back_populates="versions")
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('draft', 'verified', 'deprecated')",
+            name="semantic_definition_versions_status_valid",
+        ),
+        CheckConstraint(
+            "validation_status IN ('unvalidated', 'valid', 'invalid', 'stale')",
+            name="semantic_definition_versions_validation_status_valid",
+        ),
+        CheckConstraint("version >= 1", name="semantic_definition_versions_version_positive"),
+        CheckConstraint("draft_revision >= 1", name="semantic_definition_versions_revision_positive"),
+        UniqueConstraint("definition_id", "version", name="uq_semantic_definition_versions_definition_version"),
+        Index("idx_semantic_definition_versions_definition_status", "definition_id", "status"),
+        Index(
+            "uq_semantic_definition_versions_active_draft",
+            "definition_id",
+            unique=True,
+            postgresql_where=text("status = 'draft'"),
+            sqlite_where=text("status = 'draft'"),
+        ),
+        Index(
+            "uq_semantic_definition_versions_active_verified",
+            "definition_id",
+            unique=True,
+            postgresql_where=text("status = 'verified'"),
+            sqlite_where=text("status = 'verified'"),
+        ),
+    )
+
+
+class SemanticDefinitionUsageORM(Base):
+    __tablename__ = "semantic_definition_usages"
+
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    owner_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    connection_id: Mapped[str] = mapped_column(
+        GUID(), ForeignKey("database_connections.id", ondelete="CASCADE"), nullable=False
+    )
+    definition_version_id: Mapped[str] = mapped_column(
+        GUID(), ForeignKey("semantic_definition_versions.id", ondelete="RESTRICT"), nullable=False
+    )
+    consumer_type: Mapped[str] = mapped_column(Text, nullable=False)
+    consumer_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    usage_role: Mapped[str] = mapped_column(Text, nullable=False, default="applied", server_default=text("'applied'"))
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "consumer_type IN ('chat_message', 'dashboard_generation', 'dashboard_widget', 'saved_query')",
+            name="semantic_definition_usages_consumer_type_valid",
+        ),
+        CheckConstraint(
+            "usage_role IN ('applied', 'policy_enforced')",
+            name="semantic_definition_usages_role_valid",
+        ),
+        UniqueConstraint(
+            "definition_version_id", "consumer_type", "consumer_id", "usage_role",
+            name="uq_semantic_definition_usages_consumer",
+        ),
+        Index("idx_semantic_definition_usages_version", "definition_version_id"),
+        Index("idx_semantic_definition_usages_consumer", "consumer_type", "consumer_id"),
+        Index("idx_semantic_definition_usages_owner_connection", "owner_id", "connection_id"),
+    )
+
+
+class SemanticSuggestionRunORM(Base):
+    __tablename__ = "semantic_suggestion_runs"
+
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    owner_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    connection_id: Mapped[str] = mapped_column(
+        GUID(), ForeignKey("database_connections.id", ondelete="CASCADE"), nullable=False
+    )
+    client_request_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    schema_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    requested_kinds: Mapped[list] = mapped_column(JsonType, nullable=False)
+    business_context: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="queued", server_default=text("'queued'"))
+    candidates_json: Mapped[list | None] = mapped_column(JsonType, default=list)
+    celery_task_id: Mapped[str | None] = mapped_column(Text)
+    failure_code: Mapped[str | None] = mapped_column(Text)
+    failure_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, server_default=func.now()
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, server_default=func.now(), onupdate=_utcnow
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'running', 'completed', 'failed', 'cancelled')",
+            name="semantic_suggestion_runs_status_valid",
+        ),
+        UniqueConstraint("owner_id", "client_request_id", name="uq_semantic_suggestion_runs_owner_request"),
+        Index("idx_semantic_suggestion_runs_owner_created", "owner_id", desc("created_at")),
+        Index(
+            "uq_semantic_suggestion_runs_active_connection",
+            "owner_id", "connection_id",
+            unique=True,
+            postgresql_where=text("status IN ('queued', 'running')"),
+            sqlite_where=text("status IN ('queued', 'running')"),
+        ),
+    )
+
+
 class UserSettingsORM(Base):
     __tablename__ = "user_settings"
 
@@ -576,6 +761,10 @@ __all__ = [
     "ChatSessionORM",
     "ChatMessageORM",
     "ChatAgentRunORM",
+    "SemanticDefinitionORM",
+    "SemanticDefinitionVersionORM",
+    "SemanticDefinitionUsageORM",
+    "SemanticSuggestionRunORM",
     "UserSettingsORM",
     "UserSubscriptionORM",
 ]

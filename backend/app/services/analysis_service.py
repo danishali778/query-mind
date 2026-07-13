@@ -14,6 +14,7 @@ from app.agents.nl_to_sql.graph import run_chat
 from app.agents.visualization.generator import generate_visualization_blueprint
 from app.core.config import settings
 from app.services import connection_service
+from app.services import semantic_context_service
 from app.services.schema_command_service import handle_schema_or_control_command
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,7 @@ def _run_agent_sync(
     catalog,
     engine,
     progress=None,
+    semantic_context=None,
 ) -> dict:
     from app.agents.schema_context.catalog import build_catalog
     from app.db.repositories import schema_snapshot_repository
@@ -70,6 +72,9 @@ def _run_agent_sync(
             rebuilt = build_catalog(connection_id, catalog.db_type, schema)
             schema_snapshot_repository.upsert(rebuilt, user_id)
             connection_pool.cache_catalog(user_id, connection_id, rebuilt)
+            from app.services.semantic_drift_service import revalidate_sync
+
+            revalidate_sync(user_id, connection_id, rebuilt)
             return rebuilt
         except Exception:
             logger.warning("Catalog rebuild after drift failed", exc_info=True)
@@ -85,6 +90,7 @@ def _run_agent_sync(
         invalidate_catalog=invalidate_sync,
         rebuild_catalog=rebuild_sync,
         progress=progress,
+        semantic_context=semantic_context,
     )
     return agent_result.as_chat_dict()
 
@@ -135,6 +141,7 @@ async def run_analysis(
     schema_context: str | None = None,
     requested_visualization: str | None = None,
     allow_schema_shortcuts: bool = True,
+    semantic_context=None,
 ) -> dict[str, Any]:
     """Execute a business question through the shared agent/pipeline path.
 
@@ -179,6 +186,10 @@ async def run_analysis(
 
             engine = await connection_service.get_engine(user_id, connection_id)
             if catalog and engine:
+                if semantic_context is None:
+                    semantic_context = await semantic_context_service.load_context(
+                        user_id, connection_id, catalog, message
+                    )
                 try:
                     agent_out = await anyio.to_thread.run_sync(
                         functools.partial(
@@ -190,6 +201,7 @@ async def run_analysis(
                             catalog,
                             engine,
                             progress,
+                            semantic_context,
                         )
                     )
                 except Exception:
@@ -232,6 +244,7 @@ async def run_analysis(
                                 "tool_calls": agent_out.get("tool_calls", 0),
                                 "wall_ms": agent_out.get("wall_ms", 0.0),
                                 "assumptions": [],
+                                "semantic_lineage": agent_out.get("semantic_lineage", []),
                             },
                             requested_visualization=requested_visualization,
                         )

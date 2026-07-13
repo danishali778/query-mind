@@ -21,6 +21,11 @@ from app.db.repositories import dashboard_repository
 from app.db.session import session_scope
 from app.query_engine.cancellation import AgentRunCancelled
 from app.services import analysis_service, connection_service
+from app.services import semantic_context_service
+from app.agents.schema_context.user_semantics import (
+    SemanticContext,
+    apply_semantic_catalog_overlay,
+)
 from app.services.dashboard_generation_progress import (
     TERMINAL_EVENTS,
     DashboardGenerationReporter,
@@ -358,6 +363,7 @@ async def regenerate_item(
     item_id: str,
     *,
     instruction: str | None = None,
+    use_latest_definitions: bool = False,
 ) -> dict[str, Any]:
     run = await gen_repo.get_run(owner_id, run_id)
     if not run:
@@ -389,7 +395,7 @@ async def regenerate_item(
 
     try:
         task = regenerate_dashboard_widget_task.apply_async(
-            args=[run_id, item_id, instruction],
+            args=[run_id, item_id, instruction, use_latest_definitions],
             queue=settings.celery_dashboards_queue,
         )
         with session_scope() as session:
@@ -601,6 +607,7 @@ async def _execute_item(
     reporter: DashboardGenerationReporter,
     instruction: str | None = None,
     regenerating: bool = False,
+    use_latest_definitions: bool = False,
 ) -> bool:
     with session_scope() as session:
         run = gen_repo.get_run_by_id_sync(session, run_id)
@@ -615,6 +622,7 @@ async def _execute_item(
         widget_id = item.dashboard_widget_id
         default_time_range = run.default_time_range
         plan_assumptions = list((run.plan_json or {}).get("assumptions") or [])[:5] if run.plan_json else []
+        frozen_semantic_json = dict(run.semantic_context_json or {})
 
     previous_sql = None
     previous_rows = None
@@ -651,6 +659,25 @@ async def _execute_item(
         context.append(f"Prefer the time range: {time_range}")
     if plan.get("purpose"):
         context.append(f"Widget purpose: {plan['purpose']}")
+    semantic_context = None
+    if use_latest_definitions:
+        latest_catalog = await connection_service.get_catalog(owner_id, connection_id)
+        if latest_catalog:
+            semantic_context = await semantic_context_service.load_context(
+                owner_id, connection_id, latest_catalog, question
+            )
+    elif frozen_semantic_json:
+        semantic_context = SemanticContext.model_validate(frozen_semantic_json)
+        planned_refs = set(plan.get("semantic_refs") or [])
+        semantic_context = semantic_context.model_copy(
+            update={
+                "definitions": [
+                    entry
+                    for entry in semantic_context.definitions
+                    if entry.reference in planned_refs
+                ]
+            }
+        )
 
     try:
         reporter.stage_started("generating_sql", "Generating SQL")
@@ -663,6 +690,7 @@ async def _execute_item(
             session_id=f"dashboard-gen-{run_id}-{item_id}",
             requested_visualization=str(plan.get("visualization") or "auto"),
             allow_schema_shortcuts=False,
+            semantic_context=semantic_context,
         )
         if result.get("error") or not result.get("sql"):
             raise RuntimeError(result.get("error") or "Widget generation produced no SQL.")
@@ -686,9 +714,25 @@ async def _execute_item(
                     generation_status="ready",
                     generation_error="",
                     assumptions=[str(item) for item in assumptions if item],
+                    semantic_lineage=list(result.get("semantic_lineage") or []),
                 ),
             )
         with session_scope() as session:
+            if use_latest_definitions and semantic_context is not None:
+                plan["semantic_refs"] = [
+                    item.get("reference")
+                    for item in (result.get("semantic_lineage") or [])
+                    if item.get("usage_role", "applied") == "applied"
+                    and item.get("reference")
+                ]
+                gen_repo.update_item_semantic_context_sync(
+                    session,
+                    owner_id=owner_id,
+                    run_id=run_id,
+                    item_id=item_id,
+                    plan_json=plan,
+                    semantic_context_json=semantic_context.model_dump(mode="json"),
+                )
             gen_repo.mark_item_status_sync(session, item_id, status="completed")
         reporter.widget_event(
             "widget.completed",
@@ -789,6 +833,12 @@ async def execute_planning(
 
         reporter.stage_started("schema_search", "Searching the database schema")
         catalog = await connection_service.get_catalog(owner_id, connection_id)
+        if not catalog:
+            raise DashboardPlanningError("Schema catalog is unavailable.")
+        semantic_context = await semantic_context_service.load_context(
+            owner_id, connection_id, catalog, prompt
+        )
+        effective_catalog = apply_semantic_catalog_overlay(catalog, semantic_context)
         reporter.stage_completed("schema_search", "Schema context ready")
 
         def progress(stage: str, label: str) -> None:
@@ -798,10 +848,11 @@ async def execute_planning(
             lambda: plan_dashboard(
                 objective=prompt,
                 widget_count=count,
-                catalog=catalog,
+                catalog=effective_catalog,
                 default_time_range=default_time_range,
                 extra_instructions=extra_instructions,
                 progress=progress,
+                semantic_context=semantic_context,
             )
         )
         with session_scope() as session:
@@ -811,6 +862,7 @@ async def execute_planning(
                 run_id,
                 plan.model_dump(),
                 mark_awaiting_approval=True,
+                semantic_context_json=semantic_context.model_dump(mode="json"),
             )
         publish_event(
             run_id,
@@ -869,6 +921,7 @@ async def execute_single_item(
     run_id: str,
     item_id: str,
     instruction: str | None = None,
+    use_latest_definitions: bool = False,
     *,
     reporter: DashboardGenerationReporter | None = None,
 ) -> None:
@@ -881,6 +934,7 @@ async def execute_single_item(
             reporter=reporter,
             instruction=instruction,
             regenerating=regenerating,
+            use_latest_definitions=use_latest_definitions,
         )
     except AgentRunCancelled:
         completed = 0

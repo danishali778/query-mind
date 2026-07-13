@@ -14,6 +14,7 @@ class AnalystProposal(BaseModel):
     sql: str | None
     column_metadata: dict[str, str] = Field(default_factory=dict)
     assumptions: list[str]
+    semantic_refs: list[str] = Field(default_factory=list)
 
     @field_validator("analysis_summary")
     @classmethod

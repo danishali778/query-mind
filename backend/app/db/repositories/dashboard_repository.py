@@ -67,6 +67,7 @@ def _map_widget(row: DashboardWidgetORM) -> DashboardWidget:
         generation_status=getattr(row, "generation_status", None) or "ready",
         generation_error=getattr(row, "generation_error", None),
         assumptions=[str(item) for item in assumptions],
+        semantic_lineage=list(getattr(row, "semantic_lineage", None) or []),
         created_at=row.created_at,
         columns=row.columns or [],
         rows=row.rows or [],
@@ -303,6 +304,7 @@ def _add_widget_sync(session: Session, user_id: str, req: AddWidgetInput) -> Das
         generation_status=req.generation_status,
         generation_error=req.generation_error,
         assumptions=list(req.assumptions or []),
+        semantic_lineage=list(req.semantic_lineage or []),
     )
     session.add(row)
     session.flush()
@@ -410,6 +412,26 @@ def _update_widget_sync(
         row.generation_error = req.generation_error
     if req.assumptions is not None:
         row.assumptions = list(req.assumptions)
+    if req.semantic_lineage is not None:
+        row.semantic_lineage = list(req.semantic_lineage)
+        if row.connection_id:
+            from app.db.repositories import semantic_repository
+
+            for usage_role in ("applied", "policy_enforced"):
+                semantic_repository.record_usages_sync(
+                    session,
+                    owner_id=user_id,
+                    connection_id=row.connection_id,
+                    version_ids=[
+                        item.get("version_id")
+                        for item in req.semantic_lineage
+                        if item.get("usage_role", "applied") == usage_role
+                        and item.get("version_id")
+                    ],
+                    consumer_type="dashboard_widget",
+                    consumer_id=row.id,
+                    usage_role=usage_role,
+                )
 
     layout_params = dict(row.layout_params or {})
     for field in ["x", "y", "w", "h", "minW", "minH", "bar_orientation"]:

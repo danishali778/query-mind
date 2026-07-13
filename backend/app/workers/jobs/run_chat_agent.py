@@ -70,6 +70,7 @@ def run_chat_agent_task(self, run_id: str) -> None:
             "error": result.get("error"),
             "agent_trace": result.get("trace", []),
             "agent_tier": result.get("tier"),
+            "semantic_lineage": result.get("semantic_lineage", []),
         }
         if not chat_run_repository.finalize_run(run_id, status="completed", message_updates=updates):
             raise AgentRunCancelled("Cancellation won before final persistence.")

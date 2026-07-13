@@ -130,6 +130,7 @@ class DashboardWidget(BaseModel):
     generation_status: str = "ready"
     generation_error: Optional[str] = None
     assumptions: list[str] = Field(default_factory=list)
+    semantic_lineage: list[dict] = Field(default_factory=list)
     created_at: datetime
 
 

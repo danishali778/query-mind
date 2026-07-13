@@ -66,6 +66,7 @@ class DashboardWidget(BaseModel):
     generation_status: WidgetGenerationStatus = "ready"
     generation_error: Optional[str] = None
     assumptions: list[str] = Field(default_factory=list)
+    semantic_lineage: list[dict[str, Any]] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -129,6 +130,7 @@ class AddWidgetInput(BaseModel):
     generation_status: WidgetGenerationStatus = "ready"
     generation_error: Optional[str] = None
     assumptions: list[str] = Field(default_factory=list)
+    semantic_lineage: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class UpdateWidgetInput(BaseModel):
@@ -154,6 +156,7 @@ class UpdateWidgetInput(BaseModel):
     generation_status: Optional[WidgetGenerationStatus] = None
     generation_error: Optional[str] = None
     assumptions: Optional[list[str]] = None
+    semantic_lineage: Optional[list[dict[str, Any]]] = None
 
 
 GenerationRunStatus = Literal[
@@ -209,6 +212,7 @@ class DashboardGenerationRun(BaseModel):
     default_time_range: Optional[str] = None
     extra_instructions: Optional[str] = None
     plan_json: Optional[dict[str, Any]] = None
+    semantic_context_json: Optional[dict[str, Any]] = None
     plan_revision: int = 0
     status: GenerationRunStatus = "planning"
     current_stage: str = "reading_objective"

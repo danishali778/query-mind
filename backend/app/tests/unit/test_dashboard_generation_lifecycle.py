@@ -15,6 +15,9 @@ from app.db.orm_models import (
     DashboardGenerationRunORM,
     DashboardORM,
     DashboardWidgetORM,
+    SemanticDefinitionORM,
+    SemanticDefinitionUsageORM,
+    SemanticDefinitionVersionORM,
 )
 from app.db.repositories import dashboard_generation_repository as repository
 from app.services import dashboard_generation_service
@@ -180,3 +183,120 @@ def test_cancel_awaiting_approval_finalizes_immediately(monkeypatch):
 
     assert snapshot["status"] == "cancelled"
     assert snapshot["failure_code"] == "dashboard_generation_cancelled"
+
+
+def _semantic_context() -> dict:
+    return {
+        "schema_hash": "schema-v1",
+        "policy": {"hidden_tables": {}, "restricted_columns": {}, "sensitive_columns": {}},
+        "definitions": [
+            {
+                "definition_id": "99999999-1111-1111-1111-111111111111",
+                "version_id": "99999999-2222-2222-2222-222222222222",
+                "reference": "sem_metric_revenue_v1",
+                "kind": "metric",
+                "key": "revenue",
+                "display_name": "Revenue",
+                "description": "Completed order value",
+                "version": 1,
+                "payload": {
+                    "kind": "metric",
+                    "expression": "SUM(orders.total)",
+                    "tables": ["orders"],
+                },
+            }
+        ],
+    }
+
+
+def _add_verified_metric() -> None:
+    with db_session.session_scope() as session:
+        definition = SemanticDefinitionORM(
+            id="99999999-1111-1111-1111-111111111111",
+            owner_id=OWNER_ID,
+            connection_id=CONNECTION_ID,
+            kind="metric",
+            key="revenue",
+        )
+        definition.versions.append(
+            SemanticDefinitionVersionORM(
+                id="99999999-2222-2222-2222-222222222222",
+                definition_id=definition.id,
+                version=1,
+                status="verified",
+                display_name="Revenue",
+                description="Completed order value",
+                payload={"kind": "metric", "expression": "SUM(orders.total)", "tables": ["orders"]},
+                schema_hash="schema-v1",
+                validation_status="valid",
+                validation_report={},
+                created_by=OWNER_ID,
+                verified_by=OWNER_ID,
+            )
+        )
+        session.add(definition)
+
+
+def _semantic_plan(reference: str) -> dict:
+    return {
+        "version": 1,
+        "title": "Revenue",
+        "description": "Revenue dashboard",
+        "assumptions": [],
+        "warnings": [],
+        "widgets": [
+            {
+                "client_key": "88888888-8888-8888-8888-888888888888",
+                "title": "Revenue",
+                "question": "What is revenue?",
+                "purpose": "Track revenue",
+                "visualization": "kpi",
+                "size": "quarter",
+                "time_range": None,
+                "semantic_refs": [reference],
+            }
+        ],
+    }
+
+
+def test_plan_rejects_refs_outside_frozen_context():
+    _add_run(status="awaiting_approval", stage="plan_ready")
+    with db_session.session_scope() as session:
+        with pytest.raises(repository.GenerationNotApprovableError):
+            repository.save_plan_sync(
+                session,
+                OWNER_ID,
+                RUN_ID,
+                _semantic_plan("sem_metric_invented_v1"),
+                expected_revision=0,
+                semantic_context_json=_semantic_context(),
+            )
+
+
+def test_approval_pins_widget_lineage_and_indexes_run_and_widget_usage():
+    _add_verified_metric()
+    _add_run(status="awaiting_approval", stage="plan_ready")
+    with db_session.session_scope() as session:
+        saved = repository.save_plan_sync(
+            session,
+            OWNER_ID,
+            RUN_ID,
+            _semantic_plan("sem_metric_revenue_v1"),
+            expected_revision=0,
+            semantic_context_json=_semantic_context(),
+        )
+        assert saved.semantic_context_json["schema_hash"] == "schema-v1"
+    with db_session.session_scope() as session:
+        run, _dashboard, widgets, created = repository.approve_plan_sync(
+            session, OWNER_ID, RUN_ID, expected_revision=1
+        )
+        assert created is True
+        assert run.semantic_context_json["definitions"][0]["version"] == 1
+        assert widgets[0].semantic_lineage[0]["reference"] == "sem_metric_revenue_v1"
+
+    with db_session.read_session_scope() as session:
+        usages = session.query(SemanticDefinitionUsageORM).all()
+    assert {(usage.consumer_type, usage.usage_role) for usage in usages} == {
+        ("dashboard_generation", "applied"),
+        ("dashboard_widget", "applied"),
+    }

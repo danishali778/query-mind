@@ -20,13 +20,24 @@ from app.db.connection_manager import (
     record_query_execution_health,
     record_query_execution_health_sync,
     record_schema_sync,
-    refresh_schema,
+    refresh_schema as _refresh_schema,
     sanitize_connection_error,
     seed_dev_connection,
     test_connection,
     test_saved_connection,
     update_settings,
 )
+
+
+async def refresh_schema(user_id: str, connection_id: str):
+    schema = await _refresh_schema(user_id, connection_id)
+    if schema is not None:
+        catalog = await get_catalog(user_id, connection_id)
+        if catalog:
+            from app.services.semantic_drift_service import revalidate
+
+            await revalidate(user_id, connection_id, catalog)
+    return schema
 
 
 __all__ = [

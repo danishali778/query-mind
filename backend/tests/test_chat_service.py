@@ -3,10 +3,27 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from app.agents.schema_context.catalog import build_catalog
+from app.agents.schema_context.user_semantics import SemanticContext
 from app.core.config import settings
 from app.db.models.connection import ColumnInfo, TableInfo
 from app.services import analysis_service, chat_service
+
+
+@pytest.fixture(autouse=True)
+def _empty_semantic_context(monkeypatch):
+    """Keep shared analysis tests independent from the application database."""
+
+    async def load_context(_user_id, _connection_id, catalog, _question):
+        return SemanticContext(schema_hash=catalog.schema_hash)
+
+    monkeypatch.setattr(
+        analysis_service.semantic_context_service,
+        "load_context",
+        load_context,
+    )
 
 
 def _catalog():

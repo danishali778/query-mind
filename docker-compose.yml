@@ -49,11 +49,13 @@ services:
   worker:
     build: ./backend
     restart: unless-stopped
-    command: celery -A app.workers.worker:app worker --loglevel=info --queues default,scheduled,templates
+    command: celery -A app.workers.worker:app worker --loglevel=info --queues default,scheduled,templates,semantics
     env_file: ./backend/.env
     environment:
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_SEMANTICS_QUEUE: semantics
+      SEMANTIC_SUGGESTIONS_ENABLED: "true"
     depends_on:
       redis:
         condition: service_healthy

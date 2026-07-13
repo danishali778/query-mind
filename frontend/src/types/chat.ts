@@ -1,4 +1,5 @@
 import type { ChartRecommendation, ChatRunEvent, ChatRunStatus, DatabaseConnection, SessionSummary } from './api';
+import type { SemanticLineageItem } from './semantics';
 
 export interface ChatMessageView {
   id?: string;
@@ -33,6 +34,7 @@ export interface ChatMessageView {
   agent_run_stage_label?: string;
   agent_run_events?: ChatRunEvent[];
   agent_stream_state?: 'connecting' | 'connected' | 'reconnecting' | 'closed';
+  semantic_lineage?: SemanticLineageItem[];
 }
 
 export interface ChatSidebarProps {

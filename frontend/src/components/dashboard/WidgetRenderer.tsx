@@ -476,7 +476,7 @@ export function WidgetRenderer({
   onDelete: (id: string) => void;
   onUpdateWidget: (id: string, patch: UpdateDashboardWidgetRequest) => void;
   onRetryGeneration?: (widget: DashboardWidgetItem) => void;
-  onRegenerateGeneration?: (widget: DashboardWidgetItem, instruction?: string) => void;
+  onRegenerateGeneration?: (widget: DashboardWidgetItem, instruction?: string, useLatestDefinitions?: boolean) => void;
   onStopGeneration?: (widget: DashboardWidgetItem) => void;
   generationBusy?: boolean;
 }) {
@@ -497,6 +497,7 @@ export function WidgetRenderer({
   const [lineageOpen, setLineageOpen] = useState(false);
   const [regenOpen, setRegenOpen] = useState(false);
   const [regenInstruction, setRegenInstruction] = useState('');
+  const [regenUseLatest, setRegenUseLatest] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
 
   if (generationStatus !== 'ready') {
@@ -911,9 +912,10 @@ export function WidgetRenderer({
                 type="button"
                 disabled={generationBusy}
                 onClick={() => {
-                  onRegenerateGeneration(widget, regenInstruction.trim() || undefined);
+                  onRegenerateGeneration(widget, regenInstruction.trim() || undefined, regenUseLatest);
                   setRegenOpen(false);
                   setRegenInstruction('');
+                  setRegenUseLatest(false);
                 }}
                 style={{
                   justifySelf: 'start',
@@ -930,6 +932,10 @@ export function WidgetRenderer({
               >
                 RUN REGENERATE
               </button>
+              <label style={{ color: T.text3, fontFamily: T.fontMono, fontSize: '0.62rem', display: 'flex', alignItems: 'center', gap: 7 }}>
+                <input type="checkbox" checked={regenUseLatest} onChange={(event) => setRegenUseLatest(event.target.checked)} />
+                USE LATEST VERIFIED DEFINITIONS (otherwise keep pinned versions)
+              </label>
             </div>
           )}
 
@@ -942,6 +948,12 @@ export function WidgetRenderer({
                 <LineageBlock
                   label="Assumptions"
                   value={(widget.assumptions || []).map((item) => `• ${item}`).join('\n')}
+                />
+              )}
+              {(widget.semantic_lineage || []).length > 0 && (
+                <LineageBlock
+                  label="Definitions used"
+                  value={(widget.semantic_lineage || []).map((item) => `${item.display_name} · v${item.version} · ${item.usage_role.replace('_', ' ')}`).join('\n')}
                 />
               )}
               {widget.sql && (

@@ -1,3 +1,5 @@
+import type { SemanticLineageItem } from './semantics';
+
 export interface ApiMessageResponse {
   message: string;
   status?: string | null;
@@ -230,6 +232,7 @@ export interface ChatMessageRecord {
   agent_run_status?: ChatRunStatus | null;
   agent_run_stage?: string | null;
   agent_run_stage_label?: string | null;
+  semantic_lineage?: SemanticLineageItem[];
   timestamp: string;
 }
 
@@ -283,6 +286,7 @@ export interface ChatResponse {
     retry_count?: number;
   }> | null;
   agent_tier?: string | null;
+  semantic_lineage?: SemanticLineageItem[];
 }
 
 export interface ChatUiMessage {
@@ -508,6 +512,7 @@ export interface DashboardWidget {
   generation_status?: WidgetGenerationStatus;
   generation_error?: string | null;
   assumptions?: string[];
+  semantic_lineage?: SemanticLineageItem[];
   created_at: string;
 }
 
@@ -585,6 +590,7 @@ export interface WidgetPlan {
   visualization: DashboardPlanVisualization;
   size: DashboardPlanSize;
   time_range?: string | null;
+  semantic_refs?: string[];
 }
 
 export interface DashboardPlan {
@@ -629,6 +635,7 @@ export interface ApproveDashboardPlanResponse {
 
 export interface RegenerateWidgetRequest {
   instruction?: string | null;
+  use_latest_definitions?: boolean;
 }
 
 export interface DashboardGenerationItem {
@@ -659,6 +666,7 @@ export interface DashboardGenerationRun {
   default_time_range?: string | null;
   extra_instructions?: string | null;
   plan_json?: DashboardPlan | null;
+  semantic_context_json?: Record<string, unknown> | null;
   plan_revision: number;
   status: DashboardGenerationRunStatus | string;
   current_stage: string;

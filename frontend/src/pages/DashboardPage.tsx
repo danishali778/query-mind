@@ -506,7 +506,7 @@ function DashboardCanvas({
   onCancelGeneration?: () => void;
   onRetryFailed?: () => void;
   onRetryWidget?: (widget: DashboardWidgetItem) => void;
-  onRegenerateWidget?: (widget: DashboardWidgetItem, instruction?: string) => void;
+  onRegenerateWidget?: (widget: DashboardWidgetItem, instruction?: string, useLatestDefinitions?: boolean) => void;
   onStopWidget?: (widget: DashboardWidgetItem) => void;
   onMarkReady?: () => void;
 }) {
@@ -992,11 +992,14 @@ export function DashboardPage() {
     }
   };
 
-  const handleRegenerateWidget = async (widget: DashboardWidgetItem, instruction?: string) => {
+  const handleRegenerateWidget = async (widget: DashboardWidgetItem, instruction?: string, useLatestDefinitions = false) => {
     if (!activeRunId || !widget.generation_item_id) return;
     setGenerationBusy(true);
     try {
-      await regenerateDashboardGenerationItem(activeRunId, widget.generation_item_id, { instruction });
+      await regenerateDashboardGenerationItem(activeRunId, widget.generation_item_id, {
+        instruction,
+        use_latest_definitions: useLatestDefinitions,
+      });
       await attach(activeRunId, 'execution');
       await loadActiveDashboard();
     } catch (err) {
