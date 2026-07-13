@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import date, datetime
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -24,6 +25,7 @@ _INSTRUCTION_TEXT = re.compile(
 )
 _DATE_TYPE = re.compile(r"date|time", re.IGNORECASE)
 _NUMERIC_TYPE = re.compile(r"int|numeric|decimal|float|double|real|money", re.IGNORECASE)
+_BOOLEAN_TYPE = re.compile(r"bool", re.IGNORECASE)
 _ALLOWED_FUNCTIONS = {"SUM", "COUNT", "AVG", "MIN", "MAX", "COALESCE", "NULLIF", "ROUND"}
 _AGGREGATES = {"SUM", "COUNT", "AVG", "MIN", "MAX"}
 
@@ -254,6 +256,14 @@ def validate_structure(
                 column = _column_error(result, catalog, table_name, f"conditions.{index}.column", condition["column"])
                 if column and column.is_sensitive:
                     result.errors.append(ValidationFinding("sensitive_filter", "Reusable filters cannot reference sensitive columns.", f"conditions.{index}.column"))
+                if column and not _filter_value_matches_type(condition, column.type):
+                    result.errors.append(
+                        ValidationFinding(
+                            "filter_value_type_mismatch",
+                            f"Filter value does not match the physical type of '{condition['column']}'.",
+                            f"conditions.{index}.value",
+                        )
+                    )
         result.warnings.append(ValidationFinding("filter_without_date_policy", "Reusable filters should be paired with a date policy for bounded analysis."))
 
     elif kind == "date_policy":
@@ -269,6 +279,37 @@ def validate_structure(
             result.errors.append(ValidationFinding("synonym_target_not_verified", "Synonyms must target a verified definition in this connection.", "target_definition_id"))
 
     return result
+
+
+def _filter_value_matches_type(condition: dict[str, Any], column_type: str) -> bool:
+    operator = condition.get("operator")
+    if operator in {"is_null", "is_not_null"}:
+        return True
+    value = condition.get("value")
+    values = value if isinstance(value, list) else [value]
+    if _NUMERIC_TYPE.search(column_type):
+        try:
+            for item in values:
+                float(item)
+            return True
+        except (TypeError, ValueError):
+            return False
+    if _BOOLEAN_TYPE.search(column_type):
+        return all(
+            isinstance(item, bool)
+            or str(item).strip().casefold() in {"true", "false", "1", "0"}
+            for item in values
+        )
+    if _DATE_TYPE.search(column_type):
+        try:
+            for item in values:
+                if isinstance(item, (date, datetime)):
+                    continue
+                datetime.fromisoformat(str(item).replace("Z", "+00:00"))
+            return True
+        except (TypeError, ValueError):
+            return False
+    return all(isinstance(item, (str, int, float, bool)) for item in values)
 
 
 def _compile_filter_predicate(payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:

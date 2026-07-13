@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 import json
+import asyncio
 from types import SimpleNamespace
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -14,6 +15,7 @@ from app.db.orm_models import DatabaseConnectionORM
 from app.db.repositories import semantic_repository as repository
 from app.query_engine.semantic_validation import validate_metric_expression, validate_structure
 from app.services.semantic_drift_service import revalidate_sync
+from app.services import semantic_service
 from app.agents.schema_context import semantic_suggester
 
 
@@ -300,6 +302,48 @@ def test_suggestion_runs_are_idempotent_owner_scoped_and_connection_serialized()
         assert cancelled.status == "cancelled"
 
 
+def test_semantic_health_counts_are_value_free_and_include_suggestion_metrics():
+    metric = _create_metric()
+    with db_session.session_scope() as session:
+        repository.save_validation_sync(
+            session,
+            owner_id=OWNER_ID,
+            connection_id=CONNECTION_ID,
+            definition_id=metric.id,
+            version=1,
+            schema_hash="schema-v1",
+            validation_status="invalid",
+            validation_report={
+                "errors": [{"code": "semantic_preview_failed", "message": "sanitized"}],
+                "preview": {},
+            },
+        )
+        run, _ = repository.create_suggestion_run_sync(
+            session,
+            owner_id=OWNER_ID,
+            connection_id=CONNECTION_ID,
+            client_request_id="55555555-5555-5555-5555-555555555555",
+            schema_hash="schema-v1",
+            requested_kinds=["metric"],
+            business_context=None,
+        )
+        repository.claim_suggestion_run_sync(session, run.id)
+        repository.finalize_suggestion_run_sync(
+            session,
+            run.id,
+            status="failed",
+            failure_code="semantic_suggestion_failed",
+            failure_message="The suggestion could not be generated.",
+        )
+
+    diagnostics = repository.semantic_health_counts()
+    assert diagnostics["invalid_definitions"] == 1
+    assert diagnostics["failed_previews"] == 1
+    assert diagnostics["suggestion_failed_runs"] == 1
+    assert diagnostics["suggestion_failure_rate"] == 1.0
+    assert "validation_report" not in diagnostics
+
+
 def test_suggestion_generator_returns_structurally_valid_typed_candidates_without_samples(
     catalog, monkeypatch
 ):
@@ -341,3 +385,93 @@ def test_suggestion_generator_returns_structurally_valid_typed_candidates_withou
     assert candidates[0]["kind"] == "metric"
     assert candidates[0]["structural_validation"]["valid"] is True
     assert "sample_values" not in captured["prompt"]
+
+
+def test_filter_values_must_match_physical_column_type(catalog):
+    result = validate_structure(
+        "filter",
+        {
+            "kind": "filter",
+            "table_name": "orders",
+            "conjunction": "and",
+            "conditions": [
+                {"column": "total_amount", "operator": "gt", "value": "not-a-number"}
+            ],
+        },
+        catalog,
+    )
+    assert "filter_value_type_mismatch" in {item.code for item in result.errors}
+
+
+def test_verified_restricted_column_is_rejected_by_later_dimension_validation(catalog, monkeypatch):
+    with db_session.session_scope() as session:
+        restricted = repository.create_definition_sync(
+            session,
+            owner_id=OWNER_ID,
+            connection_id=CONNECTION_ID,
+            kind="column",
+            key="private_email",
+            display_name="Private email",
+            description="Protected customer email",
+            payload={
+                "kind": "column",
+                "table_name": "orders",
+                "column_name": "email",
+                "semantic_type": "email",
+                "classification": "restricted",
+                "synonyms": [],
+            },
+        )
+        repository.save_validation_sync(
+            session,
+            owner_id=OWNER_ID,
+            connection_id=CONNECTION_ID,
+            definition_id=restricted.id,
+            version=1,
+            schema_hash="schema-v1",
+            validation_status="valid",
+            validation_report={"warnings": [], "normalized_payload": restricted.versions[0].payload},
+        )
+        repository.verify_version_sync(
+            session,
+            owner_id=OWNER_ID,
+            connection_id=CONNECTION_ID,
+            definition_id=restricted.id,
+            version=1,
+            expected_schema_hash="schema-v1",
+            acknowledged_warning_codes=[],
+            change_note=None,
+        )
+        dimension = repository.create_definition_sync(
+            session,
+            owner_id=OWNER_ID,
+            connection_id=CONNECTION_ID,
+            kind="dimension",
+            key="email_dimension",
+            display_name="Email",
+            description="Email breakdown",
+            payload={
+                "kind": "dimension",
+                "table_name": "orders",
+                "column_name": "email",
+                "label": "Email",
+                "format": None,
+                "synonyms": [],
+            },
+        )
+
+    async def get_connection(*_args):
+        return SimpleNamespace(id=CONNECTION_ID)
+
+    async def get_catalog(*_args, **_kwargs):
+        return catalog
+
+    monkeypatch.setattr(semantic_service.connection_service, "get_connection", get_connection)
+    monkeypatch.setattr(semantic_service.connection_service, "get_catalog", get_catalog)
+    validated = asyncio.run(
+        semantic_service.validate_version(
+            OWNER_ID, CONNECTION_ID, dimension.id, 1, run_preview=False
+        )
+    )
+    report = validated["versions"][0]["validation_report"]
+    assert "column_not_found" in {item["code"] for item in report["errors"]}

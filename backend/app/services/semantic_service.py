@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import functools
+import json
 from datetime import datetime, timezone
 from typing import Any, Callable
+
+from sqlalchemy.orm import Session
 
 import anyio
 
@@ -20,6 +23,8 @@ from app.query_engine.semantic_validation import (
     validate_structure,
 )
 from app.services import connection_service
+from app.services import semantic_context_service
+from app.agents.schema_context.user_semantics import apply_semantic_catalog_overlay
 
 
 PREVIEW_KINDS = {"metric", "relationship", "filter", "date_policy"}
@@ -46,10 +51,10 @@ def _map_repository_error(exc: Exception) -> Exception:
     return exc
 
 
-async def _write(operation: Callable[[], Any]) -> Any:
+async def _write(operation: Callable[[Session], Any]) -> Any:
     def run():
         with session_scope() as session:
-            return operation()(session)
+            return operation(session)
 
     return await anyio.to_thread.run_sync(run)
 
@@ -94,8 +99,8 @@ async def create_definition(
     try:
         stable_key = normalize_key(key or safe_name)
 
-        def operation():
-            return lambda session: repository.create_definition_sync(
+        def operation(session: Session):
+            return repository.create_definition_sync(
                 session,
                 owner_id=owner_id,
                 connection_id=connection_id,
@@ -182,8 +187,8 @@ async def update_draft(
         kind=current["kind"], display_name=display_name, description=description, payload=payload
     )
     try:
-        def operation():
-            return lambda session: repository.update_draft_sync(
+        def operation(session: Session):
+            return repository.update_draft_sync(
                 session,
                 owner_id=owner_id,
                 connection_id=connection_id,
@@ -218,8 +223,8 @@ async def create_version(
         kind=current["kind"], display_name=display_name, description=description, payload=payload
     )
     try:
-        def operation():
-            return lambda session: repository.create_version_sync(
+        def operation(session: Session):
+            return repository.create_version_sync(
                 session,
                 owner_id=owner_id,
                 connection_id=connection_id,
@@ -242,8 +247,8 @@ async def create_version(
 async def delete_draft(owner_id: str, connection_id: str, definition_id: str) -> None:
     await _ensure_connection(owner_id, connection_id)
     try:
-        def operation():
-            return lambda session: repository.delete_draft_sync(
+        def operation(session: Session):
+            return repository.delete_draft_sync(
                 session, owner_id, connection_id, definition_id
             )
 
@@ -276,6 +281,129 @@ def _verified_map_sync(owner_id: str, connection_id: str) -> dict[str, dict[str,
         }
 
 
+def _append_synonym_conflicts(
+    structural,
+    definition: dict[str, Any],
+    version: dict[str, Any],
+    verified: dict[str, dict[str, Any]],
+) -> None:
+    phrase_targets: dict[tuple[str, str], set[str]] = {}
+    for existing_id, existing in verified.items():
+        existing_kind = existing["kind"]
+        payload = existing.get("payload") or {}
+        for phrase in payload.get("synonyms", []):
+            phrase_targets.setdefault((existing_kind, str(phrase).strip().casefold()), set()).add(existing_id)
+        if existing_kind == "synonym":
+            target_id = str(payload.get("target_definition_id") or "")
+            target = verified.get(target_id)
+            phrase = str(payload.get("phrase") or "").strip().casefold()
+            if target and phrase:
+                phrase_targets.setdefault((target["kind"], phrase), set()).add(target_id)
+
+    payload = version.get("payload") or {}
+    proposed: list[tuple[str, str, str]] = []
+    if definition["kind"] == "synonym":
+        target_id = str(payload.get("target_definition_id") or "")
+        target = verified.get(target_id)
+        if target:
+            proposed.append((target["kind"], str(payload.get("phrase") or ""), target_id))
+    else:
+        proposed.extend(
+            (definition["kind"], str(phrase), definition["id"])
+            for phrase in payload.get("synonyms", [])
+        )
+    for target_kind, phrase, target_id in proposed:
+        normalized = phrase.strip().casefold()
+        conflicts = phrase_targets.get((target_kind, normalized), set()) - {target_id}
+        if normalized and conflicts:
+            structural.errors.append(
+                ValidationFinding(
+                    "ambiguous_semantic_synonym",
+                    f"The phrase '{phrase}' already targets another verified {target_kind} definition.",
+                    "phrase" if definition["kind"] == "synonym" else "synonyms",
+                )
+            )
+
+
+def _append_preview_findings(
+    structural,
+    *,
+    definition: dict[str, Any],
+    version: dict[str, Any],
+    preview: dict[str, Any],
+    catalog,
+) -> None:
+    kind = definition["kind"]
+    payload = version["payload"]
+    if kind == "relationship":
+        left_duplicates = int(preview.get("left_duplicate_keys") or 0)
+        right_duplicates = int(preview.get("right_duplicate_keys") or 0)
+        cardinality = payload.get("cardinality")
+        mismatch = (
+            (cardinality == "one_to_one" and (left_duplicates or right_duplicates))
+            or (cardinality == "one_to_many" and left_duplicates)
+            or (cardinality == "many_to_one" and right_duplicates)
+        )
+        if mismatch:
+            structural.warnings.append(
+                ValidationFinding(
+                    "relationship_cardinality_mismatch",
+                    "Observed sampled duplicate keys do not match the declared cardinality.",
+                    "cardinality",
+                )
+            )
+    elif kind == "metric":
+        previous = next(
+            (
+                item
+                for item in definition.get("versions", [])
+                if item.get("status") == "verified" and item.get("version") != version.get("version")
+            ),
+            None,
+        )
+        old_value = ((previous or {}).get("validation_report") or {}).get("preview", {}).get(
+            "metric_value"
+        )
+        new_value = preview.get("metric_value")
+        try:
+            old_number = float(old_value)
+            new_number = float(new_value)
+            denominator = max(abs(old_number), 1.0)
+            if abs(new_number - old_number) / denominator >= 0.2:
+                structural.warnings.append(
+                    ValidationFinding(
+                        "metric_preview_material_change",
+                        "The preview differs materially from the currently verified version.",
+                    )
+                )
+        except (TypeError, ValueError):
+            pass
+    elif kind == "date_policy":
+        table = next(
+            (
+                item
+                for item in catalog.tables
+                if item.name.casefold() == str(payload["table_name"]).casefold()
+                or item.name.split(".")[-1].casefold()
+                == str(payload["table_name"]).casefold()
+            ),
+            None,
+        )
+        column = next(
+            (
+                item
+                for item in (table.columns if table else [])
+                if item.name.casefold() == str(payload["column_name"]).casefold()
+            ),
+            None,
+        )
+        preview["physical_type"] = column.type if column else "unknown"
+        preview["configured_timezone"] = payload.get("timezone")
+        total = int(preview.get("total_count") or 0)
+        nulls = int(preview.get("null_count") or 0)
+        preview["null_percentage"] = round((nulls / total * 100), 2) if total else 0.0
+
+
 async def validate_version(
     owner_id: str,
     connection_id: str,
@@ -295,14 +423,22 @@ async def validate_version(
     if not catalog:
         raise BadRequestError("Schema metadata is unavailable.", code="semantic_preview_failed")
     verified = await anyio.to_thread.run_sync(_verified_map_sync, owner_id, connection_id)
+    semantic_context = await semantic_context_service.load_context(
+        owner_id,
+        connection_id,
+        catalog,
+        json.dumps(version["payload"], default=str),
+    )
+    effective_catalog = apply_semantic_catalog_overlay(catalog, semantic_context)
     structural = validate_structure(
         definition["kind"],
         version["payload"],
-        catalog,
+        effective_catalog,
         verified_definitions=verified,
         description=version["description"],
     )
     preview: dict[str, Any] = {}
+    _append_synonym_conflicts(structural, definition, version, verified)
     if not structural.errors and definition["kind"] in PREVIEW_KINDS:
         if not run_preview:
             structural.errors.append(
@@ -345,6 +481,15 @@ async def validate_version(
                         )
                     )
 
+    if preview:
+        _append_preview_findings(
+            structural,
+            definition=definition,
+            version=version,
+            preview=preview,
+            catalog=effective_catalog,
+        )
+
     report = {
         "errors": [item.as_dict() for item in structural.errors],
         "warnings": [item.as_dict() for item in structural.warnings],
@@ -355,8 +500,8 @@ async def validate_version(
     }
     status = "valid" if not structural.errors else "invalid"
     try:
-        def operation():
-            return lambda session: repository.save_validation_sync(
+        def operation(session: Session):
+            return repository.save_validation_sync(
                 session,
                 owner_id=owner_id,
                 connection_id=connection_id,
@@ -405,8 +550,8 @@ async def verify_version(
             code="semantic_warning_acknowledgement_required",
         )
     try:
-        def operation():
-            return lambda session: repository.verify_version_sync(
+        def operation(session: Session):
+            return repository.verify_version_sync(
                 session,
                 owner_id=owner_id,
                 connection_id=connection_id,
@@ -431,8 +576,8 @@ async def deprecate_version(
 ) -> dict[str, Any]:
     await _ensure_connection(owner_id, connection_id)
     try:
-        def operation():
-            return lambda session: repository.deprecate_version_sync(
+        def operation(session: Session):
+            return repository.deprecate_version_sync(
                 session,
                 owner_id=owner_id,
                 connection_id=connection_id,

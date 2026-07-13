@@ -494,13 +494,76 @@ def get_summary_sync(session: Session, owner_id: str, connection_id: str) -> dic
         if validated_at and (latest_validation is None or validated_at > latest_validation):
             latest_validation = validated_at
     return {
-        "total": sum(1 for _ in session.query(SemanticDefinitionORM.id).filter(
-            SemanticDefinitionORM.owner_id == owner_id,
-            SemanticDefinitionORM.connection_id == connection_id,
-        )),
+        "total": int(
+            session.query(func.count(SemanticDefinitionORM.id))
+            .filter(
+                SemanticDefinitionORM.owner_id == owner_id,
+                SemanticDefinitionORM.connection_id == connection_id,
+            )
+            .scalar()
+            or 0
+        ),
         **counts,
         "last_validated_at": latest_validation,
     }
+
+
+def semantic_health_counts() -> dict[str, Any]:
+    """Return aggregate, value-free diagnostics for the semantic subsystem."""
+    from app.db.session import read_session_scope
+
+    with read_session_scope() as session:
+        version_rows = session.query(
+            SemanticDefinitionVersionORM.status,
+            SemanticDefinitionVersionORM.validation_status,
+            SemanticDefinitionVersionORM.validation_report,
+        ).all()
+        active_verified = 0
+        stale = 0
+        invalid = 0
+        failed_previews = 0
+        for status, validation_status, report in version_rows:
+            if status == "verified" and validation_status == "valid":
+                active_verified += 1
+            if validation_status == "stale":
+                stale += 1
+            if validation_status == "invalid":
+                invalid += 1
+            errors = (report or {}).get("errors", [])
+            if any(item.get("code") == "semantic_preview_failed" for item in errors):
+                failed_previews += 1
+
+        suggestion_rows = session.query(
+            SemanticSuggestionRunORM.status,
+            SemanticSuggestionRunORM.started_at,
+            SemanticSuggestionRunORM.finished_at,
+        ).all()
+        status_counts = {
+            "queued": 0,
+            "running": 0,
+            "completed": 0,
+            "failed": 0,
+            "cancelled": 0,
+        }
+        durations: list[float] = []
+        for status, started_at, finished_at in suggestion_rows:
+            status_counts[status] = status_counts.get(status, 0) + 1
+            if started_at and finished_at:
+                durations.append(max(0.0, (finished_at - started_at).total_seconds()))
+        terminal = status_counts["completed"] + status_counts["failed"]
+        failure_rate = status_counts["failed"] / terminal if terminal else 0.0
+        return {
+            "active_verified_definitions": active_verified,
+            "stale_definitions": stale,
+            "invalid_definitions": invalid,
+            "failed_previews": failed_previews,
+            "suggestion_active_runs": status_counts["queued"] + status_counts["running"],
+            "suggestion_failed_runs": status_counts["failed"],
+            "suggestion_failure_rate": round(failure_rate, 4),
+            "suggestion_average_duration_seconds": (
+                round(sum(durations) / len(durations), 3) if durations else 0.0
+            ),
+        }
 
 
 def record_usages_sync(
@@ -744,6 +807,7 @@ __all__ = [
     "list_definitions_sync",
     "record_usages_sync",
     "save_validation_sync",
+    "semantic_health_counts",
     "update_draft_sync",
     "verify_version_sync",
 ]
