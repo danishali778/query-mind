@@ -170,6 +170,12 @@ function OverviewTab({ connection, schema, schemaState = 'idle', queryHistory, o
         <KpiCard val={String(connection.port || 'N/A')} label="PORT" sub={connection.database || 'PRIMARY'} valColor={T.purple} />
       </div>
 
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12, marginBottom: 24 }}>
+        <div style={{ padding: 14, border: `1px solid ${T.border}`, background: T.s1 }}><InfoRow label="ACCESS SCOPE" val={connection.scope_mode === 'all' ? 'ALL USER TABLES' : `${connection.included_schemas.length} SCHEMAS + ${connection.included_tables.length} TABLES`} noBorder /></div>
+        <div style={{ padding: 14, border: `1px solid ${T.border}`, background: T.s1 }}><InfoRow label="CREDENTIAL REVISION" val={String(connection.credential_revision)} noBorder /></div>
+        <div style={{ padding: 14, border: `1px solid ${T.border}`, background: T.s1 }}><InfoRow label="NEXT MAINTENANCE" val={formatTimestamp(connection.next_health_check_at || connection.next_schema_refresh_at)} noBorder /></div>
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 24, marginBottom: 24 }}>
         <SectionCard title="SCHEMA LEDGER" badge={{ text: schemaState === 'loading' ? 'LOADING' : `${tables.length} TABLES`, color: T.green }} onAction={() => onTabSwitch('schema')}>
           <div style={{ padding: '8px 12px' }}>
@@ -239,6 +245,9 @@ function CredentialsTab({ connection, onConnectionUpdated }: { connection: Conne
   const [clientCert, setClientCert] = useState('');
   const [clientKey, setClientKey] = useState('');
   const [clearCertificates, setClearCertificates] = useState(false);
+  const [sshUsername, setSshUsername] = useState('');
+  const [sshPassword, setSshPassword] = useState('');
+  const [sshPrivateKey, setSshPrivateKey] = useState('');
 
   const saveSettings = async () => {
     setSaving(true);
@@ -257,8 +266,14 @@ function CredentialsTab({ connection, onConnectionUpdated }: { connection: Conne
           ...(clientCert ? { ssl_client_certificate: clientCert } : {}),
           ...(clientKey ? { ssl_client_private_key: clientKey } : {}),
         }),
+        ...(connection.use_ssh ? {
+          ...(sshUsername ? { ssh_username: sshUsername } : {}),
+          ...(sshPassword ? { ssh_password: sshPassword } : {}),
+          ...(sshPrivateKey ? { ssh_private_key: sshPrivateKey } : {}),
+        } : {}),
       });
       setPassword(''); setRootCa(''); setClientCert(''); setClientKey(''); setClearCertificates(false);
+      setSshUsername(''); setSshPassword(''); setSshPrivateKey('');
       await onConnectionUpdated?.();
       setSaveMsg('SETTINGS SAVED.');
     } catch {
@@ -322,8 +337,14 @@ function CredentialsTab({ connection, onConnectionUpdated }: { connection: Conne
         <CredentialField label="CLIENT CERTIFICATE" value={clientCert} onChange={setClientCert} multiline placeholder={connection.has_ssl_client_certificate ? 'Stored — paste to replace' : 'Optional mTLS certificate'} />
         <CredentialField label="CLIENT PRIVATE KEY" value={clientKey} onChange={setClientKey} multiline placeholder={connection.has_ssl_client_private_key ? 'Stored — paste to replace' : 'Optional matching key'} />
       </div>
+      {connection.use_ssh && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 16, marginBottom: 20 }}>
+        <CredentialField label="SSH USERNAME" value={sshUsername} onChange={setSshUsername} placeholder="Leave blank to keep current" />
+        <CredentialField label="NEW SSH PASSWORD" value={sshPassword} onChange={setSshPassword} secret placeholder="Leave blank to keep current" />
+        <CredentialField label="NEW SSH PRIVATE KEY" value={sshPrivateKey} onChange={setSshPrivateKey} multiline placeholder="Leave blank to keep current" />
+      </div>}
       <label style={{ display: 'flex', gap: 8, color: T.text3, font: `700 .62rem ${T.fontMono}`, marginBottom: 20 }}><input type="checkbox" checked={clearCertificates} onChange={event => setClearCertificates(event.target.checked)} /> CLEAR ALL STORED TLS CERTIFICATES</label>
       <div style={{ color: T.text3, font: `600 .62rem ${T.fontMono}`, marginBottom: 20 }}>CREDENTIAL REVISION {connection.credential_revision} · ROTATION IS TESTED BEFORE THE CURRENT ENGINE IS REPLACED.</div>
+      <div style={{ padding: 12, border: `1px solid ${T.border}`, marginBottom: 20 }}><InfoRow label="ROOT CA" val={connection.has_ssl_root_certificate ? 'STORED' : 'NOT SET'} /><InfoRow label="CLIENT CERTIFICATE" val={connection.has_ssl_client_certificate ? 'STORED' : 'NOT SET'} /><InfoRow label="CLIENT PRIVATE KEY" val={connection.has_ssl_client_private_key ? 'STORED' : 'NOT SET'} noBorder /></div>
 
       <div style={{ padding: '12px 16px', background: T.s1, border: `1px solid ${T.border}`, marginBottom: 20 }}>
         <div style={{ fontSize: '0.62rem', color: T.accent, fontWeight: 700, fontFamily: T.fontMono, letterSpacing: '1px', marginBottom: 8 }}>SAVED CREDENTIAL DIAGNOSTICS</div>

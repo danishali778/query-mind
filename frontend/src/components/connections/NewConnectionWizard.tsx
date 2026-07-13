@@ -79,8 +79,13 @@ function Diagnostics({ diagnostic, testing, test, scopeMode, setScopeMode, schem
 }
 
 function Title({ children }: { children: string }) { return <h3 style={S.sectionTitle}>{children}</h3>; }
-function Input({ label, value, change, secret, placeholder }: { label: string; value: string; change: (value: string) => void; secret?: boolean; placeholder?: string }) { return <label style={S.label}>{label}<input type={secret ? 'password' : 'text'} value={value} onChange={event => change(event.target.value)} placeholder={placeholder} style={S.input} /></label>; }
-function Pem({ label, value, change }: { label: string; value: string; change: (value: string) => void }) { return <label style={S.label}>{label}<textarea value={value} onChange={event => change(event.target.value)} rows={4} placeholder="-----BEGIN…-----" style={{ ...S.input, resize: 'vertical' }} /></label>; }
+function Input({ label, value, change, secret, placeholder }: { label: string; value: string; change: (value: string) => void; secret?: boolean; placeholder?: string }) {
+  const [visible, setVisible] = useState(false);
+  return <label style={S.label}>{label}<div style={{ display: 'flex' }}><input type={secret && !visible ? 'password' : 'text'} value={value} onChange={event => change(event.target.value)} placeholder={placeholder} style={S.input} />{secret && <button type="button" aria-label={`${visible ? 'Hide' : 'Show'} ${label.toLowerCase()}`} onClick={() => setVisible(current => !current)} style={S.secondary}>{visible ? 'HIDE' : 'SHOW'}</button>}</div></label>;
+}
+function Pem({ label, value, change }: { label: string; value: string; change: (value: string) => void }) {
+  return <label style={S.label}>{label}<input type="file" accept=".pem,.crt,.key,text/plain" aria-label={`Upload ${label.toLowerCase()}`} onChange={event => { const file = event.target.files?.[0]; if (file) void file.text().then(change); }} style={{ color: T.text3 }} /><textarea value={value} onChange={event => change(event.target.value)} rows={4} placeholder="-----BEGIN…-----" style={{ ...S.input, resize: 'vertical' }} /></label>;
+}
 function Review({ label, value }: { label: string; value: string }) { return <div style={S.review}><span style={S.hint}>{label}</span><strong>{value}</strong></div>; }
 const button = (enabled: boolean): CSSProperties => ({ ...S.primary, background: enabled ? T.accent : T.s4, color: enabled ? '#000' : T.text3, cursor: enabled ? 'pointer' : 'not-allowed' });
 const S: Record<string, CSSProperties> = {
