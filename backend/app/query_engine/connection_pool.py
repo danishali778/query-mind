@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import io
 import logging
 import threading
 import time
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 import uuid
 
 import anyio
@@ -23,9 +25,10 @@ from app.core.db_connection_guardrails import (
 from app.db.models.connection import ConnectionRequest, TableInfo
 from app.db.models.connection import ConnectionTestResult
 from app.query_engine.connection_tls import create_tls_material
-from app.agents.schema_context.catalog import build_catalog
-from app.agents.schema_context.types import SchemaCatalog
 import app.query_engine.schema_inspector as schema_inspector
+
+if TYPE_CHECKING:
+    from app.agents.schema_context.types import SchemaCatalog
 
 
 logger = logging.getLogger(__name__)
@@ -134,6 +137,13 @@ def build_engine(
 
 def _diagnostic_for_exception(exc: Exception) -> tuple[str, str, str, list[str]]:
     original = getattr(exc, "orig", exc)
+    if getattr(original, "code", None) == "connection_certificate_invalid":
+        return (
+            "connection_certificate_invalid",
+            "tls",
+            "The supplied certificate material is invalid or incompatible.",
+            ["Check PEM structure, expiry, size, and certificate/private-key matching."],
+        )
     sqlstate = getattr(original, "pgcode", None) or getattr(original, "sqlstate", None)
     lowered = str(original).lower()
     if sqlstate == "28P01" or "password authentication failed" in lowered:

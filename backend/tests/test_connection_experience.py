@@ -12,6 +12,7 @@ from app.query_engine.connection_scope import (
     validate_connection_scope_sql,
 )
 from app.query_engine.connection_tls import validate_tls_configuration
+from app.query_engine.connection_pool import _diagnostic_for_exception
 from app.query_engine.executor import execute_query
 from app.services.connection_input import normalize_connection_input
 
@@ -118,3 +119,10 @@ def test_tls_verification_requires_root_ca_and_mtls_pair():
                 ssl_client_certificate="-----BEGIN CERTIFICATE-----\ninvalid\n-----END CERTIFICATE-----",
             )
         )
+
+
+def test_certificate_validation_has_a_stable_diagnostic_code():
+    error = BadRequestError("Certificate material is invalid.", code="connection_certificate_invalid")
+    code, category, _message, _suggestions = _diagnostic_for_exception(error)
+    assert code == "connection_certificate_invalid"
+    assert category == "tls"
