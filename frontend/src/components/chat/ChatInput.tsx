@@ -1,21 +1,24 @@
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { T } from '../dashboard/tokens';
 import type { ChatInputProps } from '../../types/chat';
 
-export function ChatInput({ connections, activeConnectionId, onConnectionChange, onSend, loading, disabled = false, disabledReason }: ChatInputProps) {
-  const [text, setText] = useState('');
+export function ChatInput({ connections, activeConnectionId, onConnectionChange, onSend, draft, onDraftChange, focusRequest = 0, loading, disabled = false, disabledReason }: ChatInputProps) {
   const [isFocused, setIsFocused] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const textRef = useRef<HTMLTextAreaElement>(null);
 
+  useEffect(() => {
+    if (focusRequest > 0) textRef.current?.focus();
+  }, [focusRequest]);
+
   const activeConn = connections.find(c => c.id === activeConnectionId);
-  const sendDisabled = disabled || loading || !text.trim();
+  const sendDisabled = disabled || loading || !draft.trim();
   const selectorDisabled = connections.length === 0;
 
   const handleSend = () => {
-    if (!text.trim() || loading || disabled) return;
-    onSend(text.trim());
-    setText('');
+    if (!draft.trim() || loading || disabled) return;
+    onSend(draft.trim());
+    onDraftChange('');
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -116,8 +119,8 @@ export function ChatInput({ connections, activeConnectionId, onConnectionChange,
 
           <textarea
             ref={textRef}
-            value={text}
-            onChange={e => setText(e.target.value)}
+            value={draft}
+            onChange={e => onDraftChange(e.target.value)}
             onKeyDown={handleKeyDown}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
@@ -143,7 +146,7 @@ export function ChatInput({ connections, activeConnectionId, onConnectionChange,
           />
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
-             <span style={{ fontSize: '0.62rem', color: T.text3, fontFamily: T.fontMono, fontWeight: 700 }}>{text.length} / 2048</span>
+             <span style={{ fontSize: '0.62rem', color: T.text3, fontFamily: T.fontMono, fontWeight: 700 }}>{draft.length} / 2048</span>
              <button
               onClick={handleSend}
               disabled={sendDisabled}

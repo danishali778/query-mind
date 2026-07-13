@@ -5,6 +5,7 @@ import { MainShell } from '../components/common/MainShell';
 import { HeaderIcons } from '../components/common/AppHeader';
 import { DashboardCreateChoiceModal } from '../components/dashboard/DashboardCreateChoiceModal';
 import { DashboardAiWizard } from '../components/dashboard/DashboardAiWizard';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { GenerationBanner } from '../components/dashboard/GenerationBanner';
 import { WidgetRenderer } from '../components/dashboard/WidgetRenderer';
 import { T } from '../components/dashboard/tokens';
@@ -800,12 +801,16 @@ function DashboardCanvas({
 /* ── Main DashboardPage ─────────────────────────────────────────── */
 
 export function DashboardPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const { dashboards, loading: dashboardsLoading, reloadDashboards, createNewDashboard, creating } = useDashboardCatalog();
   const [activeDashId, setActiveDashId] = useState<string | null>(null);
   const [widgets, setWidgets] = useState<DashboardWidgetItem[]>([]);
   const [stats, setStats] = useState<DashboardMetrics>({ total_widgets: 0, viz_breakdown: {} });
   const [showChoiceModal, setShowChoiceModal] = useState(false);
   const [wizardMode, setWizardMode] = useState<'manual' | 'ai' | null>(null);
+  const [wizardInitialConnectionId, setWizardInitialConnectionId] = useState<string | undefined>();
+  const [wizardInitialPrompt, setWizardInitialPrompt] = useState<string | undefined>();
   const [dashboardToDelete, setDashboardToDelete] = useState<DashboardItem | null>(null);
   const [sidebarTriggeredHover, setSidebarTriggeredHover] = useState(false);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
@@ -813,6 +818,16 @@ export function DashboardPage() {
   const [generationBusy, setGenerationBusy] = useState(false);
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const attachedRunRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const state = location.state as { openAiWizard?: boolean; connectionId?: string; prompt?: string; suggestionId?: string } | null;
+    if (!state?.openAiWizard) return;
+    setWizardInitialConnectionId(state.connectionId);
+    setWizardInitialPrompt(state.prompt);
+    setShowChoiceModal(false);
+    setWizardMode('ai');
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.pathname, location.state, navigate]);
 
   const handleSidebarHover = (isHovering: boolean) => {
     if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
@@ -1171,6 +1186,8 @@ export function DashboardPage() {
         onApproved={handleApproved}
         onManualCreate={handleManualCreate}
         creatingManual={creating}
+        initialConnectionId={wizardInitialConnectionId}
+        initialPrompt={wizardInitialPrompt}
       />
 
       <DeleteDashboardModal

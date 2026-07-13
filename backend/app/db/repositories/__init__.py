@@ -7,6 +7,7 @@ __all__ = [
     "dashboard_repository",
     "query_history_repository",
     "query_library_repository",
+    "question_suggestion_repository",
     "settings_repository",
     "template_repository",
 ]

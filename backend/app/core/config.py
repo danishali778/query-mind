@@ -54,6 +54,19 @@ class Settings(BaseSettings):
     semantic_relationship_sample_limit: int = Field(default=1000, ge=100, le=5000)
     semantic_suggestion_max_candidates: int = Field(default=25, ge=1, le=100)
     celery_semantics_queue: str = "semantics"
+    question_suggestions_enabled: bool = True
+    question_suggestions_ai_enabled: bool = True
+    question_suggestions_max_context_characters: int = Field(
+        default=12000, ge=1000, le=50000
+    )
+    question_suggestions_max_per_surface: int = Field(default=8, ge=1, le=20)
+    question_suggestions_refresh_cooldown_seconds: int = Field(
+        default=60, ge=1, le=3600
+    )
+    question_suggestions_stale_run_seconds: int = Field(
+        default=300, ge=30, le=3600
+    )
+    celery_suggestions_queue: str = "suggestions"
 
     db_connect_timeout_seconds: int = 5
     db_connect_rate_limit_attempts: int = 10
@@ -272,6 +285,9 @@ class Settings(BaseSettings):
             "semantic_layer_enabled": self.semantic_layer_enabled,
             "semantic_suggestions_enabled": self.semantic_suggestions_enabled,
             "celery_semantics_queue": self.celery_semantics_queue,
+            "question_suggestions_enabled": self.question_suggestions_enabled,
+            "question_suggestions_ai_enabled": self.question_suggestions_ai_enabled,
+            "celery_suggestions_queue": self.celery_suggestions_queue,
             "db_connect_timeout_seconds": self.db_connect_timeout_seconds,
             "db_connect_rate_limit_attempts": self.db_connect_rate_limit_attempts,
             "db_connect_rate_limit_window_seconds": self.db_connect_rate_limit_window_seconds,

@@ -58,6 +58,9 @@ export interface ChatInputProps {
   activeConnectionId: string;
   onConnectionChange: (id: string) => void;
   onSend: (message: string) => void;
+  draft: string;
+  onDraftChange: (value: string) => void;
+  focusRequest?: number;
   loading: boolean;
   disabled?: boolean;
   disabledReason?: string;

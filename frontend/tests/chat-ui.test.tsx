@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 import { ChatPage } from '../src/pages/ChatPage';
+import { MemoryRouter } from 'react-router-dom';
 import type { DatabaseConnection, SessionMessagesResponse, SessionSummary } from '../src/types/api';
 
 const apiMocks = vi.hoisted(() => ({
@@ -90,6 +91,10 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+function renderChatPage() {
+  return render(<MemoryRouter initialEntries={['/chat']}><ChatPage /></MemoryRouter>);
+}
+
 describe('chat bootstrap states', () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -103,7 +108,7 @@ describe('chat bootstrap states', () => {
     const pendingConnections = deferred<DatabaseConnection[]>();
     apiMocks.listConnections.mockReturnValue(pendingConnections.promise);
 
-    render(<ChatPage />);
+    renderChatPage();
 
     expect(screen.getByText('LOADING DATABASE CONNECTIONS')).toBeInTheDocument();
 
@@ -117,7 +122,7 @@ describe('chat bootstrap states', () => {
       .mockRejectedValueOnce(new Error('network down'))
       .mockResolvedValueOnce([connection]);
 
-    render(<ChatPage />);
+    renderChatPage();
 
     expect((await screen.findAllByText('SOURCE LOAD FAILED')).length).toBeGreaterThan(0);
     expect(screen.getByText('COULD NOT LOAD DATABASE CONNECTIONS')).toBeInTheDocument();
@@ -132,7 +137,7 @@ describe('chat bootstrap states', () => {
     const user = userEvent.setup();
     apiMocks.listConnections.mockResolvedValue([]);
 
-    render(<ChatPage />);
+    renderChatPage();
 
     expect(await screen.findByText('NO DATABASE CONNECTIONS')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('CONNECT A DATABASE')).toBeDisabled();
@@ -148,7 +153,7 @@ describe('chat bootstrap states', () => {
       .mockRejectedValueOnce(new Error('session service down'))
       .mockResolvedValueOnce([session]);
 
-    render(<ChatPage />);
+    renderChatPage();
 
     expect(await screen.findByText('CONVERSATION LOAD FAILED')).toBeInTheDocument();
     expect(screen.getByText('COULD NOT LOAD CONVERSATIONS')).toBeInTheDocument();
@@ -165,7 +170,7 @@ describe('chat bootstrap states', () => {
     apiMocks.listSessions.mockResolvedValue([session]);
     apiMocks.getSessionMessages.mockReturnValue(pendingMessages.promise);
 
-    render(<ChatPage />);
+    renderChatPage();
 
     await user.click(await screen.findByText('Revenue check'));
 
@@ -182,7 +187,7 @@ describe('chat bootstrap states', () => {
       .mockRejectedValueOnce(new Error('message load failed'))
       .mockResolvedValueOnce(messagesResponse);
 
-    render(<ChatPage />);
+    renderChatPage();
 
     await user.click(await screen.findByText('Revenue check'));
 
@@ -196,7 +201,7 @@ describe('chat bootstrap states', () => {
 
 
   it('enforces the visible 2048 character message limit in the input', async () => {
-    render(<ChatPage />);
+    renderChatPage();
 
     const input = await screen.findByPlaceholderText('What would you like to know?');
 
@@ -205,7 +210,7 @@ describe('chat bootstrap states', () => {
   it('disables chat send when no active connection exists', async () => {
     apiMocks.listConnections.mockResolvedValue([]);
 
-    render(<ChatPage />);
+    renderChatPage();
 
     expect(await screen.findByText('NO DATABASE CONNECTIONS')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('CONNECT A DATABASE')).toBeDisabled();

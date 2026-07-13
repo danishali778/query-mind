@@ -12,6 +12,9 @@ import { useAuth } from '../context/useAuth';
 import type { ChatMessageView } from '../types/chat';
 import type { ChatResponse, ChatRunEvent, ChatRunSnapshot, DatabaseConnection, SessionMessagesResponse, SessionSummary } from '../types/api';
 import { useChatAgentRun } from '../hooks/useChatAgentRun';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { SuggestionGrid } from '../components/suggestions/SuggestionGrid';
+import type { QuestionSuggestion } from '../types/questionSuggestions';
 
 type LoadState = 'loading' | 'ready' | 'error';
 type MessageLoadState = 'idle' | LoadState;
@@ -141,6 +144,8 @@ function StatePanel({
 
 export function ChatPage() {
   const { user } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [connections, setConnections] = useState<DatabaseConnection[]>([]);
   const [connectionsState, setConnectionsState] = useState<LoadState>('loading');
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -163,6 +168,37 @@ export function ChatPage() {
   const attachedRunRef = useRef<string | null>(null);
   const isMobile = useMediaQuery(BREAKPOINTS.lg);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [focusRequest, setFocusRequest] = useState(0);
+  const suggestionDraftRef = useRef(false);
+
+  useEffect(() => {
+    const state = location.state as { connectionId?: string; prompt?: string; suggestionId?: string } | null;
+    if (!state?.prompt || connectionsState !== 'ready') return;
+    if (state.connectionId) {
+      if (!connections.some((item) => item.id === state.connectionId)) {
+        navigate(location.pathname, { replace: true, state: null });
+        return;
+      }
+      setActiveConnectionId(state.connectionId);
+    }
+    setDraft(state.prompt.slice(0, 2048));
+    suggestionDraftRef.current = true;
+    setFocusRequest((value) => value + 1);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [connections, connectionsState, location.pathname, location.state, navigate]);
+
+  const fillSuggestion = useCallback((suggestion: QuestionSuggestion) => {
+    setDraft(suggestion.prompt);
+    suggestionDraftRef.current = true;
+    setFocusRequest((value) => value + 1);
+  }, []);
+
+  const changeComposerConnection = useCallback((connectionId: string) => {
+    if (suggestionDraftRef.current) setDraft('');
+    suggestionDraftRef.current = false;
+    setActiveConnectionId(connectionId);
+  }, []);
 
   const loadConnections = useCallback(async (options: { preferLast?: boolean; preferredId?: string } = {}) => {
     setConnectionsState('loading');
@@ -680,17 +716,14 @@ export function ChatPage() {
                     <div style={{ fontSize: '1rem', color: T.text2, maxWidth: 460, textAlign: 'center', lineHeight: 1.6, fontWeight: 400, opacity: 0.7 }}>
                       query-mind translates your plain English questions into optimized SQL, executing them against your database in real-time.
                     </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 16, justifyContent: 'center' }}>
-                      {['Show me all tables', 'Describe the database', 'Who are the top customers?'].map(s => (
-                        <button key={s} onClick={() => handleSend(s)} disabled={chatInputDisabled} style={{
-                          padding: '10px 20px', borderRadius: 0, border: `1px solid rgba(0,0,0,0.1)`, background: '#fff',
-                          color: T.text, fontSize: '0.8rem', cursor: chatInputDisabled ? 'default' : 'pointer', transition: 'all 0.2s', whiteSpace: 'nowrap',
-                          fontWeight: 700, fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '0.05em'
-                        }}
-                          onMouseEnter={e => { if (!chatInputDisabled) { e.currentTarget.style.borderColor = '#1a1a1a'; e.currentTarget.style.background = '#fdfcfb'; } }}
-                          onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(0,0,0,0.1)'; e.currentTarget.style.background = '#fff'; }}
-                        >{s}</button>
-                      ))}
+                    <div style={{ width: 'min(900px, 100%)', marginTop: 16 }}>
+                      <SuggestionGrid
+                        connectionId={activeConnectionId}
+                        surface="chat"
+                        onSelect={fillSuggestion}
+                        primaryLabel="Fill composer"
+                        compact
+                      />
                     </div>
                   </div>
                 )}
@@ -724,7 +757,8 @@ export function ChatPage() {
             <div className="responsive-inset" style={{ width: '100%', maxWidth: 1200 }}>
               <ChatInput
                 connections={connections} activeConnectionId={activeConnectionId}
-                onConnectionChange={setActiveConnectionId} onSend={handleSend} loading={loading}
+                onConnectionChange={changeComposerConnection} onSend={handleSend} loading={loading}
+                draft={draft} onDraftChange={(value) => { suggestionDraftRef.current = false; setDraft(value); }} focusRequest={focusRequest}
                 disabled={chatInputDisabled} disabledReason={chatInputDisabledReason}
               />
             </div>

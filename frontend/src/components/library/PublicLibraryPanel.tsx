@@ -3,6 +3,8 @@ import { T } from '../dashboard/tokens';
 import { SqlBlock } from '../chat/SqlBlock';
 import { listConnections, listPublicTemplates, triggerTemplateGeneration, cloneTemplate } from '../../services/api';
 import type { DatabaseConnection, PublicTemplate } from '../../types/api';
+import { SuggestionGrid } from '../suggestions/SuggestionGrid';
+import { useNavigate } from 'react-router-dom';
 
 const CATEGORIES = ['All', 'Sales', 'Marketing', 'Finance', 'Operations', 'Analytics', 'Users'];
 
@@ -17,6 +19,8 @@ interface Props {
 }
 
 export function PublicLibraryPanel({ onCloned }: Props) {
+  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState<'ideas' | 'templates'>('ideas');
   const [connections, setConnections] = useState<DatabaseConnection[]>([]);
   const [activeConnectionId, setActiveConnectionId] = useState<string | null>(null);
   const [status, setStatus] = useState<'not_started' | 'generating' | 'ready' | 'error'>('not_started');
@@ -41,7 +45,7 @@ export function PublicLibraryPanel({ onCloned }: Props) {
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = null;
     
-    if (!activeConnectionId) {
+    if (!activeConnectionId || activeTab !== 'templates') {
       setTemplates([]);
       setStatus('not_started');
       return;
@@ -78,7 +82,7 @@ export function PublicLibraryPanel({ onCloned }: Props) {
         pollRef.current = null;
       }
     };
-  }, [activeConnectionId]);
+  }, [activeConnectionId, activeTab]);
 
   const handleRetry = async () => {
     if (!activeConnectionId) return;
@@ -123,6 +127,29 @@ export function PublicLibraryPanel({ onCloned }: Props) {
           <span style={{ color: T.text2 }}>Public Library</span>
         </div>
 
+        <div role="tablist" aria-label="Public library sections" style={{ display: 'flex', gap: 4 }}>
+          {(['ideas', 'templates'] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab}
+              onClick={() => setActiveTab(tab)}
+              style={{
+                border: `1px solid ${T.border}`,
+                background: activeTab === tab ? T.text : T.s1,
+                color: activeTab === tab ? T.bg : T.text2,
+                padding: '6px 10px',
+                fontFamily: T.fontMono,
+                fontSize: '0.64rem',
+                fontWeight: 800,
+                textTransform: 'uppercase',
+                cursor: 'pointer',
+              }}
+            >{tab === 'ideas' ? 'Ideas' : 'SQL Templates'}</button>
+          ))}
+        </div>
+
         {/* Connection selector */}
         {connections.length > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -155,18 +182,33 @@ export function PublicLibraryPanel({ onCloned }: Props) {
           />
         )}
 
+        {connections.length > 0 && activeTab === 'ideas' && (
+          <SuggestionGrid
+            connectionId={activeConnectionId}
+            surface="library"
+            primaryLabel="Ask in Chat"
+            secondaryLabel="Build Dashboard"
+            onSelect={(suggestion) => navigate('/chat', {
+              state: { connectionId: activeConnectionId, prompt: suggestion.prompt, suggestionId: suggestion.id },
+            })}
+            onSecondarySelect={(suggestion) => navigate('/dashboard', {
+              state: { openAiWizard: true, connectionId: activeConnectionId, prompt: suggestion.prompt, suggestionId: suggestion.id },
+            })}
+          />
+        )}
+
         {/* Generating */}
-        {connections.length > 0 && status === 'generating' && (
+        {activeTab === 'templates' && connections.length > 0 && status === 'generating' && (
           <GeneratingState connectionName={activeName} />
         )}
 
         {/* Error */}
-        {connections.length > 0 && status === 'error' && (
+        {activeTab === 'templates' && connections.length > 0 && status === 'error' && (
           <ErrorState connectionName={activeName} onRetry={handleRetry} />
         )}
 
         {/* Not started (edge case — connect should auto-trigger) */}
-        {connections.length > 0 && status === 'not_started' && (
+        {activeTab === 'templates' && connections.length > 0 && status === 'not_started' && (
           <EmptyState
             icon="✨"
             title="Ready to generate"
@@ -176,7 +218,7 @@ export function PublicLibraryPanel({ onCloned }: Props) {
         )}
 
         {/* Ready */}
-        {status === 'ready' && templates.length > 0 && (
+        {activeTab === 'templates' && status === 'ready' && templates.length > 0 && (
           <>
             {/* Category filters */}
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
