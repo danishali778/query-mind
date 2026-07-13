@@ -11,6 +11,7 @@ from app.db.base import Base
 from app.db.orm_models import DatabaseConnectionORM
 from app.db.repositories import semantic_repository as repository
 from app.query_engine.semantic_validation import validate_metric_expression, validate_structure
+from app.services.semantic_drift_service import revalidate_sync
 
 
 OWNER_ID = "11111111-1111-1111-1111-111111111111"
@@ -203,3 +204,48 @@ def test_non_fk_relationship_warns(catalog):
         catalog,
     )
     assert "relationship_not_physical_fk" in {item.code for item in result.warnings}
+
+
+def test_schema_drift_keeps_compatible_definition_and_marks_broken_one_stale(catalog):
+    created = _create_metric()
+    with db_session.session_scope() as session:
+        repository.save_validation_sync(
+            session,
+            owner_id=OWNER_ID,
+            connection_id=CONNECTION_ID,
+            definition_id=created.id,
+            version=1,
+            schema_hash="schema-v1",
+            validation_status="valid",
+            validation_report={"warnings": [], "normalized_payload": created.versions[0].payload},
+        )
+        repository.verify_version_sync(
+            session,
+            owner_id=OWNER_ID,
+            connection_id=CONNECTION_ID,
+            definition_id=created.id,
+            version=1,
+            expected_schema_hash="schema-v1",
+            acknowledged_warning_codes=[],
+            change_note=None,
+        )
+
+    compatible = catalog.model_copy(deep=True)
+    compatible.schema_hash = "schema-v2"
+    assert revalidate_sync(OWNER_ID, CONNECTION_ID, compatible) == {"valid": 1, "stale": 0}
+
+    broken = compatible.model_copy(deep=True)
+    broken.schema_hash = "schema-v3"
+    broken.tables[0].columns = [
+        column for column in broken.tables[0].columns if column.name != "total_amount"
+    ]
+    assert revalidate_sync(OWNER_ID, CONNECTION_ID, broken) == {"valid": 0, "stale": 1}
+
+    with db_session.read_session_scope() as session:
+        definition = repository.get_definition_model_sync(
+            session, OWNER_ID, CONNECTION_ID, created.id
+        )
+    assert definition is not None
+    assert definition.versions[0].status == "verified"
+    assert definition.versions[0].validation_status == "stale"
+    assert definition.versions[0].schema_hash == "schema-v3"

@@ -405,6 +405,37 @@ def list_active_verified_sync(
     )
 
 
+def update_verified_validation_sync(
+    session: Session,
+    *,
+    owner_id: str,
+    connection_id: str,
+    version_id: str,
+    schema_hash: str,
+    validation_status: str,
+    validation_report: dict[str, Any],
+) -> bool:
+    """Update validation metadata only; verified definition content stays immutable."""
+    row = (
+        session.query(SemanticDefinitionVersionORM)
+        .join(SemanticDefinitionORM)
+        .filter(
+            SemanticDefinitionORM.owner_id == owner_id,
+            SemanticDefinitionORM.connection_id == connection_id,
+            SemanticDefinitionVersionORM.id == version_id,
+            SemanticDefinitionVersionORM.status == "verified",
+        )
+        .one_or_none()
+    )
+    if not row:
+        return False
+    row.schema_hash = schema_hash
+    row.validation_status = validation_status
+    row.validation_report = validation_report
+    row.validated_at = _now()
+    return True
+
+
 def get_summary_sync(session: Session, owner_id: str, connection_id: str) -> dict[str, Any]:
     rows = (
         session.query(

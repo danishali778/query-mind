@@ -72,6 +72,9 @@ def _run_agent_sync(
             rebuilt = build_catalog(connection_id, catalog.db_type, schema)
             schema_snapshot_repository.upsert(rebuilt, user_id)
             connection_pool.cache_catalog(user_id, connection_id, rebuilt)
+            from app.services.semantic_drift_service import revalidate_sync
+
+            revalidate_sync(user_id, connection_id, rebuilt)
             return rebuilt
         except Exception:
             logger.warning("Catalog rebuild after drift failed", exc_info=True)
