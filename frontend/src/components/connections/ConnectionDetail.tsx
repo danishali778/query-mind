@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { RefreshCw, Edit3, Share2, Trash2, Database, Shield, Activity, Layout, Terminal, BookOpen } from 'lucide-react';
 import { T } from '../dashboard/tokens';
 import type { ConnectionListItem, ConnectionDetailProps, ConnectionDetailTab, LoadState } from '../../types/connections';
-import type { QueryRecord, SchemaResponse, SchemaTable, SchemaColumn } from '../../types/api';
+import type { ConnectionHealthHistory, ConnectionScopePreview, QueryRecord, SchemaResponse, SchemaTable, SchemaColumn } from '../../types/api';
 import { ErdDiagram } from './ErdDiagram';
-import { updateConnectionSettings, testSavedConnection } from '../../services/api';
+import {
+  discoverConnectionScope, getConnectionHealth, previewConnectionScope,
+  rotateConnectionCredentials, testSavedConnection, updateConnectionAutomation,
+  updateConnectionScope,
+} from '../../services/api';
 import { SemanticsWorkspace } from './SemanticsWorkspace';
 
 interface UiColumnSchema {
@@ -99,10 +103,10 @@ export function ConnectionDetail({ connection, schema, schemaState = 'idle', sch
       <div style={{ flex: 1, overflowY: 'auto', padding: 'clamp(20px, 3vw, 32px)' }} className="cd-body">
         {activeTab === 'overview' && <OverviewTab connection={connection} schema={schema ?? null} schemaState={schemaState} queryHistory={queryHistory || []} onTabSwitch={setActiveTab} />}
         {activeTab === 'credentials' && <CredentialsTab connection={connection} onConnectionUpdated={onConnectionUpdated} />}
-        {activeTab === 'schema' && <SchemaTab schema={schema ?? null} state={schemaState} error={schemaError} onRefresh={onRefreshSchema} />}
+        {activeTab === 'schema' && <SchemaTab connection={connection} schema={schema ?? null} state={schemaState} error={schemaError} onRefresh={onRefreshSchema} onConnectionUpdated={onConnectionUpdated} />}
         {activeTab === 'semantics' && <SemanticsWorkspace connectionId={connection.id} schema={schema ?? null} />}
-        {activeTab === 'security' && <SecurityTab />}
-        {activeTab === 'activity' && <ActivityTab queryHistory={queryHistory || []} state={queryHistoryState} error={queryHistoryError} />}
+        {activeTab === 'security' && <SecurityTab connection={connection} onConnectionUpdated={onConnectionUpdated} />}
+        {activeTab === 'activity' && <ActivityTab connection={connection} queryHistory={queryHistory || []} state={queryHistoryState} error={queryHistoryError} />}
       </div>
 
       <style>{`
@@ -230,12 +234,31 @@ function CredentialsTab({ connection, onConnectionUpdated }: { connection: Conne
   const [sslMode, setSslMode] = useState(connection.ssl_mode ?? 'disable');
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [password, setPassword] = useState('');
+  const [rootCa, setRootCa] = useState('');
+  const [clientCert, setClientCert] = useState('');
+  const [clientKey, setClientKey] = useState('');
+  const [clearCertificates, setClearCertificates] = useState(false);
 
   const saveSettings = async () => {
     setSaving(true);
     setSaveMsg(null);
     try {
-      await updateConnectionSettings(connection.id, { ssl_mode: sslMode });
+      await rotateConnectionCredentials(connection.id, {
+        expected_credential_revision: connection.credential_revision,
+        ssl_mode: sslMode,
+        ...(password ? { password } : {}),
+        ...(clearCertificates ? {
+          ssl_root_certificate: null,
+          ssl_client_certificate: null,
+          ssl_client_private_key: null,
+        } : {
+          ...(rootCa ? { ssl_root_certificate: rootCa } : {}),
+          ...(clientCert ? { ssl_client_certificate: clientCert } : {}),
+          ...(clientKey ? { ssl_client_private_key: clientKey } : {}),
+        }),
+      });
+      setPassword(''); setRootCa(''); setClientCert(''); setClientKey(''); setClearCertificates(false);
       await onConnectionUpdated?.();
       setSaveMsg('SETTINGS SAVED.');
     } catch {
@@ -280,6 +303,7 @@ function CredentialsTab({ connection, onConnectionUpdated }: { connection: Conne
           <select value={sslMode} onChange={e => setSslMode(e.target.value)} style={{ background: T.s2, border: `1px solid ${T.border}`, borderRadius: 0, padding: '12px 16px', color: T.text, fontFamily: T.fontMono, fontSize: '0.72rem', outline: 'none', cursor: 'pointer', appearance: 'none' }}>
             <option value="disable">DISABLE</option>
             <option value="require">REQUIRE</option>
+            <option value="verify-ca">VERIFY-CA</option>
             <option value="verify-full">VERIFY-FULL</option>
           </select>
         </div>
@@ -291,6 +315,15 @@ function CredentialsTab({ connection, onConnectionUpdated }: { connection: Conne
           </div>
         </div>
       </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 16, marginBottom: 20 }}>
+        <CredentialField label="NEW DATABASE PASSWORD" value={password} onChange={setPassword} secret placeholder="Leave blank to keep current" />
+        <CredentialField label="ROOT CA CERTIFICATE" value={rootCa} onChange={setRootCa} multiline placeholder={connection.has_ssl_root_certificate ? 'Stored — paste to replace' : '-----BEGIN CERTIFICATE-----'} />
+        <CredentialField label="CLIENT CERTIFICATE" value={clientCert} onChange={setClientCert} multiline placeholder={connection.has_ssl_client_certificate ? 'Stored — paste to replace' : 'Optional mTLS certificate'} />
+        <CredentialField label="CLIENT PRIVATE KEY" value={clientKey} onChange={setClientKey} multiline placeholder={connection.has_ssl_client_private_key ? 'Stored — paste to replace' : 'Optional matching key'} />
+      </div>
+      <label style={{ display: 'flex', gap: 8, color: T.text3, font: `700 .62rem ${T.fontMono}`, marginBottom: 20 }}><input type="checkbox" checked={clearCertificates} onChange={event => setClearCertificates(event.target.checked)} /> CLEAR ALL STORED TLS CERTIFICATES</label>
+      <div style={{ color: T.text3, font: `600 .62rem ${T.fontMono}`, marginBottom: 20 }}>CREDENTIAL REVISION {connection.credential_revision} · ROTATION IS TESTED BEFORE THE CURRENT ENGINE IS REPLACED.</div>
 
       <div style={{ padding: '12px 16px', background: T.s1, border: `1px solid ${T.border}`, marginBottom: 20 }}>
         <div style={{ fontSize: '0.62rem', color: T.accent, fontWeight: 700, fontFamily: T.fontMono, letterSpacing: '1px', marginBottom: 8 }}>SAVED CREDENTIAL DIAGNOSTICS</div>
@@ -336,9 +369,23 @@ function CredentialsTab({ connection, onConnectionUpdated }: { connection: Conne
   );
 }
 
-function SchemaTab({ schema, state = 'idle', error, onRefresh }: { schema?: SchemaResponse | null, state?: LoadState, error?: string | null, onRefresh?: () => Promise<void> | void }) {
+function SchemaTab({ connection, schema, state = 'idle', error, onRefresh, onConnectionUpdated }: { connection: ConnectionListItem, schema?: SchemaResponse | null, state?: LoadState, error?: string | null, onRefresh?: () => Promise<void> | void, onConnectionUpdated?: () => Promise<void> | void }) {
   const tables = schema?.tables || [];
   const [viewMode, setViewMode] = useState<'table' | 'erd'>('table');
+  const [healthEnabled, setHealthEnabled] = useState(connection.health_check_enabled);
+  const [healthInterval, setHealthInterval] = useState(connection.health_check_interval_minutes);
+  const [refreshEnabled, setRefreshEnabled] = useState(connection.schema_refresh_enabled);
+  const [refreshInterval, setRefreshInterval] = useState(connection.schema_refresh_interval_hours);
+  const [automationMessage, setAutomationMessage] = useState<string | null>(null);
+  const saveAutomation = async () => {
+    try {
+      await updateConnectionAutomation(connection.id, {
+        health_check_enabled: healthEnabled, health_check_interval_minutes: healthInterval,
+        schema_refresh_enabled: refreshEnabled, schema_refresh_interval_hours: refreshInterval,
+      });
+      setAutomationMessage('AUTOMATION SETTINGS SAVED.'); await onConnectionUpdated?.();
+    } catch (reason) { setAutomationMessage(reason instanceof Error ? reason.message : 'AUTOMATION UPDATE FAILED.'); }
+  };
 
   const toggleBtnStyle = (active: boolean): React.CSSProperties => ({
     padding: '6px 16px', borderRadius: 0, border: `1px solid ${active ? T.accent : T.border}`,
@@ -349,6 +396,14 @@ function SchemaTab({ schema, state = 'idle', error, onRefresh }: { schema?: Sche
 
   return (
     <>
+      <SectionCard title="OPT-IN MAINTENANCE" badge={{ text: refreshEnabled || healthEnabled ? 'ENABLED' : 'DISABLED', color: refreshEnabled || healthEnabled ? T.green : T.text3 }}>
+        <div style={{ padding: 18, display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 16 }}>
+          <label style={{ color: T.text2, font: `700 .66rem ${T.fontMono}` }}><input type="checkbox" checked={healthEnabled} onChange={event => setHealthEnabled(event.target.checked)} /> HEALTH CHECKS<select value={healthInterval} onChange={event => setHealthInterval(Number(event.target.value) as 15 | 60 | 360 | 1440)} style={{ display: 'block', marginTop: 8, width: '100%' }}><option value={15}>15 MINUTES</option><option value={60}>HOURLY</option><option value={360}>6 HOURS</option><option value={1440}>DAILY</option></select></label>
+          <label style={{ color: T.text2, font: `700 .66rem ${T.fontMono}` }}><input type="checkbox" checked={refreshEnabled} onChange={event => setRefreshEnabled(event.target.checked)} /> AUTOMATIC SCHEMA REFRESH<select value={refreshInterval} onChange={event => setRefreshInterval(Number(event.target.value) as 6 | 12 | 24 | 168)} style={{ display: 'block', marginTop: 8, width: '100%' }}><option value={6}>6 HOURS</option><option value={12}>12 HOURS</option><option value={24}>DAILY</option><option value={168}>WEEKLY</option></select></label>
+        </div>
+        <div style={{ padding: '0 18px 18px', color: T.text3, font: `600 .62rem ${T.fontMono}` }}>NEXT HEALTH: {formatTimestamp(connection.next_health_check_at)} · NEXT REFRESH: {formatTimestamp(connection.next_schema_refresh_at)} <button onClick={saveAutomation} style={{ marginLeft: 12 }}>SAVE AUTOMATION</button> {automationMessage}</div>
+      </SectionCard>
+      <div style={{ height: 20 }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
         <div style={{ fontSize: '0.62rem', color: T.accent, fontFamily: T.fontMono, fontWeight: 800, letterSpacing: '1.5px' }}>{tables.length} TABLES DISCOVERED</div>
         <div style={{ display: 'flex', gap: 0, marginLeft: 12 }}>
@@ -411,17 +466,42 @@ function StateBlock({ title, body, actionLabel, onAction, tone = 'neutral' }: { 
     </div>
   );
 }
-function SecurityTab() {
-  return (
-    <div style={{ color: T.text2 }}>Security settings coming soon...</div>
-  );
+function SecurityTab({ connection, onConnectionUpdated }: { connection: ConnectionListItem; onConnectionUpdated?: () => Promise<void> | void }) {
+  const [mode, setMode] = useState<'all' | 'allowlist'>(connection.scope_mode);
+  const [schemas, setSchemas] = useState<string[]>(connection.included_schemas);
+  const [tables, setTables] = useState<string[]>(connection.included_tables);
+  const [inventory, setInventory] = useState<Array<{ name: string; tables: string[] }>>([]);
+  const [preview, setPreview] = useState<ConnectionScopePreview | null>(null);
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  useEffect(() => { let active = true; discoverConnectionScope(connection.id).then(result => { if (active) setInventory(result.inventory); }).catch(reason => { if (active) setMessage(reason instanceof Error ? reason.message : 'Scope discovery failed.'); }); return () => { active = false; }; }, [connection.id]);
+  const toggle = (values: string[], value: string, update: (next: string[]) => void) => update(values.includes(value) ? values.filter(item => item !== value) : [...values, value]);
+  const runPreview = async () => { setMessage(null); try { setPreview(await previewConnectionScope(connection.id, { mode, included_schemas: schemas, included_tables: tables })); setAcknowledged(false); } catch (reason) { setMessage(reason instanceof Error ? reason.message : 'Scope preview failed.'); } };
+  const apply = async () => { if (!preview?.valid) return; try { await updateConnectionScope(connection.id, { mode, included_schemas: schemas, included_tables: tables, expected_scope_revision: connection.scope_revision, acknowledged_impact_codes: acknowledged ? preview.impacts.map(item => item.code) : [] }); setMessage('SCOPE UPDATED.'); setPreview(null); await onConnectionUpdated?.(); } catch (reason) { setMessage(reason instanceof Error ? reason.message : 'Scope update failed.'); } };
+  return <>
+    <SectionCard title="DATABASE ROLE GUIDANCE" badge={{ text: 'SELECT ONLY RECOMMENDED', color: T.green }}><div style={{ padding: 18, color: T.text2, font: `600 .68rem/1.7 ${T.fontMono}` }}>Create a dedicated PostgreSQL role with CONNECT on the database, USAGE on allowed schemas, and SELECT on allowed tables. QueryMind scope is an application policy; database grants remain the final authorization boundary.</div></SectionCard>
+    <div style={{ height: 20 }} />
+    <SectionCard title="QUERYMIND ACCESS SCOPE" badge={{ text: `REVISION ${connection.scope_revision}`, color: T.accent }}><div style={{ padding: 18 }}>
+      <label style={{ color: T.text3, font: `700 .62rem ${T.fontMono}` }}>MODE<select value={mode} onChange={event => { setMode(event.target.value as 'all' | 'allowlist'); setPreview(null); }} style={{ display: 'block', width: '100%', margin: '8px 0 16px' }}><option value="all">ALL ACCESSIBLE USER TABLES</option><option value="allowlist">ALLOWLIST</option></select></label>
+      {mode === 'allowlist' && <div style={{ maxHeight: 320, overflowY: 'auto', border: `1px solid ${T.border}`, padding: 12 }}>{inventory.map(schema => <div key={schema.name}><label style={{ display: 'block', color: T.text, font: `700 .66rem ${T.fontMono}`, padding: 5 }}><input type="checkbox" checked={schemas.includes(schema.name)} onChange={() => { toggle(schemas, schema.name, setSchemas); setPreview(null); }} /> {schema.name}</label>{schema.tables.map(table => { const value = `${schema.name}.${table}`; return <label key={value} style={{ display: 'block', color: T.text3, font: `600 .64rem ${T.fontMono}`, padding: '4px 24px' }}><input type="checkbox" checked={tables.includes(value)} disabled={schemas.includes(schema.name)} onChange={() => { toggle(tables, value, setTables); setPreview(null); }} /> {table}</label>; })}</div>)}</div>}
+      <button onClick={runPreview} style={{ marginTop: 16 }}>PREVIEW IMPACT</button>
+      {preview && <div aria-live="polite" style={{ marginTop: 16, padding: 12, background: T.s2, border: `1px solid ${preview.valid ? T.green : T.red}`, color: T.text2, fontFamily: T.fontMono }}><div>{preview.valid ? 'SCOPE IS VALID' : preview.errors.map(item => item.message).join(' ')}</div>{preview.impacts.map(item => <div key={`${item.consumer_type}-${item.consumer_id}`} style={{ marginTop: 6, color: T.yellow }}>{item.consumer_type}: {item.label}</div>)}{preview.impacts.length > 0 && <label style={{ display: 'block', marginTop: 12 }}><input type="checkbox" checked={acknowledged} onChange={event => setAcknowledged(event.target.checked)} /> I ACKNOWLEDGE THESE IMPACTS</label>}<button onClick={apply} disabled={!preview.valid || (preview.impacts.length > 0 && !acknowledged)} style={{ marginTop: 12 }}>APPLY SCOPE</button></div>}
+      {message && <div aria-live="polite" style={{ marginTop: 12, color: T.accent, fontFamily: T.fontMono }}>{message}</div>}
+    </div></SectionCard>
+  </>;
 }
 
-function ActivityTab({ queryHistory, state = 'idle', error }: { queryHistory?: QueryRecord[], state?: LoadState, error?: string | null }) {
+function ActivityTab({ connection, queryHistory, state = 'idle', error }: { connection: ConnectionListItem; queryHistory?: QueryRecord[], state?: LoadState, error?: string | null }) {
   const records = queryHistory || [];
+  const [view, setView] = useState<'query' | 'health'>('query');
+  const [health, setHealth] = useState<ConnectionHealthHistory | null>(null);
+  const [healthError, setHealthError] = useState<string | null>(null);
+  const loadHealth = async (cursor?: string | null) => { try { const result = await getConnectionHealth(connection.id, cursor); setHealth(current => cursor && current ? { ...result, items: [...current.items, ...result.items] } : result); setHealthError(null); } catch (reason) { setHealthError(reason instanceof Error ? reason.message : 'Health history failed.'); } };
   return (
-    <SectionCard title="All Query Activity" badge={{ text: `${records.length} queries`, color: T.accent }}>
+    <SectionCard title="ACTIVITY LOG" badge={{ text: view === 'query' ? `${records.length} QUERIES` : `${health?.items.length ?? 0} HEALTH EVENTS`, color: T.accent }}>
       <div style={{ display: 'flex', flexDirection: 'column' }}>
+        <div style={{ display: 'flex', gap: 8, padding: 12 }}><button onClick={() => setView('query')}>QUERY ACTIVITY</button><button onClick={() => { setView('health'); void loadHealth(); }}>CONNECTION HEALTH</button></div>
+        {view === 'query' && <>
         {state === 'loading' && <StateBlock title="LOADING QUERY ACTIVITY" body="Retrieving recent runs for this source." />}
         {state === 'error' && <StateBlock title="QUERY ACTIVITY FAILED" body={error || 'Recent query activity could not be loaded.'} tone="error" />}
         {state !== 'loading' && state !== 'error' && records.map((q: QueryRecord, i: number) => (
@@ -433,9 +513,16 @@ function ActivityTab({ queryHistory, state = 'idle', error }: { queryHistory?: Q
         {state !== 'loading' && state !== 'error' && records.length === 0 && (
           <div style={{ padding: '24px', color: T.text3, fontSize: '0.82rem', textAlign: 'center' }}>No queries have been executed yet. Run a query from the Chat page and it will appear here.</div>
         )}
+        </>}
+        {view === 'health' && <>{healthError && <StateBlock title="HEALTH HISTORY FAILED" body={healthError} tone="error" />}{health && <div style={{ padding: '0 18px 12px', color: T.text3, font: `600 .62rem ${T.fontMono}` }}>24H SUCCESS {health.success_rate_24h}% · 7D SUCCESS {health.success_rate_7d}% · P50 {formatLatency(health.p50_latency_ms)} · P95 {formatLatency(health.p95_latency_ms)}</div>}{health?.items.map(item => <ActivityRow key={item.id} ok={item.status === 'healthy'} err={item.status === 'failed'} query={`${item.source}: ${item.message ?? item.diagnostic_code ?? item.status}`} dur={formatLatency(item.latency_ms)} time={timeAgo(item.created_at)} />)}{health?.next_cursor && <button onClick={() => loadHealth(health.next_cursor)} style={{ margin: 12 }}>LOAD MORE</button>}</>}
       </div>
     </SectionCard>
   );
+}
+
+function CredentialField({ label, value, onChange, secret, multiline, placeholder }: { label: string; value: string; onChange: (value: string) => void; secret?: boolean; multiline?: boolean; placeholder?: string }) {
+  const style: React.CSSProperties = { width: '100%', boxSizing: 'border-box', padding: 10, background: T.s2, border: `1px solid ${T.border}`, color: T.text, fontFamily: T.fontMono };
+  return <label style={{ color: T.text3, font: `700 .62rem ${T.fontMono}` }}>{label}{multiline ? <textarea rows={4} value={value} onChange={event => onChange(event.target.value)} placeholder={placeholder} style={{ ...style, display: 'block', marginTop: 8 }} /> : <input type={secret ? 'password' : 'text'} value={value} onChange={event => onChange(event.target.value)} placeholder={placeholder} style={{ ...style, display: 'block', marginTop: 8 }} />}</label>;
 }
 
 function KpiCard({ val, label, sub, valColor }: { val: string, label: string, sub: string, valColor: string }) {

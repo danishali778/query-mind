@@ -66,36 +66,33 @@ export interface DatabaseConnection {
   last_error?: string | null;
   latency_ms?: number | null;
   last_schema_sync_at?: string | null;
+  credential_revision: number;
+  credentials_updated_at?: string | null;
+  has_ssl_root_certificate: boolean;
+  has_ssl_client_certificate: boolean;
+  has_ssl_client_private_key: boolean;
+  scope_mode: 'all' | 'allowlist';
+  included_schemas: string[];
+  included_tables: string[];
+  scope_revision: number;
+  scope_updated_at?: string | null;
+  health_check_enabled: boolean;
+  health_check_interval_minutes: 15 | 60 | 360 | 1440;
+  next_health_check_at?: string | null;
+  schema_refresh_enabled: boolean;
+  schema_refresh_interval_hours: 6 | 12 | 24 | 168;
+  next_schema_refresh_at?: string | null;
 }
 
 export interface ConnectDatabaseRequest {
   name?: string;
+  input_mode?: 'fields' | 'uri';
+  connection_uri?: string | null;
   db_type: SupportedDatabaseType;
-  host: string;
+  host?: string;
   port?: number;
-  database: string;
-  username: string;
-  password: string;
-  ssl_mode?: string;
-  // SSH Tunnel
-  use_ssh?: boolean;
-  ssh_host?: string;
-  ssh_port?: number;
-  ssh_username?: string;
-  ssh_password?: string;
-  ssh_private_key?: string;
-}
-
-export interface ConnectDatabaseResponse extends DatabaseConnection {
-  message: string;
-}
-
-export interface TestConnectionRequest {
-  db_type: SupportedDatabaseType;
-  host: string;
-  port?: number;
-  database: string;
-  username: string;
+  database?: string;
+  username?: string;
   password?: string;
   ssl_mode?: string;
   // SSH Tunnel
@@ -105,13 +102,121 @@ export interface TestConnectionRequest {
   ssh_username?: string;
   ssh_password?: string;
   ssh_private_key?: string;
+  ssl_root_certificate?: string;
+  ssl_client_certificate?: string;
+  ssl_client_private_key?: string;
+  scope_mode?: 'all' | 'allowlist';
+  included_schemas?: string[];
+  included_tables?: string[];
 }
+
+export interface ConnectDatabaseResponse extends DatabaseConnection {
+  message: string;
+}
+
+export interface TestConnectionRequest {
+  input_mode?: 'fields' | 'uri';
+  connection_uri?: string | null;
+  db_type: SupportedDatabaseType;
+  host?: string;
+  port?: number;
+  database?: string;
+  username?: string;
+  password?: string;
+  ssl_mode?: string;
+  // SSH Tunnel
+  use_ssh?: boolean;
+  ssh_host?: string;
+  ssh_port?: number;
+  ssh_username?: string;
+  ssh_password?: string;
+  ssh_private_key?: string;
+  ssl_root_certificate?: string;
+  ssl_client_certificate?: string;
+  ssl_client_private_key?: string;
+}
+
+export interface ConnectionDiagnosticCheck {
+  code: string;
+  status: 'pending' | 'passed' | 'warning' | 'failed' | 'skipped';
+  label: string;
+  message?: string | null;
+}
+
+export interface ConnectionInventorySchema { name: string; tables: string[] }
 
 export interface TestConnectionResponse {
   success: boolean;
   message: string;
   tables_found?: number | null;
   latency_ms?: number | null;
+  diagnostic_id?: string | null;
+  code: string;
+  category: string;
+  suggestions: string[];
+  checks: ConnectionDiagnosticCheck[];
+  warnings: Array<{ code: string; message: string }>;
+  inventory?: ConnectionInventorySchema[] | null;
+  inventory_truncated: boolean;
+  server_version?: string | null;
+  role_has_write_privileges?: boolean | null;
+}
+
+export interface ConnectionScope {
+  connection_id?: string;
+  mode: 'all' | 'allowlist';
+  included_schemas: string[];
+  included_tables: string[];
+  revision?: number;
+  updated_at?: string | null;
+}
+
+export interface ConnectionScopeImpact {
+  code: string;
+  consumer_type: string;
+  consumer_id: string;
+  label: string;
+}
+
+export interface ConnectionScopePreview {
+  valid: boolean;
+  normalized_scope: ConnectionScope;
+  errors: Array<{ code: string; message: string }>;
+  warnings: Array<{ code: string; message: string }>;
+  impacts: ConnectionScopeImpact[];
+}
+
+export interface ConnectionAutomation {
+  connection_id?: string;
+  health_check_enabled: boolean;
+  health_check_interval_minutes: 15 | 60 | 360 | 1440;
+  next_health_check_at?: string | null;
+  schema_refresh_enabled: boolean;
+  schema_refresh_interval_hours: 6 | 12 | 24 | 168;
+  next_schema_refresh_at?: string | null;
+}
+
+export interface ConnectionHealthEvent {
+  id: string;
+  source: string;
+  status: 'healthy' | 'failed';
+  diagnostic_code?: string | null;
+  message?: string | null;
+  latency_ms?: number | null;
+  created_at: string;
+}
+
+export interface ConnectionHealthHistory {
+  connection_id: string;
+  items: ConnectionHealthEvent[];
+  next_cursor?: string | null;
+  success_rate_24h: number;
+  success_rate_7d: number;
+  p50_latency_ms?: number | null;
+  p95_latency_ms?: number | null;
+  last_successful_schema_refresh_at?: string | null;
+  next_health_check_at?: string | null;
+  next_schema_refresh_at?: string | null;
 }
 
 export interface SchemaColumn {
@@ -392,6 +497,7 @@ export interface RunSavedQueryResponse {
   row_count: number;
   execution_time_ms: number;
   error?: string | null;
+  error_code?: string | null;
 }
 
 export interface QueryRunHistoryRecord {

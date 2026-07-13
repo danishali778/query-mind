@@ -44,6 +44,10 @@ import type {
   UpdateSavedQueryRequest,
   EditSqlRequest,
   ChatMessageRecord,
+  ConnectionScope,
+  ConnectionScopePreview,
+  ConnectionAutomation,
+  ConnectionHealthHistory,
 } from '../types/api';
 
 export function editSql(sessionId: string, messageId: string, data: EditSqlRequest) {
@@ -76,6 +80,48 @@ export function disconnectDatabase(connectionId: string) {
 
 export function updateConnectionSettings(connectionId: string, data: { ssl_mode?: string }) {
   return jsonRequest<DatabaseConnection>(`/database/connections/${connectionId}`, 'PATCH', data);
+}
+
+export function rotateConnectionCredentials(
+  connectionId: string,
+  data: Record<string, unknown> & { expected_credential_revision: number },
+) {
+  return jsonRequest<DatabaseConnection>(`/database/connections/${connectionId}/credentials`, 'PATCH', data);
+}
+
+export function getConnectionScope(connectionId: string) {
+  return request<ConnectionScope>(`/database/connections/${connectionId}/scope`);
+}
+
+export function discoverConnectionScope(connectionId: string) {
+  return request<{ inventory: Array<{ name: string; tables: string[] }>; inventory_truncated: boolean }>(
+    `/database/connections/${connectionId}/scope/discover`, { method: 'POST' }
+  );
+}
+
+export function previewConnectionScope(connectionId: string, scope: ConnectionScope) {
+  return jsonRequest<ConnectionScopePreview>(`/database/connections/${connectionId}/scope/preview`, 'POST', scope);
+}
+
+export function updateConnectionScope(
+  connectionId: string,
+  scope: ConnectionScope & { expected_scope_revision: number; acknowledged_impact_codes: string[] },
+) {
+  return jsonRequest<ConnectionScope>(`/database/connections/${connectionId}/scope`, 'PUT', scope);
+}
+
+export function getConnectionAutomation(connectionId: string) {
+  return request<ConnectionAutomation>(`/database/connections/${connectionId}/automation`);
+}
+
+export function updateConnectionAutomation(connectionId: string, data: ConnectionAutomation) {
+  return jsonRequest<ConnectionAutomation>(`/database/connections/${connectionId}/automation`, 'PATCH', data);
+}
+
+export function getConnectionHealth(connectionId: string, cursor?: string | null, limit = 25) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set('cursor', cursor);
+  return request<ConnectionHealthHistory>(`/database/connections/${connectionId}/health?${params.toString()}`);
 }
 
 export function sendMessage(data: ChatRequest) {

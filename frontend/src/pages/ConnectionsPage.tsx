@@ -4,7 +4,7 @@ import { HeaderIcons } from '../components/common/AppHeader';
 import { ConnectionListPanel } from '../components/connections/ConnectionListPanel';
 import { ConnectionDetail } from '../components/connections/ConnectionDetail';
 import { DisconnectConnectionModal } from '../components/connections/DisconnectConnectionModal';
-import { NewConnectionModal } from '../components/connections/NewConnectionModal';
+import { NewConnectionWizard } from '../components/connections/NewConnectionWizard';
 import { T } from '../components/dashboard/tokens';
 import { listConnections, disconnectDatabase, getSchema, refreshSchema, getQueryHistory } from '../services/api';
 import { ApiRequestError } from '../services/http';
@@ -248,7 +248,7 @@ export function ConnectionsPage() {
         />
       </div>
 
-      <NewConnectionModal
+      <NewConnectionWizard
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSaved={handleConnectionAdded}

@@ -27,6 +27,22 @@ export interface ConnectionListItem {
   last_status?: 'unknown' | 'healthy' | 'failed' | string;
   last_error?: string | null;
   last_schema_sync_at?: string | null;
+  credential_revision: number;
+  credentials_updated_at?: string | null;
+  has_ssl_root_certificate: boolean;
+  has_ssl_client_certificate: boolean;
+  has_ssl_client_private_key: boolean;
+  scope_mode: 'all' | 'allowlist';
+  included_schemas: string[];
+  included_tables: string[];
+  scope_revision: number;
+  scope_updated_at?: string | null;
+  health_check_enabled: boolean;
+  health_check_interval_minutes: 15 | 60 | 360 | 1440;
+  next_health_check_at?: string | null;
+  schema_refresh_enabled: boolean;
+  schema_refresh_interval_hours: 6 | 12 | 24 | 168;
+  next_schema_refresh_at?: string | null;
 }
 
 export interface ConnectionDetailData {
