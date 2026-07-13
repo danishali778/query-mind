@@ -11,6 +11,7 @@ from app.api.v1.routes import (
     query_history,
     query_library,
     settings,
+    semantics,
     webhooks,
 )
 
@@ -27,6 +28,7 @@ api_router.include_router(dashboards.router)
 api_router.include_router(dashboard_generations.router)
 api_router.include_router(analytics.router)
 api_router.include_router(settings.router)
+api_router.include_router(semantics.router)
 api_router.include_router(webhooks.router, prefix="/api")
 
 __all__ = ["api_router"]
