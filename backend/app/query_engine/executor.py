@@ -2,6 +2,7 @@ import time
 from typing import Optional
 
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.engine import Engine
 
 from app.db.repositories.query_history_repository import log_query as log_query_history
@@ -9,6 +10,7 @@ from app.query_engine.results import QueryExecutionResult
 from app.query_engine.result_serializer import serialize_data
 from app.query_engine.safety import sanitize_row_limit, validate_query
 from app.query_engine.cancellation import QueryCancellationToken
+from app.query_engine.connection_scope import validate_connection_scope_sql
 
 QUERY_TIMEOUT = 30
 
@@ -33,6 +35,14 @@ def execute_query(
     is_safe, error_msg = validate_query(sql)
     if not is_safe:
         return QueryExecutionResult(success=False, error=error_msg)
+    if connection_id:
+        scope_allowed, scope_error = validate_connection_scope_sql(user_id, connection_id, sql)
+        if not scope_allowed:
+            return QueryExecutionResult(
+                success=False,
+                error=scope_error or "The query violates this connection's access scope.",
+                error_code="connection_scope_violation",
+            )
 
     safe_sql = sql if skip_row_limit_wrap else sanitize_row_limit(sql, row_limit)
     effective_timeout = timeout_seconds if timeout_seconds is not None else QUERY_TIMEOUT
@@ -116,11 +126,31 @@ def execute_query(
         else:
             friendly = error_text.split("\n")[0]
 
+        connection_failure = bool(
+            isinstance(exc, (OperationalError, DBAPIError))
+            and (
+                getattr(exc, "connection_invalidated", False)
+                or any(
+                    marker in lowered
+                    for marker in (
+                        "connection refused",
+                        "connection is closed",
+                        "connection not open",
+                        "could not connect",
+                        "server closed the connection",
+                        "ssl connection has been closed",
+                        "network is unreachable",
+                    )
+                )
+            )
+        )
+
         return _log_and_return(
             QueryExecutionResult(
                 success=False,
                 execution_time_ms=round(elapsed, 2),
                 error=friendly,
+                connection_failure=connection_failure,
             ),
             user_id,
             connection_id,

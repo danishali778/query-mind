@@ -5,6 +5,7 @@ from app.db.models.connection import (
     ActiveConnection,
     ColumnInfo,
     ConnectionRequest,
+    ConnectionHealthEvent,
     ForeignKeyInfo,
     TableInfo,
 )
@@ -36,6 +37,7 @@ __all__ = [
     "ChatSession",
     "SessionSummary",
     "ConnectionRequest",
+    "ConnectionHealthEvent",
     "ActiveConnection",
     "ColumnInfo",
     "ForeignKeyInfo",

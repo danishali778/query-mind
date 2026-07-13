@@ -104,6 +104,7 @@ async def run_query(query_id: str, current_user: CurrentUserDep):
         "row_count": result.row_count,
         "execution_time_ms": result.execution_time_ms,
         "error": result.error,
+        "error_code": result.error_code,
     }
 
 

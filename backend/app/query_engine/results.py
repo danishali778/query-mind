@@ -13,6 +13,8 @@ class QueryExecutionResult(BaseModel):
     truncated: bool = False
     execution_time_ms: float = 0.0
     error: Optional[str] = None
+    error_code: Optional[str] = None
+    connection_failure: bool = False
 
 
 __all__ = ["QueryExecutionResult"]

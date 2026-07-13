@@ -75,6 +75,7 @@ class QueryRunRecord(BaseModel):
     row_count: int = 0
     execution_time_ms: float = 0.0
     error: Optional[str] = None
+    error_code: Optional[str] = None
     triggered_by: str = "manual"
     owner_id: str
     ran_at: datetime

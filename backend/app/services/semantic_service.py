@@ -22,6 +22,7 @@ from app.query_engine.semantic_validation import (
     execute_preview,
     validate_structure,
 )
+from app.query_engine.connection_scope import validate_connection_scope_sql
 from app.services import connection_service
 from app.services import semantic_context_service
 from app.agents.schema_context.user_semantics import apply_semantic_catalog_overlay
@@ -461,6 +462,21 @@ async def validate_version(
                     )
                 )
             else:
+                scope_allowed, _scope_message = await anyio.to_thread.run_sync(
+                    validate_connection_scope_sql,
+                    owner_id,
+                    connection_id,
+                    spec.sql,
+                )
+                if not scope_allowed:
+                    structural.errors.append(
+                        ValidationFinding(
+                            "connection_scope_violation",
+                            "This definition references an object outside the connection scope.",
+                        )
+                    )
+                    spec = None
+            if spec is not None:
                 engine = await connection_service.get_engine(owner_id, connection_id)
                 if not engine:
                     raise NotFoundError("Database connection not found.", code="semantic_definition_not_found")

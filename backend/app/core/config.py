@@ -61,6 +61,11 @@ class Settings(BaseSettings):
     db_connect_allowed_hosts_raw: str = Field(default="", validation_alias="DB_CONNECT_ALLOWED_HOSTS")
     db_connect_allowed_cidrs_raw: str = Field(default="", validation_alias="DB_CONNECT_ALLOWED_CIDRS")
     db_connect_allow_private_in_dev: bool = True
+    connection_health_retention_days: int = Field(default=90, ge=1, le=3650)
+    connection_maintenance_batch_size: int = Field(default=100, ge=1, le=1000)
+    connection_scope_cache_ttl_seconds: int = Field(default=60, ge=1, le=3600)
+    connection_diagnostic_max_objects: int = Field(default=5000, ge=1, le=50000)
+    connection_tls_cert_max_bytes: int = Field(default=65536, ge=1024, le=1048576)
 
     encryption_key: str | None = None
 
