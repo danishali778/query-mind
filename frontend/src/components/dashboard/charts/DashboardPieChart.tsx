@@ -1,6 +1,7 @@
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { T } from '../tokens';
 import type { DashboardWidgetItem, WidgetSize } from '../../../types/dashboard';
+import type { ChartTooltipProps } from './chartTooltipTypes';
 
 const COLORS = [
   '#00e5ff', '#7c3aff', '#22d3a5', '#f59e0b', '#f87171',
@@ -15,13 +16,13 @@ const TT_STYLE = {
   color: T.text, padding: '12px 16px',
 };
 
-const CustomTooltip = ({ active, payload }: any) => {
+const CustomTooltip = ({ active, payload }: ChartTooltipProps) => {
   if (active && payload && payload.length) {
     const p = payload[0];
     return (
       <div style={TT_STYLE}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-          <div style={{ width: 8, height: 8, borderRadius: '50%', background: p.payload.fill }} />
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: p.payload?.fill }} />
           <span style={{ fontWeight: 800, color: T.text, fontSize: '0.8rem', fontFamily: T.fontHead }}>
             {p.name}
           </span>
@@ -29,7 +30,7 @@ const CustomTooltip = ({ active, payload }: any) => {
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20 }}>
           <span style={{ color: T.text2, fontSize: '0.7rem' }}>Value</span>
           <span style={{ fontWeight: 700, color: T.text, fontFamily: T.fontMono, fontSize: '0.75rem' }}>
-            {formatVal(p.value)}
+            {formatVal(Number(p.value) || 0)}
           </span>
         </div>
       </div>
@@ -47,7 +48,7 @@ function formatVal(v: number) {
   return String(Math.round(v));
 }
 
-export function DashboardPieChart({ widget, size: _size }: { widget: DashboardWidgetItem; size: WidgetSize }) {
+export function DashboardPieChart({ widget }: { widget: DashboardWidgetItem; size: WidgetSize }) {
   const isDonut = widget.viz_type === 'donut';
   const xCol = widget.chart_config?.x_column || widget.columns[0];
   let yCols: string[] = widget.chart_config?.y_columns?.length ? widget.chart_config.y_columns : [];

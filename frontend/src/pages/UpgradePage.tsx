@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { T } from '../components/dashboard/tokens';
 import { upgradePlan } from '../services/api';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 import { useToast } from '../components/common/ToastProvider';
 
 export function UpgradePage() {
@@ -19,7 +19,7 @@ export function UpgradePage() {
     
     if (checkoutUrl) {
       // Real SaaS Flow: Send them to Lemon Squeezy with their user_id attached!
-      let url = new URL(checkoutUrl);
+      const url = new URL(checkoutUrl);
       if (user?.id) {
         url.searchParams.append('checkout[custom][user_id]', user.id);
       }

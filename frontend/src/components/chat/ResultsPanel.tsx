@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { ResultsTable } from './ResultsTable';
 import { BaseChartContainer } from '../charts/BaseChartContainer';
 import { T } from '../dashboard/tokens';
@@ -17,19 +17,25 @@ export function ResultsPanel({
     onResize,
     column_metadata
 }: ChatResultsPanelProps) {
-    const [activeTab, setActiveTab] = useState<'table' | 'chart'>(
-        chartRecommendation ? 'chart' : 'table'
-    );
+    const [tabSelection, setTabSelection] = useState<{
+        rows: ChatResultsPanelProps['rows'];
+        chart: ChatResultsPanelProps['chartRecommendation'];
+        tab: 'table' | 'chart';
+    }>(() => ({
+        rows,
+        chart: chartRecommendation,
+        tab: chartRecommendation ? 'chart' : 'table',
+    }));
     const isDragging = useRef(false);
     const startY = useRef(0);
     const startHeight = useRef(0);
 
     const hasChart = chartRecommendation && (rows.length > 1 || chartRecommendation.type === 'kpi');
-
-    // Reset active tab when data changes
-    useEffect(() => {
-        setActiveTab(chartRecommendation && (rows.length > 1 || chartRecommendation.type === 'kpi') ? 'chart' : 'table');
-    }, [chartRecommendation, rows]);
+    const defaultTab = hasChart ? 'chart' : 'table';
+    const activeTab = tabSelection.rows === rows && tabSelection.chart === chartRecommendation
+        ? tabSelection.tab
+        : defaultTab;
+    const selectTab = (tab: 'table' | 'chart') => setTabSelection({ rows, chart: chartRecommendation, tab });
 
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
         isDragging.current = true;
@@ -106,7 +112,7 @@ export function ResultsPanel({
                 {/* Left: tabs */}
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                     <button
-                        onClick={() => setActiveTab('table')}
+                        onClick={() => selectTab('table')}
                         style={{
                             padding: '8px 16px',
                             borderRadius: 12,
@@ -137,7 +143,7 @@ export function ResultsPanel({
 
                     {hasChart && (
                         <button
-                            onClick={() => setActiveTab('chart')}
+                            onClick={() => selectTab('chart')}
                             style={{
                                 padding: '8px 16px',
                                 borderRadius: 12,

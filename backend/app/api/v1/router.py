@@ -5,6 +5,7 @@ from app.api.v1.routes import (
     auth,
     chat,
     connections,
+    dashboard_generations,
     dashboards,
     query,
     query_history,
@@ -23,6 +24,7 @@ api_router.include_router(chat.router)
 api_router.include_router(query_history.router)
 api_router.include_router(query_library.router)
 api_router.include_router(dashboards.router)
+api_router.include_router(dashboard_generations.router)
 api_router.include_router(analytics.router)
 api_router.include_router(settings.router)
 api_router.include_router(webhooks.router, prefix="/api")

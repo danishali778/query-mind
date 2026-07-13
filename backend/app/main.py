@@ -11,7 +11,7 @@ from app.core.middleware import configure_cors
 from app.core.secrets import validate_core_credentials
 from app.lifespan import lifespan
 from app.services.chat_progress import ensure_available
-from app.db.repositories import chat_run_repository
+from app.db.repositories import chat_run_repository, dashboard_generation_repository
 from app.workers.celery_app import celery_app
 
 
@@ -45,7 +45,8 @@ def streaming_health_check():
         ensure_available()
     except RuntimeError:
         redis_status = "unavailable"
-    worker_status = "unavailable"
+    interactive_worker_status = "unavailable"
+    dashboard_worker_status = "unavailable"
     try:
         queues = celery_app.control.inspect(timeout=0.75).active_queues() or {}
         if any(
@@ -53,20 +54,45 @@ def streaming_health_check():
             for worker_queues in queues.values()
             for queue in worker_queues
         ):
-            worker_status = "healthy"
+            interactive_worker_status = "healthy"
+        if any(
+            queue.get("name") == settings.celery_dashboards_queue
+            for worker_queues in queues.values()
+            for queue in worker_queues
+        ):
+            dashboard_worker_status = "healthy"
     except Exception:
         pass
     try:
         counts = chat_run_repository.run_health_counts(settings.agent_wall_clock_seconds + 30)
     except Exception:
         counts = {"active_runs": 0, "stale_runs": 0}
-    healthy = redis_status == "healthy" and worker_status == "healthy" and counts["stale_runs"] == 0
+    try:
+        dashboard_counts = dashboard_generation_repository.run_health_counts(
+            stale_after_seconds=settings.agent_wall_clock_seconds + 30
+        )
+    except Exception:
+        dashboard_counts = {"active_runs": 0, "stale_runs": 0}
+    dashboard_healthy = (
+        not settings.dashboard_ai_enabled
+        or (dashboard_worker_status == "healthy" and dashboard_counts["stale_runs"] == 0)
+    )
+    healthy = (
+        redis_status == "healthy"
+        and interactive_worker_status == "healthy"
+        and counts["stale_runs"] == 0
+        and dashboard_healthy
+    )
     return {
         "status": "ok" if healthy else "degraded",
         "streaming_enabled": settings.chat_streaming_enabled,
         "redis": redis_status,
-        "interactive_worker": worker_status,
+        "interactive_worker": interactive_worker_status,
         "interactive_queue": settings.celery_interactive_queue,
+        "dashboard_worker": dashboard_worker_status,
+        "dashboard_queue": settings.celery_dashboards_queue,
+        "dashboard_active_runs": dashboard_counts["active_runs"],
+        "dashboard_stale_runs": dashboard_counts["stale_runs"],
         **counts,
     }
 

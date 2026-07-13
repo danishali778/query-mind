@@ -78,6 +78,22 @@ services:
       backend:
         condition: service_healthy
 
+  dashboard-worker:
+    build: ./backend
+    restart: unless-stopped
+    command: celery -A app.workers.worker:app worker --loglevel=info --queues dashboards --concurrency=2
+    env_file: ./backend/.env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_DASHBOARDS_QUEUE: dashboards
+      DASHBOARD_AI_ENABLED: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+
   beat:
     build: ./backend
     restart: unless-stopped

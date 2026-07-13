@@ -12,7 +12,7 @@ import { SettingsPage } from './pages/SettingsPage';
 import { AuthPage } from './pages/AuthPage';
 import { UpgradePage } from './pages/UpgradePage';
 import { SharedDashboardPage } from './pages/SharedDashboardPage';
-import { useAuth } from './context/AuthContext';
+import { useAuth } from './context/useAuth';
 import { Navigate } from 'react-router-dom';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -27,6 +27,7 @@ class UpdateDashboardRequest(BaseModel):
     icon: Optional[str] = None
     filters: Optional[dict] = None
     is_public: Optional[bool] = None
+    lifecycle_status: Optional[Literal["draft", "ready"]] = None
 
 
 class AddWidgetRequest(BaseModel):
@@ -50,6 +51,9 @@ class AddWidgetRequest(BaseModel):
     minH: Optional[int] = None
     bar_orientation: Optional[str] = None
     order_index: Optional[int] = None
+    source_type: str = "manual"
+    source_prompt: Optional[str] = None
+    assumptions: list[str] = Field(default_factory=list)
 
 
 class UpdateWidgetRequest(BaseModel):
@@ -92,6 +96,8 @@ class Dashboard(BaseModel):
     filters: dict = Field(default_factory=dict)
     is_public: bool = False
     share_token: Optional[str] = None
+    creation_mode: str = "manual"
+    lifecycle_status: str = "ready"
     created_at: datetime
 
 
@@ -118,6 +124,12 @@ class DashboardWidget(BaseModel):
     minH: int = 5
     bar_orientation: str = "horizontal"
     order_index: int = 0
+    source_type: str = "manual"
+    source_prompt: Optional[str] = None
+    generation_item_id: Optional[str] = None
+    generation_status: str = "ready"
+    generation_error: Optional[str] = None
+    assumptions: list[str] = Field(default_factory=list)
     created_at: datetime
 
 

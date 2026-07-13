@@ -2,15 +2,15 @@ import { useState } from 'react';
 import { T } from './tokens';
 
 interface DashboardFilterBarProps {
-  filters: Record<string, any>;
-  onFiltersChange: (filters: Record<string, any>) => void;
+  filters: Record<string, unknown>;
+  onFiltersChange: (filters: Record<string, unknown>) => void;
   onApply: () => void;
 }
 
 export function DashboardFilterBar({ filters, onFiltersChange, onApply }: DashboardFilterBarProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const setFilter = (key: string, value: any) => {
+  const setFilter = (key: string, value: unknown) => {
     onFiltersChange({ ...filters, [key]: value });
   };
 
@@ -129,7 +129,7 @@ export function DashboardFilterBar({ filters, onFiltersChange, onApply }: Dashbo
               Date Range
             </label>
             <select 
-              value={filters.date_range || '30'}
+              value={typeof filters.date_range === 'string' ? filters.date_range : '30'}
               onChange={(e) => setFilter('date_range', e.target.value)}
               style={{
                 background: 'rgba(255,255,255,0.5)', border: `1px solid rgba(0,0,0,0.08)`, borderRadius: 10,
@@ -150,7 +150,7 @@ export function DashboardFilterBar({ filters, onFiltersChange, onApply }: Dashbo
             </label>
             <input 
               placeholder="e.g. active, completed"
-              value={filters.status || ''}
+              value={typeof filters.status === 'string' ? filters.status : ''}
               onChange={(e) => setFilter('status', e.target.value)}
               style={{
                 background: 'rgba(255,255,255,0.5)', border: `1px solid rgba(0,0,0,0.08)`, borderRadius: 10,
@@ -167,7 +167,7 @@ export function DashboardFilterBar({ filters, onFiltersChange, onApply }: Dashbo
             <input 
               type="number"
               placeholder="100"
-              value={filters.limit || ''}
+              value={typeof filters.limit === 'string' || typeof filters.limit === 'number' ? filters.limit : ''}
               onChange={(e) => setFilter('limit', e.target.value)}
               style={{
                 background: 'rgba(255,255,255,0.5)', border: `1px solid rgba(0,0,0,0.08)`, borderRadius: 10,

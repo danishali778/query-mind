@@ -72,3 +72,15 @@ def recover_stale_chat_runs() -> dict[str, int]:
     for run_id in run_ids:
         publish_event(run_id, "run.failed", "Response worker stopped")
     return {"failed_stale_runs": len(run_ids)}
+
+
+@celery_app.task(name="app.workers.tasks.recover_stale_dashboard_runs", queue=settings.celery_default_queue)
+def recover_stale_dashboard_runs() -> dict[str, int]:
+    from app.db.repositories import dashboard_generation_repository
+
+    count = asyncio.run(
+        dashboard_generation_repository.fail_stale_runs(
+            older_than_seconds=settings.agent_wall_clock_seconds + 30
+        )
+    )
+    return {"failed_stale_dashboard_runs": count}

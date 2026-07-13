@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import type { LucideIcon } from 'lucide-react';
 import { 
   User, Zap, CreditCard, 
   LogOut, AlertTriangle,
@@ -9,11 +10,11 @@ import { MainShell } from '../components/common/MainShell';
 import { Skeleton } from '../components/common/Skeleton';
 import { T } from '../components/dashboard/tokens';
 import { useSettingsStore } from '../store/settingsStore';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 
 type Section = 'profile' | 'billing';
 
-const NAV: { id: Section; label: string; icon: any; badge?: string }[] = [
+const NAV: { id: Section; label: string; icon: LucideIcon; badge?: string }[] = [
   { id: 'profile',       label: 'PROFILE',       icon: User },
   { id: 'billing',       label: 'BILLING',       icon: CreditCard, badge: 'PRO' },
 ];

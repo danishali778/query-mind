@@ -41,8 +41,8 @@ export function NewConnectionModal({ isOpen, onClose, onSaved }: { isOpen: boole
     try {
       const res = await testConnection(buildPayload());
       setTestResult({ success: res.success, message: res.message, tables: res.tables_found });
-    } catch (e: any) {
-      setTestResult({ success: false, message: e.message || 'Test failed' });
+    } catch (e: unknown) {
+      setTestResult({ success: false, message: e instanceof Error ? e.message : 'Test failed' });
     } finally { setTesting(false); }
   };
 
@@ -55,8 +55,8 @@ export function NewConnectionModal({ isOpen, onClose, onSaved }: { isOpen: boole
       setFormData({ name: '', host: 'localhost', port: '', database: '', username: '', password: '', ssl_mode: 'disable' });
       setSshEnabled(false); setSshData({ ssh_host: '', ssh_port: '22', ssh_username: '', ssh_password: '', ssh_private_key: '' });
       setTestResult(null);
-    } catch (e: any) {
-      setError(e.message || 'Failed to connect');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to connect');
     } finally { setSaving(false); }
   };
 
@@ -249,8 +249,8 @@ function WizardStep({ num, label, active, done }: { num: number, label: string, 
   );
 }
 
-function WizardLine({ done: _done }: { done: boolean }) {
-  return <div style={{ flex: 1, height: 1, background: T.border, margin: '0 20px', opacity: 0.3 }} />
+function WizardLine({ done }: { done: boolean }) {
+  return <div style={{ flex: 1, height: 1, background: done ? T.accent : T.border, margin: '0 20px', opacity: 0.3 }} />
 }
 
 function Section({ label, children }: { label: string, children: React.ReactNode }) {

@@ -2,6 +2,7 @@ import { useRef, useState, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { T } from '../tokens';
 import type { DashboardWidgetItem, WidgetSize } from '../../../types/dashboard';
+import type { ChartTooltipProps } from './chartTooltipTypes';
 
 const COLORS = [
   '#00e5ff', '#7c3aff', '#22d3a5', '#f59e0b', '#f87171',
@@ -19,7 +20,7 @@ const TT_STYLE = {
   color: T.text, padding: '12px 16px',
 };
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+const CustomTooltip = ({ active, payload, label }: ChartTooltipProps) => {
   if (active && payload && payload.length) {
     return (
       <div style={TT_STYLE}>
@@ -27,14 +28,14 @@ const CustomTooltip = ({ active, payload, label }: any) => {
           {label}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {payload.map((p: any, i: number) => (
+          {payload.map((p, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <div style={{ width: 6, height: 6, borderRadius: '50%', background: p.color }} />
                 <span style={{ color: T.text2, fontSize: '0.7rem' }}>{p.name}</span>
               </div>
               <span style={{ fontWeight: 700, color: T.text, fontFamily: T.fontMono, fontSize: '0.75rem' }}>
-                {formatYValue(p.value)}
+                {formatYValue(Number(p.value) || 0)}
               </span>
             </div>
           ))}

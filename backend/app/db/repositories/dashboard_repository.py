@@ -32,6 +32,8 @@ def _map_dashboard(row: DashboardORM) -> Dashboard:
         filters=row.filters or {},
         is_public=bool(row.is_public),
         share_token=row.share_token,
+        creation_mode=getattr(row, "creation_mode", None) or "manual",
+        lifecycle_status=getattr(row, "lifecycle_status", None) or "ready",
         created_at=row.created_at,
     )
 
@@ -39,6 +41,7 @@ def _map_dashboard(row: DashboardORM) -> Dashboard:
 def _map_widget(row: DashboardWidgetORM) -> DashboardWidget:
     layout_params = row.layout_params or {}
     chart_config = row.chart_config or None
+    assumptions = row.assumptions if isinstance(getattr(row, "assumptions", None), list) else []
     return DashboardWidget(
         id=row.id,
         owner_id=row.owner_id,
@@ -58,6 +61,12 @@ def _map_widget(row: DashboardWidgetORM) -> DashboardWidget:
         minH=layout_params.get("minH", 5),
         bar_orientation=layout_params.get("bar_orientation", "horizontal"),
         order_index=row.order_index or 0,
+        source_type=getattr(row, "source_type", None) or "manual",
+        source_prompt=getattr(row, "source_prompt", None),
+        generation_item_id=getattr(row, "generation_item_id", None),
+        generation_status=getattr(row, "generation_status", None) or "ready",
+        generation_error=getattr(row, "generation_error", None),
+        assumptions=[str(item) for item in assumptions],
         created_at=row.created_at,
         columns=row.columns or [],
         rows=row.rows or [],
@@ -79,6 +88,8 @@ def _create_dashboard_sync(session: Session, user_id: str, req: CreateDashboardI
         icon=req.icon,
         filters=req.filters or {},
         is_public=False,
+        creation_mode=req.creation_mode,
+        lifecycle_status=req.lifecycle_status,
     )
     session.add(row)
     session.flush()
@@ -175,6 +186,8 @@ def _update_dashboard_sync(
         row.filters = req.filters
     if req.is_public is not None:
         row.is_public = False
+    if req.lifecycle_status is not None:
+        row.lifecycle_status = req.lifecycle_status
     session.flush()
     return _map_dashboard(row)
 
@@ -284,6 +297,12 @@ def _add_widget_sync(session: Session, user_id: str, req: AddWidgetInput) -> Das
         order_index=req.order_index if req.order_index is not None else next_order,
         rows=req.rows or [],
         columns=req.columns or [],
+        source_type=req.source_type,
+        source_prompt=req.source_prompt,
+        generation_item_id=req.generation_item_id,
+        generation_status=req.generation_status,
+        generation_error=req.generation_error,
+        assumptions=list(req.assumptions or []),
     )
     session.add(row)
     session.flush()
@@ -377,6 +396,20 @@ def _update_widget_sync(
         row.rows = req.rows
     if req.columns is not None:
         row.columns = req.columns
+    if req.sql is not None:
+        row.sql = req.sql
+    if req.viz_type is not None:
+        row.viz_type = req.viz_type
+    if req.chart_config is not None:
+        row.chart_config = req.chart_config.model_dump()
+    if req.source_prompt is not None:
+        row.source_prompt = req.source_prompt
+    if req.generation_status is not None:
+        row.generation_status = req.generation_status
+    if req.generation_error is not None:
+        row.generation_error = req.generation_error
+    if req.assumptions is not None:
+        row.assumptions = list(req.assumptions)
 
     layout_params = dict(row.layout_params or {})
     for field in ["x", "y", "w", "h", "minW", "minH", "bar_orientation"]:

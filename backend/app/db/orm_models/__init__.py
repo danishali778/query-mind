@@ -1,5 +1,3 @@
-"""SQLAlchemy ORM models for app persistence."""
-
 from app.db.orm_models.app import (
     ChatMessageORM,
     ChatAgentRunORM,
@@ -8,6 +6,8 @@ from app.db.orm_models.app import (
     SchemaSnapshotORM,
     DashboardORM,
     DashboardWidgetORM,
+    DashboardGenerationRunORM,
+    DashboardGenerationItemORM,
     DatabaseConnectionORM,
     GeneratedTemplateORM,
     QueryExecutionORM,
@@ -23,6 +23,8 @@ __all__ = [
     "ConnectionAttemptORM",
     "DashboardORM",
     "DashboardWidgetORM",
+    "DashboardGenerationRunORM",
+    "DashboardGenerationItemORM",
     "SavedQueryORM",
     "QueryExecutionORM",
     "TemplateGenerationORM",

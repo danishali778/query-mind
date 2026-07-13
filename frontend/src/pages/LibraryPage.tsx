@@ -35,7 +35,10 @@ export function LibraryPage() {
     }
   }, [activeFolder, activeTag]);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => void fetchAll(), 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchAll]);
 
   const filteredQueries = search.trim()
     ? queries.filter(q => q.title.toLowerCase().includes(search.toLowerCase()) || q.sql.toLowerCase().includes(search.toLowerCase()))

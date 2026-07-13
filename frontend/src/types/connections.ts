@@ -44,6 +44,6 @@ export interface ConnectionDetailData {
 
 export type ConnectionApiRecord = DatabaseConnection;
 
-export interface ConnectionDetailProps extends ConnectionDetailData {}
+export type ConnectionDetailProps = ConnectionDetailData;
 
 export type ConnectionDetailTab = 'overview' | 'credentials' | 'schema' | 'security' | 'activity';

@@ -1,4 +1,4 @@
-﻿"""Tests for chat service agent fallback and schema loading."""
+﻿"""Tests for shared analysis execution used by chat and dashboard generation."""
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from app.agents.schema_context.catalog import build_catalog
 from app.core.config import settings
 from app.db.models.connection import ColumnInfo, TableInfo
-from app.services import chat_service
+from app.services import analysis_service, chat_service
 
 
 def _catalog():
@@ -17,10 +17,34 @@ def _catalog():
             TableInfo(
                 name="products",
                 row_count=124,
-                columns=[ColumnInfo(name="id", type="uuid", nullable=False, primary_key=True), ColumnInfo(name="name", type="text", nullable=False, primary_key=False)],
+                columns=[
+                    ColumnInfo(name="id", type="uuid", nullable=False, primary_key=True),
+                    ColumnInfo(name="name", type="text", nullable=False, primary_key=False),
+                ],
             )
         ],
     )
+
+
+def test_chat_turn_delegates_to_analysis_service():
+    async def run():
+        with patch.object(
+            chat_service.analysis_service,
+            "run_analysis",
+            AsyncMock(return_value={"tier": "agent", "explanation": "ok"}),
+        ) as mock_analysis:
+            result = await chat_service._execute_chat_turn(
+                user_id="user-1",
+                connection_id="conn-1",
+                session_id="session-1",
+                message="show active products",
+                schema_context=None,
+                history=[],
+            )
+        assert result["tier"] == "agent"
+        mock_analysis.assert_awaited_once()
+
+    asyncio.run(run())
 
 
 def test_tools_mode_success_does_not_load_pipeline_schema(monkeypatch):
@@ -28,11 +52,11 @@ def test_tools_mode_success_does_not_load_pipeline_schema(monkeypatch):
 
     async def run():
         with (
-            patch.object(chat_service.connection_service, "get_catalog", AsyncMock(return_value=_catalog())),
-            patch.object(chat_service.connection_service, "get_engine", AsyncMock(return_value=MagicMock())),
-            patch.object(chat_service.connection_service, "get_schema_for_ai", AsyncMock()) as mock_schema,
+            patch.object(analysis_service.connection_service, "get_catalog", AsyncMock(return_value=_catalog())),
+            patch.object(analysis_service.connection_service, "get_engine", AsyncMock(return_value=MagicMock())),
+            patch.object(analysis_service.connection_service, "get_schema_for_ai", AsyncMock()) as mock_schema,
             patch.object(
-                chat_service,
+                analysis_service,
                 "_run_agent_sync",
                 return_value={
                     "success": True,
@@ -44,13 +68,13 @@ def test_tools_mode_success_does_not_load_pipeline_schema(monkeypatch):
                     "tier": "agent",
                 },
             ),
-            patch.object(chat_service, "_run_pipeline_sync") as mock_pipeline,
+            patch.object(analysis_service, "_run_pipeline_sync") as mock_pipeline,
         ):
-            result = await chat_service._execute_chat_turn(
+            result = await analysis_service.run_analysis(
                 user_id="user-1",
                 connection_id="conn-1",
+                question="show active products",
                 session_id="session-1",
-                message="show active products",
                 schema_context=None,
                 history=[],
             )
@@ -67,16 +91,16 @@ def test_tools_mode_schema_command_skips_agent_and_engine(monkeypatch):
 
     async def run():
         with (
-            patch.object(chat_service.connection_service, "get_catalog", AsyncMock(return_value=_catalog())) as mock_catalog,
-            patch.object(chat_service.connection_service, "get_engine", AsyncMock()) as mock_engine,
-            patch.object(chat_service, "_run_agent_sync") as mock_agent,
-            patch.object(chat_service, "_run_pipeline_sync") as mock_pipeline,
+            patch.object(analysis_service.connection_service, "get_catalog", AsyncMock(return_value=_catalog())) as mock_catalog,
+            patch.object(analysis_service.connection_service, "get_engine", AsyncMock()) as mock_engine,
+            patch.object(analysis_service, "_run_agent_sync") as mock_agent,
+            patch.object(analysis_service, "_run_pipeline_sync") as mock_pipeline,
         ):
-            result = await chat_service._execute_chat_turn(
+            result = await analysis_service.run_analysis(
                 user_id="user-1",
                 connection_id="conn-1",
+                question="show me all tables",
                 session_id="session-1",
-                message="show me all tables",
                 schema_context=None,
                 history=[],
             )
@@ -97,15 +121,15 @@ def test_tools_mode_write_intent_skips_catalog_and_agent(monkeypatch):
 
     async def run():
         with (
-            patch.object(chat_service.connection_service, "get_catalog", AsyncMock()) as mock_catalog,
-            patch.object(chat_service.connection_service, "get_engine", AsyncMock()) as mock_engine,
-            patch.object(chat_service, "_run_agent_sync") as mock_agent,
+            patch.object(analysis_service.connection_service, "get_catalog", AsyncMock()) as mock_catalog,
+            patch.object(analysis_service.connection_service, "get_engine", AsyncMock()) as mock_engine,
+            patch.object(analysis_service, "_run_agent_sync") as mock_agent,
         ):
-            result = await chat_service._execute_chat_turn(
+            result = await analysis_service.run_analysis(
                 user_id="user-1",
                 connection_id="conn-1",
+                question="drop table orders",
                 session_id="session-1",
-                message="drop table orders",
                 schema_context=None,
                 history=[],
             )
@@ -124,15 +148,15 @@ def test_tools_mode_agent_failure_falls_back_and_preserves_trace(monkeypatch):
 
     async def run():
         with (
-            patch.object(chat_service.connection_service, "get_catalog", AsyncMock(return_value=_catalog())),
-            patch.object(chat_service.connection_service, "get_engine", AsyncMock(return_value=MagicMock())),
+            patch.object(analysis_service.connection_service, "get_catalog", AsyncMock(return_value=_catalog())),
+            patch.object(analysis_service.connection_service, "get_engine", AsyncMock(return_value=MagicMock())),
             patch.object(
-                chat_service.connection_service,
+                analysis_service.connection_service,
                 "get_schema_for_ai",
                 AsyncMock(return_value="Table: customers"),
             ),
             patch.object(
-                chat_service,
+                analysis_service,
                 "_run_agent_sync",
                 return_value={
                     "success": False,
@@ -142,16 +166,16 @@ def test_tools_mode_agent_failure_falls_back_and_preserves_trace(monkeypatch):
                 },
             ),
             patch.object(
-                chat_service,
+                analysis_service,
                 "_run_pipeline_sync",
                 return_value={"explanation": "pipeline answer", "sql": "SELECT 1"},
             ),
         ):
-            result = await chat_service._execute_chat_turn(
+            result = await analysis_service.run_analysis(
                 user_id="user-1",
                 connection_id="conn-1",
+                question="hello",
                 session_id="session-1",
-                message="hello",
                 schema_context=None,
                 history=[],
             )
@@ -170,25 +194,25 @@ def test_tools_mode_agent_exception_falls_back(monkeypatch):
 
     async def run():
         with (
-            patch.object(chat_service.connection_service, "get_catalog", AsyncMock(return_value=_catalog())),
-            patch.object(chat_service.connection_service, "get_engine", AsyncMock(return_value=MagicMock())),
+            patch.object(analysis_service.connection_service, "get_catalog", AsyncMock(return_value=_catalog())),
+            patch.object(analysis_service.connection_service, "get_engine", AsyncMock(return_value=MagicMock())),
             patch.object(
-                chat_service.connection_service,
+                analysis_service.connection_service,
                 "get_schema_for_ai",
                 AsyncMock(return_value="Table: customers"),
             ),
-            patch.object(chat_service, "_run_agent_sync", side_effect=RuntimeError("boom")),
+            patch.object(analysis_service, "_run_agent_sync", side_effect=RuntimeError("boom")),
             patch.object(
-                chat_service,
+                analysis_service,
                 "_run_pipeline_sync",
                 return_value={"explanation": "pipeline answer"},
             ),
         ):
-            result = await chat_service._execute_chat_turn(
+            result = await analysis_service.run_analysis(
                 user_id="user-1",
                 connection_id="conn-1",
+                question="hello",
                 session_id="session-1",
-                message="hello",
                 schema_context=None,
                 history=[],
             )
@@ -205,15 +229,15 @@ def test_pipeline_mode_loads_schema_and_sets_tier(monkeypatch):
 
     async def run():
         with patch.object(
-            chat_service,
+            analysis_service,
             "_run_pipeline_sync",
             return_value={"explanation": "pipeline answer"},
         ) as mock_pipeline:
-            result = await chat_service._execute_chat_turn(
+            result = await analysis_service.run_analysis(
                 user_id="user-1",
                 connection_id="conn-1",
+                question="hello",
                 session_id="session-1",
-                message="hello",
                 schema_context="Table: customers",
                 history=[],
             )
@@ -222,4 +246,3 @@ def test_pipeline_mode_loads_schema_and_sets_tier(monkeypatch):
         mock_pipeline.assert_called_once()
 
     asyncio.run(run())
-

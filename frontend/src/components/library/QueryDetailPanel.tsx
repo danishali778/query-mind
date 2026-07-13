@@ -372,7 +372,7 @@ export function QueryDetailPanel({ query, onClose, onDelete, onRefresh, initialT
                       <SettingsRow label="Window">
                         <select 
                           value={schedDraft.day_of_week ?? 'monday'} 
-                          onChange={e => setSchedDraft({ ...schedDraft, day_of_week: e.target.value as any })}
+                          onChange={e => setSchedDraft({ ...schedDraft, day_of_week: e.target.value })}
                           style={selectStyle}
                         >
                           {DAYS_OF_WEEK.map(d => <option key={d} value={d}>{d.toUpperCase()}</option>)}
@@ -418,7 +418,7 @@ export function QueryDetailPanel({ query, onClose, onDelete, onRefresh, initialT
                 <button 
                   onClick={async () => {
                     setSchedSaving(true);
-                    try { await setQuerySchedule(query.id, schedDraft); onRefresh?.(); } catch { }
+                    try { await setQuerySchedule(query.id, schedDraft); onRefresh?.(); } catch { /* Keep the editor open for retry. */ }
                     setSchedSaving(false);
                   }} 
                   disabled={schedSaving || !query.connection_id} 
@@ -433,7 +433,7 @@ export function QueryDetailPanel({ query, onClose, onDelete, onRefresh, initialT
                 {query.schedule && (
                   <button onClick={async () => {
                     setSchedSaving(true);
-                    try { await removeQuerySchedule(query.id); setSchedDraft(defaultSchedule()); onRefresh?.(); } catch { }
+                    try { await removeQuerySchedule(query.id); setSchedDraft(defaultSchedule()); onRefresh?.(); } catch { /* Keep the existing schedule on failure. */ }
                     setSchedSaving(false);
                   }} style={{
                     padding: '12px', border: '1px solid rgba(0,0,0,0.1)', background: '#fff', color: T.red,
