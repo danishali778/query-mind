@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import pytest
+import json
+from types import SimpleNamespace
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -12,6 +14,7 @@ from app.db.orm_models import DatabaseConnectionORM
 from app.db.repositories import semantic_repository as repository
 from app.query_engine.semantic_validation import validate_metric_expression, validate_structure
 from app.services.semantic_drift_service import revalidate_sync
+from app.agents.schema_context import semantic_suggester
 
 
 OWNER_ID = "11111111-1111-1111-1111-111111111111"
@@ -249,3 +252,92 @@ def test_schema_drift_keeps_compatible_definition_and_marks_broken_one_stale(cat
     assert definition.versions[0].status == "verified"
     assert definition.versions[0].validation_status == "stale"
     assert definition.versions[0].schema_hash == "schema-v3"
+
+
+def test_suggestion_runs_are_idempotent_owner_scoped_and_connection_serialized():
+    request_id = "33333333-3333-3333-3333-333333333333"
+    with db_session.session_scope() as session:
+        first, created = repository.create_suggestion_run_sync(
+            session,
+            owner_id=OWNER_ID,
+            connection_id=CONNECTION_ID,
+            client_request_id=request_id,
+            schema_hash="schema-v1",
+            requested_kinds=["metric"],
+            business_context="Finance reporting",
+        )
+        repeated, repeated_created = repository.create_suggestion_run_sync(
+            session,
+            owner_id=OWNER_ID,
+            connection_id=CONNECTION_ID,
+            client_request_id=request_id,
+            schema_hash="schema-v1",
+            requested_kinds=["metric"],
+            business_context="Finance reporting",
+        )
+        assert created is True
+        assert repeated_created is False
+        assert repeated.id == first.id
+        with pytest.raises(repository.SemanticSuggestionConflictError):
+            repository.create_suggestion_run_sync(
+                session,
+                owner_id=OWNER_ID,
+                connection_id=CONNECTION_ID,
+                client_request_id="44444444-4444-4444-4444-444444444444",
+                schema_hash="schema-v1",
+                requested_kinds=["dimension"],
+                business_context=None,
+            )
+
+    with db_session.read_session_scope() as session:
+        assert repository.get_suggestion_run_sync(
+            session, OTHER_OWNER_ID, CONNECTION_ID, first.id
+        ) is None
+    with db_session.session_scope() as session:
+        cancelled = repository.cancel_suggestion_run_sync(
+            session, OWNER_ID, CONNECTION_ID, first.id
+        )
+        assert cancelled.status == "cancelled"
+
+
+def test_suggestion_generator_returns_structurally_valid_typed_candidates_without_samples(
+    catalog, monkeypatch
+):
+    captured = {}
+
+    class FakeLlm:
+        def invoke(self, messages):
+            captured["prompt"] = messages[-1].content
+            return SimpleNamespace(
+                content=json.dumps(
+                    {
+                        "candidates": [
+                            {
+                                "kind": "metric",
+                                "key": "revenue",
+                                "display_name": "Revenue",
+                                "description": "Total order value",
+                                "payload": {
+                                    "kind": "metric",
+                                    "expression": "SUM(orders.total_amount)",
+                                    "tables": ["orders"],
+                                },
+                                "rationale": "A monetary order column is available.",
+                                "assumptions": [],
+                            }
+                        ]
+                    }
+                )
+            )
+
+    monkeypatch.setattr(semantic_suggester, "get_chat_llm", lambda **_kwargs: FakeLlm())
+    candidates = semantic_suggester.generate_semantic_candidates(
+        catalog=catalog,
+        requested_kinds=["metric"],
+        business_context="Finance reporting",
+        verified_definitions=[],
+        max_candidates=25,
+    )
+    assert candidates[0]["kind"] == "metric"
+    assert candidates[0]["structural_validation"]["valid"] is True
+    assert "sample_values" not in captured["prompt"]

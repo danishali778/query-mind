@@ -211,6 +211,26 @@ class SemanticValidationReport(BaseModel):
     validated_at: datetime
 
 
+class SemanticSuggestionRun(BaseModel):
+    id: str
+    owner_id: str
+    connection_id: str
+    client_request_id: str
+    schema_hash: str
+    requested_kinds: list[SemanticKind]
+    business_context: str | None = None
+    status: Literal["queued", "running", "completed", "failed", "cancelled"]
+    candidates_json: list[dict[str, Any]] = Field(default_factory=list)
+    celery_task_id: str | None = None
+    failure_code: str | None = None
+    failure_message: str | None = None
+    created_at: datetime | None = None
+    started_at: datetime | None = None
+    cancel_requested_at: datetime | None = None
+    finished_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 def validate_payload(kind: SemanticKind, payload: dict[str, Any]) -> dict[str, Any]:
     candidate = dict(payload)
     candidate.setdefault("kind", kind)
@@ -239,6 +259,7 @@ __all__ = [
     "SemanticLineageItem",
     "SemanticPayload",
     "SemanticValidationReport",
+    "SemanticSuggestionRun",
     "ValidationStatus",
     "normalize_key",
     "validate_payload",

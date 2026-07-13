@@ -10,7 +10,11 @@ from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from app.db.models.semantic import SemanticDefinition, SemanticDefinitionVersion
+from app.db.models.semantic import (
+    SemanticDefinition,
+    SemanticDefinitionVersion,
+    SemanticSuggestionRun,
+)
 from app.db.orm_models import (
     SemanticDefinitionORM,
     SemanticDefinitionUsageORM,
@@ -32,6 +36,10 @@ class SemanticNotFoundError(LookupError):
 
 
 class SemanticDefinitionInUseError(RuntimeError):
+    pass
+
+
+class SemanticSuggestionConflictError(RuntimeError):
     pass
 
 
@@ -74,6 +82,28 @@ def _map_definition(row: SemanticDefinitionORM) -> SemanticDefinition:
         key=row.key,
         versions=versions,
         created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _map_suggestion(row: SemanticSuggestionRunORM) -> SemanticSuggestionRun:
+    return SemanticSuggestionRun(
+        id=row.id,
+        owner_id=row.owner_id,
+        connection_id=row.connection_id,
+        client_request_id=row.client_request_id,
+        schema_hash=row.schema_hash,
+        requested_kinds=list(row.requested_kinds or []),
+        business_context=row.business_context,
+        status=row.status,
+        candidates_json=list(row.candidates_json or []),
+        celery_task_id=row.celery_task_id,
+        failure_code=row.failure_code,
+        failure_message=row.failure_message,
+        created_at=row.created_at,
+        started_at=row.started_at,
+        cancel_requested_at=row.cancel_requested_at,
+        finished_at=row.finished_at,
         updated_at=row.updated_at,
     )
 
@@ -551,6 +581,150 @@ def impact_sync(
         }
         for usage, version in rows
     ]
+
+
+def create_suggestion_run_sync(
+    session: Session,
+    *,
+    owner_id: str,
+    connection_id: str,
+    client_request_id: str,
+    schema_hash: str,
+    requested_kinds: list[str],
+    business_context: str | None,
+) -> tuple[SemanticSuggestionRun, bool]:
+    existing = session.query(SemanticSuggestionRunORM).filter(
+        SemanticSuggestionRunORM.owner_id == owner_id,
+        SemanticSuggestionRunORM.client_request_id == client_request_id,
+    ).one_or_none()
+    if existing:
+        return _map_suggestion(existing), False
+    active = session.query(SemanticSuggestionRunORM.id).filter(
+        SemanticSuggestionRunORM.owner_id == owner_id,
+        SemanticSuggestionRunORM.connection_id == connection_id,
+        SemanticSuggestionRunORM.status.in_(("queued", "running")),
+    ).first()
+    if active:
+        raise SemanticSuggestionConflictError(
+            "A semantic suggestion run is already active for this connection."
+        )
+    row = SemanticSuggestionRunORM(
+        id=str(uuid.uuid4()),
+        owner_id=owner_id,
+        connection_id=connection_id,
+        client_request_id=client_request_id,
+        schema_hash=schema_hash,
+        requested_kinds=requested_kinds,
+        business_context=business_context,
+        status="queued",
+        candidates_json=[],
+    )
+    session.add(row)
+    try:
+        session.flush()
+    except IntegrityError as exc:
+        raise SemanticSuggestionConflictError(
+            "A semantic suggestion run is already active."
+        ) from exc
+    return _map_suggestion(row), True
+
+
+def get_suggestion_run_sync(
+    session: Session, owner_id: str, connection_id: str, run_id: str
+) -> SemanticSuggestionRun | None:
+    row = session.query(SemanticSuggestionRunORM).filter(
+        SemanticSuggestionRunORM.id == run_id,
+        SemanticSuggestionRunORM.owner_id == owner_id,
+        SemanticSuggestionRunORM.connection_id == connection_id,
+    ).one_or_none()
+    return _map_suggestion(row) if row else None
+
+
+def get_suggestion_by_client_request_sync(
+    session: Session, owner_id: str, client_request_id: str
+) -> SemanticSuggestionRun | None:
+    row = session.query(SemanticSuggestionRunORM).filter(
+        SemanticSuggestionRunORM.owner_id == owner_id,
+        SemanticSuggestionRunORM.client_request_id == client_request_id,
+    ).one_or_none()
+    return _map_suggestion(row) if row else None
+
+
+def set_suggestion_task_id_sync(session: Session, run_id: str, task_id: str) -> None:
+    row = session.query(SemanticSuggestionRunORM).filter(
+        SemanticSuggestionRunORM.id == run_id
+    ).one_or_none()
+    if row and row.status == "queued":
+        row.celery_task_id = task_id
+        row.updated_at = _now()
+
+
+def claim_suggestion_run_sync(session: Session, run_id: str) -> SemanticSuggestionRun | None:
+    row = session.query(SemanticSuggestionRunORM).filter(
+        SemanticSuggestionRunORM.id == run_id
+    ).with_for_update().one_or_none()
+    if not row or row.status != "queued":
+        return None
+    now = _now()
+    row.status = "running"
+    row.started_at = now
+    row.updated_at = now
+    session.flush()
+    return _map_suggestion(row)
+
+
+def suggestion_cancel_requested_sync(session: Session, run_id: str) -> bool:
+    status = session.query(SemanticSuggestionRunORM.status).filter(
+        SemanticSuggestionRunORM.id == run_id
+    ).scalar()
+    return status == "cancelled"
+
+
+def cancel_suggestion_run_sync(
+    session: Session, owner_id: str, connection_id: str, run_id: str
+) -> SemanticSuggestionRun | None:
+    row = session.query(SemanticSuggestionRunORM).filter(
+        SemanticSuggestionRunORM.id == run_id,
+        SemanticSuggestionRunORM.owner_id == owner_id,
+        SemanticSuggestionRunORM.connection_id == connection_id,
+    ).with_for_update().one_or_none()
+    if not row:
+        return None
+    if row.status in {"completed", "failed", "cancelled"}:
+        return _map_suggestion(row)
+    now = _now()
+    row.status = "cancelled"
+    row.cancel_requested_at = now
+    row.finished_at = now
+    row.updated_at = now
+    session.flush()
+    return _map_suggestion(row)
+
+
+def finalize_suggestion_run_sync(
+    session: Session,
+    run_id: str,
+    *,
+    status: str,
+    candidates: list[dict[str, Any]] | None = None,
+    failure_code: str | None = None,
+    failure_message: str | None = None,
+) -> bool:
+    if status not in {"completed", "failed", "cancelled"}:
+        raise ValueError("Suggestion run final status must be terminal.")
+    row = session.query(SemanticSuggestionRunORM).filter(
+        SemanticSuggestionRunORM.id == run_id
+    ).with_for_update().one_or_none()
+    if not row or row.status in {"completed", "failed", "cancelled"}:
+        return False
+    now = _now()
+    row.status = status
+    row.candidates_json = list(candidates or [])
+    row.failure_code = failure_code
+    row.failure_message = failure_message
+    row.finished_at = now
+    row.updated_at = now
+    return True
 
 
 __all__ = [

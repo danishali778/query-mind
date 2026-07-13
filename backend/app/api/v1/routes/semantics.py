@@ -8,16 +8,19 @@ from app.api.deps import CurrentUserDep
 from app.api.v1.schemas.common import StatusMessageResponse
 from app.api.v1.schemas.semantics import (
     CreateSemanticDefinitionRequest,
+    CreateSemanticSuggestionRequest,
     CreateSemanticVersionRequest,
     SemanticDefinitionListResponse,
     SemanticDefinitionResponse,
     SemanticImpactItemResponse,
     SemanticSummaryResponse,
+    SemanticSuggestionRunResponse,
     UpdateSemanticDraftRequest,
     ValidateSemanticVersionRequest,
     VerifySemanticVersionRequest,
 )
 from app.services import semantic_service
+from app.services import semantic_suggestion_service
 
 
 router = APIRouter(
@@ -29,6 +32,36 @@ router = APIRouter(
 @router.get("/summary", response_model=SemanticSummaryResponse)
 async def get_semantic_summary(connection_id: str, current_user: CurrentUserDep):
     return await semantic_service.summary(current_user.id, connection_id)
+
+
+@router.post("/suggestions", response_model=SemanticSuggestionRunResponse, status_code=202)
+async def create_semantic_suggestions(
+    connection_id: str,
+    request: CreateSemanticSuggestionRequest,
+    current_user: CurrentUserDep,
+):
+    return await semantic_suggestion_service.start(
+        owner_id=current_user.id,
+        connection_id=connection_id,
+        client_request_id=request.client_request_id,
+        requested_kinds=request.requested_kinds,
+        business_context=request.business_context,
+    )
+
+
+@router.get("/suggestions/{run_id}", response_model=SemanticSuggestionRunResponse)
+async def get_semantic_suggestions(
+    connection_id: str, run_id: str, current_user: CurrentUserDep
+):
+    run = await semantic_suggestion_service.get(current_user.id, connection_id, run_id)
+    return semantic_suggestion_service.snapshot(run)
+
+
+@router.post("/suggestions/{run_id}/cancel", response_model=SemanticSuggestionRunResponse)
+async def cancel_semantic_suggestions(
+    connection_id: str, run_id: str, current_user: CurrentUserDep
+):
+    return await semantic_suggestion_service.cancel(current_user.id, connection_id, run_id)
 
 
 @router.get("/definitions", response_model=SemanticDefinitionListResponse)

@@ -18,6 +18,7 @@ celery_app = Celery(
         "app.workers.jobs.run_chat_agent",
         "app.workers.jobs.plan_dashboard",
         "app.workers.jobs.execute_dashboard_generation",
+        "app.workers.jobs.suggest_semantics",
     ],
 )
 
@@ -38,6 +39,7 @@ celery_app.conf.update(
         Queue(settings.celery_templates_queue),
         Queue(settings.celery_interactive_queue),
         Queue(settings.celery_dashboards_queue),
+        Queue(settings.celery_semantics_queue),
     ),
     beat_schedule={
         "dispatch-due-schedules": {
