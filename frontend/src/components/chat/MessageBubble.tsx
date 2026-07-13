@@ -29,6 +29,7 @@ export function MessageBubble({
   const [isSavingSql, setIsSavingSql] = useState(false);
   const [isPinning, setIsPinning] = useState(false);
   const [traceOpen, setTraceOpen] = useState(false);
+  const [definitionsOpen, setDefinitionsOpen] = useState(false);
 
   const { smartAddToDashboard, smartSaveToLibrary, isSaving: isSmartSaving } = useSmartSave();
 
@@ -167,6 +168,24 @@ export function MessageBubble({
                   {typeof step.retry_count === 'number' && step.retry_count > 0 && (
                     <div style={{ color: T.text3, marginTop: 2 }}>Retry: {step.retry_count}</div>
                   )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {message.semantic_lineage && message.semantic_lineage.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <button type="button" onClick={() => setDefinitionsOpen((open) => !open)} style={{ background: 'transparent', border: `1px solid ${T.border}`, color: T.text3, fontFamily: T.fontMono, fontSize: '0.62rem', letterSpacing: '0.08em', textTransform: 'uppercase', padding: '8px 12px', cursor: 'pointer' }}>
+            {definitionsOpen ? 'Hide' : 'Show'} definitions used ({message.semantic_lineage.length})
+          </button>
+          {definitionsOpen && (
+            <div style={{ marginTop: 8, border: `1px solid ${T.border}`, background: T.s1, padding: '10px 14px' }}>
+              {message.semantic_lineage.map((item) => (
+                <div key={`${item.version_id}-${item.usage_role}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '6px 0', borderBottom: `1px solid ${T.border}`, color: T.text2, fontSize: '0.7rem' }}>
+                  <span>{item.display_name} <span style={{ color: T.text3 }}>· {item.kind.replace('_', ' ')}</span></span>
+                  <span style={{ color: item.usage_role === 'policy_enforced' ? T.yellow : T.green, fontFamily: T.fontMono, fontSize: '0.6rem' }}>V{item.version} · {item.usage_role.replace('_', ' ')}</span>
                 </div>
               ))}
             </div>

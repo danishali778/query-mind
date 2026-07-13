@@ -44,6 +44,7 @@ function mapSessionMessages(data: SessionMessagesResponse): ChatMessageView[] {
     agent_run_status: message.agent_run_status || undefined,
     agent_run_stage: message.agent_run_stage || undefined,
     agent_run_stage_label: message.agent_run_stage_label || undefined,
+    semantic_lineage: message.semantic_lineage || undefined,
   }));
 }
 
@@ -65,6 +66,7 @@ function applyCompletedResponse(message: ChatMessageView, response: ChatResponse
     prev_query_id: response.prev_query_id || undefined,
     agent_trace: response.agent_trace || undefined,
     agent_tier: response.agent_tier || undefined,
+    semantic_lineage: response.semantic_lineage || undefined,
     agent_run_status: 'completed',
     agent_run_stage: 'completed',
     agent_run_stage_label: 'Answer ready',
@@ -450,6 +452,7 @@ export function ChatPage() {
         prev_query_id: r.prev_query_id || undefined,
         agent_trace: r.agent_trace || undefined,
         agent_tier: r.agent_tier || undefined,
+        semantic_lineage: r.semantic_lineage || undefined,
       };
       setMessages(prev => {
         const updated = [...prev];

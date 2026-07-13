@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { RefreshCw, Edit3, Share2, Trash2, Database, Shield, Activity, Layout, Terminal } from 'lucide-react';
+import { RefreshCw, Edit3, Share2, Trash2, Database, Shield, Activity, Layout, Terminal, BookOpen } from 'lucide-react';
 import { T } from '../dashboard/tokens';
 import type { ConnectionListItem, ConnectionDetailProps, ConnectionDetailTab, LoadState } from '../../types/connections';
 import type { QueryRecord, SchemaResponse, SchemaTable, SchemaColumn } from '../../types/api';
 import { ErdDiagram } from './ErdDiagram';
 import { updateConnectionSettings, testSavedConnection } from '../../services/api';
+import { SemanticsWorkspace } from './SemanticsWorkspace';
 
 interface UiColumnSchema {
   name: string;
@@ -90,6 +91,7 @@ export function ConnectionDetail({ connection, schema, schemaState = 'idle', sch
         <Tab active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} label="OVERVIEW" icon={<Layout size={12} />} />
         <Tab active={activeTab === 'credentials'} onClick={() => setActiveTab('credentials')} label="CREDENTIALS" icon={<Shield size={12} />} />
         <Tab active={activeTab === 'schema'} onClick={() => setActiveTab('schema')} label="SCHEMA" icon={<Database size={12} />} />
+        <Tab active={activeTab === 'semantics'} onClick={() => setActiveTab('semantics')} label="SEMANTICS" icon={<BookOpen size={12} />} />
         <Tab active={activeTab === 'security'} onClick={() => setActiveTab('security')} label="SECURITY" icon={<Terminal size={12} />} />
         <Tab active={activeTab === 'activity'} onClick={() => setActiveTab('activity')} label="ACTIVITY LOG" icon={<Activity size={12} />} />
       </div>
@@ -98,6 +100,7 @@ export function ConnectionDetail({ connection, schema, schemaState = 'idle', sch
         {activeTab === 'overview' && <OverviewTab connection={connection} schema={schema ?? null} schemaState={schemaState} queryHistory={queryHistory || []} onTabSwitch={setActiveTab} />}
         {activeTab === 'credentials' && <CredentialsTab connection={connection} onConnectionUpdated={onConnectionUpdated} />}
         {activeTab === 'schema' && <SchemaTab schema={schema ?? null} state={schemaState} error={schemaError} onRefresh={onRefreshSchema} />}
+        {activeTab === 'semantics' && <SemanticsWorkspace connectionId={connection.id} schema={schema ?? null} />}
         {activeTab === 'security' && <SecurityTab />}
         {activeTab === 'activity' && <ActivityTab queryHistory={queryHistory || []} state={queryHistoryState} error={queryHistoryError} />}
       </div>

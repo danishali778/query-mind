@@ -46,4 +46,4 @@ export type ConnectionApiRecord = DatabaseConnection;
 
 export type ConnectionDetailProps = ConnectionDetailData;
 
-export type ConnectionDetailTab = 'overview' | 'credentials' | 'schema' | 'security' | 'activity';
+export type ConnectionDetailTab = 'overview' | 'credentials' | 'schema' | 'semantics' | 'security' | 'activity';
