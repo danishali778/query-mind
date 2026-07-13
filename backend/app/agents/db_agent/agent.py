@@ -21,16 +21,24 @@ from app.agents.db_agent.tools import ToolContext, build_tools
 from app.agents.db_agent.trace import TraceRecorder, log_agent_event
 from app.agents.schema_context.semantics import render_semantics_prompt, resolve_semantics
 from app.agents.schema_context.types import SchemaCatalog
+from app.agents.schema_context.user_semantics import (
+    SemanticContext,
+    apply_semantic_catalog_overlay,
+    render_untrusted_semantic_context,
+)
 from app.core.config import settings
 from app.integrations.llm_client import get_chat_llm_with_tools
 from app.query_engine.results import QueryExecutionResult
 from app.query_engine.safety import validate_query
+from app.query_engine.semantic_policy import validate_ai_semantic_policy
 from app.services.query_execution_service import execute_query
 
 logger = logging.getLogger("query-mind.db_agent")
 
 _PROMPT_PATH = Path(__file__).with_name("prompts") / "agent_system_prompt.md"
-_PROPOSAL_KEYS = "analysis_summary, relevant_tables, relevant_columns, sql, column_metadata, assumptions"
+_PROPOSAL_KEYS = (
+    "analysis_summary, relevant_tables, relevant_columns, sql, column_metadata, assumptions, semantic_refs"
+)
 _VALIDATION_REPAIR_LIMIT = 1
 _EXECUTION_REPAIR_LIMIT = 2
 
@@ -55,6 +63,7 @@ class AgentRunResult:
     tool_calls: int = 0
     wall_ms: float = 0.0
     fallback_reason: str | None = None
+    semantic_lineage: list[dict] = field(default_factory=list)
 
     def as_chat_dict(self) -> dict:
         return {
@@ -76,6 +85,7 @@ class AgentRunResult:
             "tool_calls": self.tool_calls,
             "wall_ms": self.wall_ms,
             "fallback_reason": self.fallback_reason,
+            "semantic_lineage": self.semantic_lineage,
         }
 
 
@@ -88,15 +98,23 @@ class AgentState(TypedDict):
     finish_error: str | None
 
 
-def _build_system_prompt(catalog: SchemaCatalog, question: str) -> str:
+def _build_system_prompt(catalog: SchemaCatalog) -> str:
     base = load_prompt(str(_PROMPT_PATH))
-    semantics = resolve_semantics(question, catalog)
-    semantics_block = render_semantics_prompt(semantics)
     dialect = f"DATABASE DIALECT\n{catalog.db_type}\n"
-    parts = [base.strip(), dialect]
-    if semantics_block:
-        parts.append(semantics_block)
-    return "\n\n".join(parts)
+    return "\n\n".join([base.strip(), dialect])
+
+
+def _build_context_messages(
+    catalog: SchemaCatalog, question: str, semantic_context: SemanticContext
+) -> list[BaseMessage]:
+    messages: list[BaseMessage] = []
+    built_in = render_semantics_prompt(resolve_semantics(question, catalog))
+    if built_in:
+        messages.append(HumanMessage(content=f"QUERYMIND DEFAULT SEMANTIC CONTEXT\n{built_in}"))
+    user_context = render_untrusted_semantic_context(semantic_context)
+    if user_context:
+        messages.append(HumanMessage(content=user_context))
+    return messages
 
 
 def _get_llm(tools):
@@ -152,13 +170,17 @@ def _classify_execution_error(error: str) -> str:
 def _finalize_execution(
     ctx: ToolContext,
     proposal: AnalystProposal,
+    semantic_context: SemanticContext,
     progress=None,
-) -> tuple[QueryExecutionResult | None, str | None, str | None]:
+) -> tuple[QueryExecutionResult | None, str | None, str | None, list[str]]:
     if not proposal.sql:
-        return None, "Agent did not propose SQL for this analytical question.", "validation"
+        return None, "Agent did not propose SQL for this analytical question.", "validation", []
     is_safe, reason = validate_query(proposal.sql)
     if not is_safe:
-        return None, reason or "Final SQL failed validation.", "validation"
+        return None, reason or "Final SQL failed validation.", "validation", []
+    semantic_policy = validate_ai_semantic_policy(proposal.sql, semantic_context)
+    if not semantic_policy.allowed:
+        return None, semantic_policy.reason or "SQL violated semantic policy.", "validation", []
 
     if progress:
         progress.stage_completed("sql_validation", "Read-only safety checks passed")
@@ -175,10 +197,10 @@ def _finalize_execution(
         cancellation_token=ctx.cancellation_token,
     )
     if not result.success:
-        return None, result.error or "Final SQL execution failed.", "execution"
+        return None, result.error or "Final SQL execution failed.", "execution", []
     if progress:
         progress.stage_completed("query_execution", f"Query returned {result.row_count} rows", row_count=result.row_count)
-    return result, None, None
+    return result, None, None, semantic_policy.enforced_references
 
 
 def build_agent_graph(
@@ -398,6 +420,7 @@ def _result_from_success(
     trace: TraceRecorder,
     budget: BudgetGuard,
     wall_ms: float,
+    semantic_lineage: list[dict],
 ) -> AgentRunResult:
     return AgentRunResult(
         success=True,
@@ -416,6 +439,7 @@ def _result_from_success(
         trace=trace.to_list(),
         tool_calls=budget.call_count,
         wall_ms=wall_ms,
+        semantic_lineage=semantic_lineage,
     )
 
 
@@ -430,8 +454,11 @@ def run_agent(
     invalidate_catalog=None,
     rebuild_catalog=None,
     progress=None,
+    semantic_context: SemanticContext | None = None,
 ) -> AgentRunResult:
     started = time.monotonic()
+    semantic_context = semantic_context or SemanticContext(schema_hash=catalog.schema_hash)
+    catalog = apply_semantic_catalog_overlay(catalog, semantic_context)
     trace = TraceRecorder(on_step=progress.tool_completed if progress else None)
     ctx = ToolContext(
         user_id=user_id,
@@ -458,7 +485,8 @@ def run_agent(
         llm = _get_llm(tools)
         agent_graph = build_agent_graph(llm, tool_map, budget, ctx, trace, progress)
 
-        messages: list[BaseMessage] = [SystemMessage(content=_build_system_prompt(catalog, question))]
+        messages: list[BaseMessage] = [SystemMessage(content=_build_system_prompt(catalog))]
+        messages.extend(_build_context_messages(catalog, question, semantic_context))
         if history:
             for msg in history[-10:]:
                 if msg["role"] == "user":
@@ -493,6 +521,20 @@ def run_agent(
                 fallback_reason=finish_error or "no_valid_proposal",
             )
 
+        try:
+            applied_lineage = semantic_context.lineage_for_references(proposal.semantic_refs)
+        except ValueError as exc:
+            wall_ms = round((time.monotonic() - started) * 1000, 2)
+            return AgentRunResult(
+                success=False,
+                explanation="The agent returned an invalid semantic reference.",
+                error=str(exc),
+                trace=trace.to_list(),
+                tool_calls=budget.call_count,
+                wall_ms=wall_ms,
+                fallback_reason="unknown_semantic_reference",
+            )
+
         validation_repairs = 0
         execution_repairs = 0
         repair_messages = final_state["messages"]
@@ -502,7 +544,9 @@ def run_agent(
         while True:
             if progress:
                 progress.stage_started("sql_validation", "Validating generated SQL")
-            execution, exec_error, stage = _finalize_execution(ctx, proposal, progress)
+            execution, exec_error, stage, policy_refs = _finalize_execution(
+                ctx, proposal, semantic_context, progress
+            )
             if progress:
                 progress.check_cancelled()
             if execution is not None and exec_error is None:
@@ -513,7 +557,17 @@ def run_agent(
                     wall_ms,
                     execution.row_count,
                 )
-                return _result_from_success(proposal, execution, trace, budget, wall_ms)
+                policy_lineage = semantic_context.lineage_for_references(
+                    policy_refs, usage_role="policy_enforced"
+                )
+                return _result_from_success(
+                    proposal,
+                    execution,
+                    trace,
+                    budget,
+                    wall_ms,
+                    [*applied_lineage, *policy_lineage],
+                )
 
             last_error = exec_error or "SQL proposal failed."
             last_stage = stage or "execution"
@@ -584,6 +638,18 @@ def run_agent(
                     fallback_reason=f"{last_stage}_repair_failed",
                 )
             proposal = repair_state["proposal"]
+            try:
+                applied_lineage = semantic_context.lineage_for_references(proposal.semantic_refs)
+            except ValueError:
+                return AgentRunResult(
+                    success=False,
+                    explanation="The repaired proposal used an unknown semantic reference.",
+                    error="Unknown semantic reference.",
+                    trace=trace.to_list(),
+                    tool_calls=budget.call_count,
+                    wall_ms=round((time.monotonic() - started) * 1000, 2),
+                    fallback_reason="unknown_semantic_reference",
+                )
             repair_messages = repair_state["messages"]
     except Exception as exc:
         if exc.__class__.__name__ == "AgentRunCancelled":

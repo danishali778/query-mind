@@ -103,6 +103,7 @@ class ChatResponse(BaseModel):
     agent_run_status: Optional[str] = None
     agent_run_stage: Optional[str] = None
     agent_run_stage_label: Optional[str] = None
+    semantic_lineage: list[dict] = Field(default_factory=list)
 
 
 class ChatMessage(BaseModel):
@@ -123,6 +124,7 @@ class ChatMessage(BaseModel):
     prev_query_id: Optional[str] = None
     agent_trace: Optional[list] = None
     agent_tier: Optional[str] = None
+    semantic_lineage: list[dict] = Field(default_factory=list)
     created_at: str
 
 

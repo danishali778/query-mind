@@ -14,6 +14,7 @@ from app.agents.nl_to_sql.graph import run_chat
 from app.agents.visualization.generator import generate_visualization_blueprint
 from app.core.config import settings
 from app.services import connection_service
+from app.services import semantic_context_service
 from app.services.schema_command_service import handle_schema_or_control_command
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,7 @@ def _run_agent_sync(
     catalog,
     engine,
     progress=None,
+    semantic_context=None,
 ) -> dict:
     from app.agents.schema_context.catalog import build_catalog
     from app.db.repositories import schema_snapshot_repository
@@ -85,6 +87,7 @@ def _run_agent_sync(
         invalidate_catalog=invalidate_sync,
         rebuild_catalog=rebuild_sync,
         progress=progress,
+        semantic_context=semantic_context,
     )
     return agent_result.as_chat_dict()
 
@@ -179,6 +182,9 @@ async def run_analysis(
 
             engine = await connection_service.get_engine(user_id, connection_id)
             if catalog and engine:
+                semantic_context = await semantic_context_service.load_context(
+                    user_id, connection_id, catalog, message
+                )
                 try:
                     agent_out = await anyio.to_thread.run_sync(
                         functools.partial(
@@ -190,6 +196,7 @@ async def run_analysis(
                             catalog,
                             engine,
                             progress,
+                            semantic_context,
                         )
                     )
                 except Exception:
@@ -232,6 +239,7 @@ async def run_analysis(
                                 "tool_calls": agent_out.get("tool_calls", 0),
                                 "wall_ms": agent_out.get("wall_ms", 0.0),
                                 "assumptions": [],
+                                "semantic_lineage": agent_out.get("semantic_lineage", []),
                             },
                             requested_visualization=requested_visualization,
                         )

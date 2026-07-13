@@ -301,6 +301,25 @@ def finalize_run(
             for key, value in message_updates.items():
                 if hasattr(message_row, key):
                     setattr(message_row, key, value)
+            semantic_lineage = message_updates.get("semantic_lineage") or []
+            if semantic_lineage:
+                from app.db.repositories import semantic_repository
+
+                for usage_role in ("applied", "policy_enforced"):
+                    semantic_repository.record_usages_sync(
+                        session,
+                        owner_id=row.owner_id,
+                        connection_id=row.connection_id,
+                        version_ids=[
+                            item.get("version_id")
+                            for item in semantic_lineage
+                            if item.get("usage_role", "applied") == usage_role
+                            and item.get("version_id")
+                        ],
+                        consumer_type="chat_message",
+                        consumer_id=message_row.id,
+                        usage_role=usage_role,
+                    )
         return True
 
 

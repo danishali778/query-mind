@@ -151,6 +151,7 @@ async def send_message(
         parent_id=user_msg.id,
         agent_trace=result.get("trace"),
         agent_tier=result.get("tier"),
+        semantic_lineage=result.get("semantic_lineage", []),
     )
     assistant_msg_id = assistant_msg.id
     try:
@@ -179,6 +180,7 @@ async def send_message(
         "prev_query_id": prev_query_id,
         "agent_trace": result.get("trace"),
         "agent_tier": result.get("tier"),
+        "semantic_lineage": result.get("semantic_lineage", []),
     }
 
 

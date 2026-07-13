@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.db.models.chat import ChatMessage, ChatSession, SessionSummary
 from app.db.orm_models import ChatAgentRunORM, ChatMessageORM, ChatSessionORM
 from app.db.session import read_session_scope, session_scope
+from app.db.repositories import semantic_repository
 
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ def _map_message(row: ChatMessageORM, run: ChatAgentRunORM | None = None) -> Cha
         agent_run_status=run.status if run else None,
         agent_run_stage=run.current_stage if run else None,
         agent_run_stage_label=run.current_stage_label if run else None,
+        semantic_lineage=row.semantic_lineage or [],
         created_at=_iso(row.created_at),
     )
 
@@ -81,6 +83,26 @@ def _create_session_sync(session: Session, user_id: str, connection_id: str | No
     return _map_session(row)
 
 
+def _record_semantic_message_usages(
+    session: Session, user_id: str, message: ChatMessage
+) -> None:
+    if not message.connection_id or not message.semantic_lineage:
+        return
+    for usage_role in ("applied", "policy_enforced"):
+        version_ids = [
+            item.get("version_id")
+            for item in message.semantic_lineage
+            if item.get("usage_role", "applied") == usage_role and item.get("version_id")
+        ]
+        semantic_repository.record_usages_sync(
+            session,
+            owner_id=user_id,
+            connection_id=message.connection_id,
+            version_ids=version_ids,
+            consumer_type="chat_message",
+            consumer_id=message.id,
+            usage_role=usage_role,
+        )
 async def get_session(user_id: str, session_id: str) -> Optional[ChatSession]:
     def _run() -> Optional[ChatSession]:
         with read_session_scope() as session:
@@ -265,8 +287,10 @@ def _add_message_sync(session: Session, user_id: str, session_id: str, message: 
         agent_trace=message.agent_trace,
         agent_tier=message.agent_tier,
         agent_run_id=message.agent_run_id,
+        semantic_lineage=message.semantic_lineage or [],
     )
     session.add(row)
+    _record_semantic_message_usages(session, user_id, message)
 
 
 async def update_message(user_id: str, session_id: str, message_id: str, updates: dict) -> bool:

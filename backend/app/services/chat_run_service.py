@@ -100,6 +100,7 @@ def _chat_response(run, message, user_message=None) -> dict | None:
         "prev_query_id": user_message.prev_query_id if user_message else None,
         "agent_trace": message.agent_trace,
         "agent_tier": message.agent_tier,
+        "semantic_lineage": message.semantic_lineage,
     }
 
 
