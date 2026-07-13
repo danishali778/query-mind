@@ -19,6 +19,7 @@ celery_app = Celery(
         "app.workers.jobs.plan_dashboard",
         "app.workers.jobs.execute_dashboard_generation",
         "app.workers.jobs.suggest_semantics",
+        "app.workers.jobs.generate_question_suggestions",
     ],
 )
 
@@ -40,6 +41,7 @@ celery_app.conf.update(
         Queue(settings.celery_interactive_queue),
         Queue(settings.celery_dashboards_queue),
         Queue(settings.celery_semantics_queue),
+        Queue(settings.celery_suggestions_queue),
     ),
     beat_schedule={
         "dispatch-due-schedules": {
@@ -54,6 +56,11 @@ celery_app.conf.update(
         },
         "recover-stale-dashboard-runs": {
             "task": "app.workers.tasks.recover_stale_dashboard_runs",
+            "schedule": crontab(),
+            "options": {"queue": settings.celery_default_queue},
+        },
+        "recover-stale-question-suggestions": {
+            "task": "app.workers.tasks.recover_stale_question_suggestions",
             "schedule": crontab(),
             "options": {"queue": settings.celery_default_queue},
         },

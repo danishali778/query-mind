@@ -10,6 +10,7 @@ from app.api.v1.routes import (
     query,
     query_history,
     query_library,
+    question_suggestions,
     settings,
     semantics,
     webhooks,
@@ -24,6 +25,7 @@ api_router.include_router(query.router)
 api_router.include_router(chat.router)
 api_router.include_router(query_history.router)
 api_router.include_router(query_library.router)
+api_router.include_router(question_suggestions.router)
 api_router.include_router(dashboards.router)
 api_router.include_router(dashboard_generations.router)
 api_router.include_router(analytics.router)

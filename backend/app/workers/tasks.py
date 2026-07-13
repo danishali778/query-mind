@@ -170,3 +170,17 @@ def recover_stale_dashboard_runs() -> dict[str, int]:
         )
     )
     return {"failed_stale_dashboard_runs": count}
+
+
+@celery_app.task(
+    name="app.workers.tasks.recover_stale_question_suggestions",
+    queue=settings.celery_default_queue,
+)
+def recover_stale_question_suggestions() -> dict[str, int]:
+    from app.db.repositories import question_suggestion_repository
+
+    with session_scope() as session:
+        count = question_suggestion_repository.fail_stale_sync(
+            session, settings.question_suggestions_stale_run_seconds
+        )
+    return {"failed_stale_question_suggestion_sets": count}
