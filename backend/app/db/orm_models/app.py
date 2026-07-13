@@ -758,6 +758,66 @@ class SemanticSuggestionRunORM(Base):
     )
 
 
+class QuestionSuggestionSetORM(Base):
+    __tablename__ = "question_suggestion_sets"
+
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    owner_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    connection_id: Mapped[str] = mapped_column(
+        GUID(), ForeignKey("database_connections.id", ondelete="CASCADE"), nullable=False
+    )
+    schema_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    semantic_fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    context_fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    semantic_version_ids: Mapped[list] = mapped_column(
+        JsonType, nullable=False, default=list, server_default=text("'[]'")
+    )
+    generation_revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default=text("1")
+    )
+    status: Mapped[str] = mapped_column(
+        Text, nullable=False, default="queued", server_default=text("'queued'")
+    )
+    suggestions_json: Mapped[dict] = mapped_column(
+        JsonType, nullable=False, default=dict, server_default=text("'{}'")
+    )
+    dismissed_ids: Mapped[list] = mapped_column(
+        JsonType, nullable=False, default=list, server_default=text("'[]'")
+    )
+    client_request_id: Mapped[str | None] = mapped_column(GUID())
+    celery_task_id: Mapped[str | None] = mapped_column(Text)
+    failure_code: Mapped[str | None] = mapped_column(Text)
+    failure_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow,
+        server_default=func.now(), nullable=False
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'running', 'ready', 'failed')",
+            name="question_suggestion_sets_status_valid",
+        ),
+        CheckConstraint(
+            "generation_revision >= 1",
+            name="question_suggestion_sets_revision_positive",
+        ),
+        UniqueConstraint(
+            "owner_id", "connection_id",
+            name="uq_question_suggestion_sets_owner_connection",
+        ),
+        Index(
+            "idx_question_suggestion_sets_status_updated",
+            "status", desc("updated_at"),
+        ),
+    )
+
+
 class UserSettingsORM(Base):
     __tablename__ = "user_settings"
 
@@ -821,6 +881,7 @@ __all__ = [
     "SemanticDefinitionVersionORM",
     "SemanticDefinitionUsageORM",
     "SemanticSuggestionRunORM",
+    "QuestionSuggestionSetORM",
     "UserSettingsORM",
     "UserSubscriptionORM",
 ]
