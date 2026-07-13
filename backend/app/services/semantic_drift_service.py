@@ -12,14 +12,17 @@ from app.db.session import session_scope
 from app.query_engine.semantic_validation import validate_structure
 
 
-def revalidate_sync(owner_id: str, connection_id: str, catalog) -> dict[str, int]:
+def revalidate_sync(
+    owner_id: str,
+    connection_id: str,
+    catalog,
+    stale_reason_code: str | None = None,
+) -> dict[str, int]:
     if not settings.semantic_layer_enabled:
         return {"valid": 0, "stale": 0}
     counts = {"valid": 0, "stale": 0}
     with session_scope() as session:
-        rows = semantic_repository.list_active_verified_sync(session, owner_id, connection_id)
-        # list_active_verified_sync intentionally excludes already-stale rows. Those
-        # remain historical until an owner creates a corrected version.
+        rows = semantic_repository.list_verified_for_revalidation_sync(session, owner_id, connection_id)
         for definition, version in rows:
             structural = validate_structure(definition.kind, dict(version.payload or {}), catalog)
             status = "stale" if structural.errors else "valid"
@@ -32,6 +35,10 @@ def revalidate_sync(owner_id: str, connection_id: str, catalog) -> dict[str, int
                 "normalized_payload": structural.normalized_payload,
                 "schema_drift_revalidated_at": datetime.now(timezone.utc).isoformat(),
             }
+            if structural.errors and stale_reason_code:
+                report["stale_reason_code"] = stale_reason_code
+            elif not structural.errors:
+                report.pop("stale_reason_code", None)
             semantic_repository.update_verified_validation_sync(
                 session,
                 owner_id=owner_id,
@@ -45,8 +52,15 @@ def revalidate_sync(owner_id: str, connection_id: str, catalog) -> dict[str, int
     return counts
 
 
-async def revalidate(owner_id: str, connection_id: str, catalog) -> dict[str, int]:
-    return await anyio.to_thread.run_sync(revalidate_sync, owner_id, connection_id, catalog)
+async def revalidate(
+    owner_id: str,
+    connection_id: str,
+    catalog,
+    stale_reason_code: str | None = None,
+) -> dict[str, int]:
+    return await anyio.to_thread.run_sync(
+        revalidate_sync, owner_id, connection_id, catalog, stale_reason_code
+    )
 
 
 __all__ = ["revalidate", "revalidate_sync"]

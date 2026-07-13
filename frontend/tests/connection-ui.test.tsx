@@ -6,6 +6,7 @@ import { ConnectionListPanel } from '../src/components/connections/ConnectionLis
 import { ConnectionDetail } from '../src/components/connections/ConnectionDetail';
 import { DisconnectConnectionModal } from '../src/components/connections/DisconnectConnectionModal';
 import { ConnectionsPage } from '../src/pages/ConnectionsPage';
+import { NewConnectionWizard } from '../src/components/connections/NewConnectionWizard';
 import type { DatabaseConnection, SchemaResponse } from '../src/types/api';
 import type { ConnectionListItem } from '../src/types/connections';
 
@@ -16,6 +17,14 @@ const apiMocks = vi.hoisted(() => ({
   getQueryHistory: vi.fn(),
   updateConnectionSettings: vi.fn(),
   testSavedConnection: vi.fn(),
+  connectDatabase: vi.fn(),
+  testConnection: vi.fn(),
+  rotateConnectionCredentials: vi.fn(),
+  discoverConnectionScope: vi.fn(),
+  previewConnectionScope: vi.fn(),
+  updateConnectionScope: vi.fn(),
+  updateConnectionAutomation: vi.fn(),
+  getConnectionHealth: vi.fn(),
 }));
 
 vi.mock('../src/services/api', () => apiMocks);
@@ -57,6 +66,18 @@ const connectionItem: ConnectionListItem = {
   database: 'warehouse',
   username: 'reader',
   last_status: 'healthy',
+  credential_revision: 1,
+  has_ssl_root_certificate: false,
+  has_ssl_client_certificate: false,
+  has_ssl_client_private_key: false,
+  scope_mode: 'all',
+  included_schemas: [],
+  included_tables: [],
+  scope_revision: 1,
+  health_check_enabled: false,
+  health_check_interval_minutes: 60,
+  schema_refresh_enabled: false,
+  schema_refresh_interval_hours: 24,
 };
 
 const apiConnection: DatabaseConnection = {
@@ -72,6 +93,18 @@ const apiConnection: DatabaseConnection = {
   tables_count: 0,
   latency_ms: 24,
   last_status: 'healthy',
+  credential_revision: 1,
+  has_ssl_root_certificate: false,
+  has_ssl_client_certificate: false,
+  has_ssl_client_private_key: false,
+  scope_mode: 'all',
+  included_schemas: [],
+  included_tables: [],
+  scope_revision: 1,
+  health_check_enabled: false,
+  health_check_interval_minutes: 60,
+  schema_refresh_enabled: false,
+  schema_refresh_interval_hours: 24,
 };
 
 const schema: SchemaResponse = {
@@ -183,6 +216,39 @@ describe('disconnect confirmation', () => {
 
     await user.click(screen.getByRole('button', { name: 'CONFIRM DISCONNECT' }));
     expect(confirm).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('guided connection wizard', () => {
+  it('requires current live diagnostics before saving', async () => {
+    const user = userEvent.setup();
+    apiMocks.testConnection.mockResolvedValue({
+      success: true,
+      message: 'Connection successful',
+      code: 'connection_healthy',
+      category: 'success',
+      checks: [{ code: 'database', status: 'passed', label: 'Database authenticated' }],
+      suggestions: [], warnings: [], inventory: [{ name: 'public', tables: ['orders'] }],
+      inventory_truncated: false, tables_found: 1, latency_ms: 12,
+    });
+    apiMocks.connectDatabase.mockResolvedValue(apiConnection);
+    const saved = vi.fn();
+    render(<NewConnectionWizard isOpen onClose={vi.fn()} onSaved={saved} />);
+
+    await user.click(screen.getByRole('button', { name: /NEXT/ }));
+    await user.click(screen.getByRole('button', { name: /NEXT/ }));
+    expect(screen.getByRole('button', { name: /NEXT/ })).toBeDisabled();
+
+    await user.click(screen.getByRole('button', { name: 'RUN CONNECTION TEST' }));
+    expect(await screen.findByText('Connection successful')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /NEXT/ }));
+    await user.click(screen.getByRole('button', { name: 'SAVE CONNECTION' }));
+
+    await waitFor(() => expect(apiMocks.connectDatabase).toHaveBeenCalledTimes(1));
+    expect(saved).toHaveBeenCalledTimes(1);
+    expect(apiMocks.connectDatabase.mock.calls[0][0]).toMatchObject({
+      input_mode: 'fields', scope_mode: 'all', included_schemas: [], included_tables: [],
+    });
   });
 });
 

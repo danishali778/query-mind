@@ -435,6 +435,27 @@ def list_active_verified_sync(
     )
 
 
+def list_verified_for_revalidation_sync(
+    session: Session, owner_id: str, connection_id: str
+) -> list[tuple[SemanticDefinitionORM, SemanticDefinitionVersionORM]]:
+    """Include stale verified versions so compatible schema/scope changes can recover them."""
+    return (
+        session.query(SemanticDefinitionORM, SemanticDefinitionVersionORM)
+        .join(
+            SemanticDefinitionVersionORM,
+            SemanticDefinitionVersionORM.definition_id == SemanticDefinitionORM.id,
+        )
+        .filter(
+            SemanticDefinitionORM.owner_id == owner_id,
+            SemanticDefinitionORM.connection_id == connection_id,
+            SemanticDefinitionVersionORM.status == "verified",
+            SemanticDefinitionVersionORM.validation_status.in_(("valid", "stale")),
+        )
+        .order_by(SemanticDefinitionORM.kind, SemanticDefinitionORM.key)
+        .all()
+    )
+
+
 def update_verified_validation_sync(
     session: Session,
     *,
@@ -804,6 +825,7 @@ __all__ = [
     "get_summary_sync",
     "impact_sync",
     "list_active_verified_sync",
+    "list_verified_for_revalidation_sync",
     "list_definitions_sync",
     "record_usages_sync",
     "save_validation_sync",

@@ -121,15 +121,54 @@ def _get_row_estimates(engine: Engine) -> dict[str, int]:
     return estimates
 
 
-def get_schema(engine: Engine) -> list[TableInfo]:
+def _canonical_table(schema_name: str | None, table_name: str) -> str:
+    return f"{schema_name or 'public'}.{table_name}"
+
+
+def discover_schema_inventory(engine: Engine, max_objects: int = 5000) -> tuple[list[dict], bool]:
+    """Return name-only user schema inventory; never inspect columns or values."""
+    inspector = inspect(engine)
+    inventory: list[dict] = []
+    count = 0
+    truncated = False
+    for schema_name in _get_user_schema_names(inspector):
+        display_schema = schema_name or "public"
+        names: list[str] = []
+        for table_name in inspector.get_table_names(schema=schema_name):
+            if count >= max_objects:
+                truncated = True
+                break
+            names.append(table_name)
+            count += 1
+        inventory.append({"name": display_schema, "tables": names})
+        if truncated:
+            break
+    return inventory, truncated
+
+
+def get_schema(
+    engine: Engine,
+    *,
+    scope_mode: str = "all",
+    included_schemas: list[str] | None = None,
+    included_tables: list[str] | None = None,
+) -> list[TableInfo]:
     """Discover full schema: tables, columns, PKs, FKs, and approximate row counts."""
     inspector = inspect(engine)
     tables: list[TableInfo] = []
     row_estimates = _get_row_estimates(engine)
     excluded = _excluded_schemas()
 
+    allowed_schemas = {item.casefold() for item in (included_schemas or [])}
+    allowed_tables = {item.casefold() for item in (included_tables or [])}
     for schema_name in _get_user_schema_names(inspector):
         for table_name in inspector.get_table_names(schema=schema_name):
+            canonical = _canonical_table(schema_name, table_name)
+            if scope_mode == "allowlist" and not (
+                (schema_name or "public").casefold() in allowed_schemas
+                or canonical.casefold() in allowed_tables
+            ):
+                continue
             display_name = _display_table_name(schema_name, table_name)
             pk_columns: set[str] = set()
             try:
@@ -258,6 +297,7 @@ def generate_erd_json(schema: list[TableInfo]) -> dict:
 __all__ = [
     "get_table_names",
     "get_schema",
+    "discover_schema_inventory",
     "generate_erd_mermaid",
     "generate_erd_json",
 ]

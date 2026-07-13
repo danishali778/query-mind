@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import anyio
@@ -11,10 +11,16 @@ from sqlalchemy.orm import Session
 from app.core.security import decrypt, encrypt
 from app.db.models.connection import ActiveConnection, ConnectionRequest, derive_connection_status
 from app.db.orm_models import DatabaseConnectionORM
+from app.db.models.connection import TableInfo
+from app.db.repositories import connection_health_repository, schema_snapshot_repository
 from app.db.session import read_session_scope, session_scope
 
 
 _UNSET = object()
+
+
+class ConnectionRevisionConflictError(RuntimeError):
+    pass
 
 
 def _utcnow() -> datetime:
@@ -52,6 +58,22 @@ def _row_to_active_connection(row: DatabaseConnectionORM) -> ActiveConnection:
         last_error=row.last_error,
         latency_ms=row.latency_ms,
         last_schema_sync_at=_normalize_utc(row.last_schema_sync_at),
+        credential_revision=row.credential_revision or 1,
+        credentials_updated_at=_normalize_utc(row.credentials_updated_at),
+        has_ssl_root_certificate=bool(row.ssl_root_certificate),
+        has_ssl_client_certificate=bool(row.ssl_client_certificate),
+        has_ssl_client_private_key=bool(row.ssl_client_private_key),
+        scope_mode=row.scope_mode or "all",
+        included_schemas=list(row.included_schemas or []),
+        included_tables=list(row.included_tables or []),
+        scope_revision=row.scope_revision or 1,
+        scope_updated_at=_normalize_utc(row.scope_updated_at),
+        health_check_enabled=bool(row.health_check_enabled),
+        health_check_interval_minutes=row.health_check_interval_minutes or 60,
+        next_health_check_at=_normalize_utc(row.next_health_check_at),
+        schema_refresh_enabled=bool(row.schema_refresh_enabled),
+        schema_refresh_interval_hours=row.schema_refresh_interval_hours or 24,
+        next_schema_refresh_at=_normalize_utc(row.next_schema_refresh_at),
     )
 
 
@@ -73,6 +95,12 @@ def _row_to_connection_request(row: DatabaseConnectionORM) -> ConnectionRequest:
         ssh_username=row.ssh_username,
         ssh_password=decrypt(row.ssh_password) if row.ssh_password else None,
         ssh_private_key=decrypt(row.ssh_private_key) if row.ssh_private_key else None,
+        ssl_root_certificate=decrypt(row.ssl_root_certificate) if row.ssl_root_certificate else None,
+        ssl_client_certificate=decrypt(row.ssl_client_certificate) if row.ssl_client_certificate else None,
+        ssl_client_private_key=decrypt(row.ssl_client_private_key) if row.ssl_client_private_key else None,
+        scope_mode=row.scope_mode or "all",
+        included_schemas=list(row.included_schemas or []),
+        included_tables=list(row.included_tables or []),
     )
 
 
@@ -94,6 +122,12 @@ def _connection_row(user_id: str, config: ConnectionRequest) -> DatabaseConnecti
         ssh_username=getattr(config, "ssh_username", None),
         ssh_password=encrypt(config.ssh_password) if getattr(config, "ssh_password", None) else None,
         ssh_private_key=encrypt(config.ssh_private_key) if getattr(config, "ssh_private_key", None) else None,
+        ssl_root_certificate=encrypt(config.ssl_root_certificate) if config.ssl_root_certificate else None,
+        ssl_client_certificate=encrypt(config.ssl_client_certificate) if config.ssl_client_certificate else None,
+        ssl_client_private_key=encrypt(config.ssl_client_private_key) if config.ssl_client_private_key else None,
+        scope_mode=config.scope_mode,
+        included_schemas=list(config.included_schemas),
+        included_tables=list(config.included_tables),
         last_status="unknown",
     )
 
@@ -190,6 +224,22 @@ def _get_connection_row_sync(session: Session, user_id: str, connection_id: str)
         "last_error": row.last_error,
         "latency_ms": row.latency_ms,
         "last_schema_sync_at": _normalize_utc(row.last_schema_sync_at),
+        "credential_revision": row.credential_revision or 1,
+        "credentials_updated_at": _normalize_utc(row.credentials_updated_at),
+        "has_ssl_root_certificate": bool(row.ssl_root_certificate),
+        "has_ssl_client_certificate": bool(row.ssl_client_certificate),
+        "has_ssl_client_private_key": bool(row.ssl_client_private_key),
+        "scope_mode": row.scope_mode or "all",
+        "included_schemas": list(row.included_schemas or []),
+        "included_tables": list(row.included_tables or []),
+        "scope_revision": row.scope_revision or 1,
+        "scope_updated_at": _normalize_utc(row.scope_updated_at),
+        "health_check_enabled": bool(row.health_check_enabled),
+        "health_check_interval_minutes": row.health_check_interval_minutes or 60,
+        "next_health_check_at": _normalize_utc(row.next_health_check_at),
+        "schema_refresh_enabled": bool(row.schema_refresh_enabled),
+        "schema_refresh_interval_hours": row.schema_refresh_interval_hours or 24,
+        "next_schema_refresh_at": _normalize_utc(row.next_schema_refresh_at),
     }
 
 
@@ -239,6 +289,223 @@ async def update_connection_settings_record(
         with session_scope() as session:
             return _update_connection_settings_record_sync(session, user_id, connection_id, ssl_mode)
     return await anyio.to_thread.run_sync(_run)
+
+
+async def create_connection_bundle(
+    user_id: str,
+    config: ConnectionRequest,
+    schema: list[TableInfo],
+    *,
+    latency_ms: float,
+) -> tuple[str, Any]:
+    from app.agents.schema_context.catalog import build_catalog
+
+    def _run():
+        with session_scope() as session:
+            row = _connection_row(user_id, config)
+            session.add(row)
+            session.flush()
+            catalog = build_catalog(row.id, config.db_type, schema)
+            schema_snapshot_repository.upsert_sync(session, catalog, user_id)
+            _record_connection_health_sync(
+                session,
+                user_id,
+                row.id,
+                last_status="healthy",
+                last_error=None,
+                latency_ms=latency_ms,
+            )
+            _record_schema_sync_sync(session, user_id, row.id)
+            connection_health_repository.record_sync(
+                session,
+                owner_id=user_id,
+                connection_id=row.id,
+                source="initial_connect",
+                status="healthy",
+                diagnostic_code="connection_healthy",
+                message="Connection established and schema synchronized.",
+                latency_ms=latency_ms,
+            )
+            session.flush()
+            return row.id, catalog
+    return await anyio.to_thread.run_sync(_run)
+
+
+def rotate_credentials_sync(
+    session: Session,
+    *,
+    user_id: str,
+    connection_id: str,
+    expected_revision: int,
+    config: ConnectionRequest,
+) -> int:
+    row = session.query(DatabaseConnectionORM).filter(
+        DatabaseConnectionORM.id == connection_id,
+        DatabaseConnectionORM.owner_id == user_id,
+    ).with_for_update().one_or_none()
+    if not row:
+        return 0
+    if row.credential_revision != expected_revision:
+        raise ConnectionRevisionConflictError("Connection credentials changed in another request.")
+    row.username = config.username
+    row.password = encrypt(config.password) if config.password else None
+    row.ssl_mode = config.ssl_mode
+    row.ssl_root_certificate = encrypt(config.ssl_root_certificate) if config.ssl_root_certificate else None
+    row.ssl_client_certificate = encrypt(config.ssl_client_certificate) if config.ssl_client_certificate else None
+    row.ssl_client_private_key = encrypt(config.ssl_client_private_key) if config.ssl_client_private_key else None
+    row.ssh_username = config.ssh_username
+    row.ssh_password = encrypt(config.ssh_password) if config.ssh_password else None
+    row.ssh_private_key = encrypt(config.ssh_private_key) if config.ssh_private_key else None
+    row.credential_revision += 1
+    row.credentials_updated_at = _utcnow()
+    row.last_status = "healthy"
+    row.last_error = None
+    row.last_tested_at = _utcnow()
+    session.flush()
+    return row.credential_revision
+
+
+def get_scope_sync(session: Session, user_id: str, connection_id: str) -> dict | None:
+    row = session.query(DatabaseConnectionORM).filter(
+        DatabaseConnectionORM.id == connection_id,
+        DatabaseConnectionORM.owner_id == user_id,
+    ).one_or_none()
+    if not row:
+        return None
+    return {
+        "connection_id": row.id,
+        "mode": row.scope_mode or "all",
+        "included_schemas": list(row.included_schemas or []),
+        "included_tables": list(row.included_tables or []),
+        "revision": row.scope_revision or 1,
+        "updated_at": _normalize_utc(row.scope_updated_at),
+    }
+
+
+def update_scope_sync(
+    session: Session,
+    *,
+    user_id: str,
+    connection_id: str,
+    expected_revision: int,
+    mode: str,
+    included_schemas: list[str],
+    included_tables: list[str],
+) -> dict | None:
+    row = session.query(DatabaseConnectionORM).filter(
+        DatabaseConnectionORM.id == connection_id,
+        DatabaseConnectionORM.owner_id == user_id,
+    ).with_for_update().one_or_none()
+    if not row:
+        return None
+    if row.scope_revision != expected_revision:
+        raise ConnectionRevisionConflictError("Connection scope changed in another request.")
+    row.scope_mode = mode
+    row.included_schemas = list(included_schemas)
+    row.included_tables = list(included_tables)
+    row.scope_revision += 1
+    row.scope_updated_at = _utcnow()
+    session.flush()
+    return get_scope_sync(session, user_id, connection_id)
+
+
+def update_scope_and_snapshot_sync(
+    session: Session,
+    *,
+    user_id: str,
+    connection_id: str,
+    expected_revision: int,
+    mode: str,
+    included_schemas: list[str],
+    included_tables: list[str],
+    catalog,
+) -> dict | None:
+    updated = update_scope_sync(
+        session,
+        user_id=user_id,
+        connection_id=connection_id,
+        expected_revision=expected_revision,
+        mode=mode,
+        included_schemas=included_schemas,
+        included_tables=included_tables,
+    )
+    if not updated:
+        return None
+    schema_snapshot_repository.upsert_sync(session, catalog, user_id)
+    return updated
+
+
+def update_automation_sync(
+    session: Session,
+    *,
+    user_id: str,
+    connection_id: str,
+    health_check_enabled: bool,
+    health_check_interval_minutes: int,
+    schema_refresh_enabled: bool,
+    schema_refresh_interval_hours: int,
+) -> dict | None:
+    row = session.query(DatabaseConnectionORM).filter(
+        DatabaseConnectionORM.id == connection_id,
+        DatabaseConnectionORM.owner_id == user_id,
+    ).with_for_update().one_or_none()
+    if not row:
+        return None
+    now = _utcnow()
+    row.health_check_enabled = health_check_enabled
+    row.health_check_interval_minutes = health_check_interval_minutes
+    row.next_health_check_at = now + timedelta(minutes=health_check_interval_minutes) if health_check_enabled else None
+    row.schema_refresh_enabled = schema_refresh_enabled
+    row.schema_refresh_interval_hours = schema_refresh_interval_hours
+    row.next_schema_refresh_at = now + timedelta(hours=schema_refresh_interval_hours) if schema_refresh_enabled else None
+    session.flush()
+    return {
+        "connection_id": row.id,
+        "health_check_enabled": row.health_check_enabled,
+        "health_check_interval_minutes": row.health_check_interval_minutes,
+        "next_health_check_at": _normalize_utc(row.next_health_check_at),
+        "schema_refresh_enabled": row.schema_refresh_enabled,
+        "schema_refresh_interval_hours": row.schema_refresh_interval_hours,
+        "next_schema_refresh_at": _normalize_utc(row.next_schema_refresh_at),
+    }
+
+
+def due_maintenance_sync(session: Session, limit: int = 100) -> list[dict]:
+    now = _utcnow()
+    rows = session.query(DatabaseConnectionORM).filter(
+        (
+            (DatabaseConnectionORM.health_check_enabled.is_(True))
+            & (DatabaseConnectionORM.next_health_check_at.is_not(None))
+            & (DatabaseConnectionORM.next_health_check_at <= now)
+        )
+        | (
+            (DatabaseConnectionORM.schema_refresh_enabled.is_(True))
+            & (DatabaseConnectionORM.next_schema_refresh_at.is_not(None))
+            & (DatabaseConnectionORM.next_schema_refresh_at <= now)
+        )
+    ).order_by(DatabaseConnectionORM.created_at.asc()).limit(limit).all()
+    return [
+        {
+            "id": row.id,
+            "owner_id": row.owner_id,
+            "health_due": bool(row.health_check_enabled and row.next_health_check_at and row.next_health_check_at <= now),
+            "schema_due": bool(row.schema_refresh_enabled and row.next_schema_refresh_at and row.next_schema_refresh_at <= now),
+        }
+        for row in rows
+    ]
+
+
+def advance_maintenance_sync(
+    session: Session, connection_id: str, *, health: bool = False, schema: bool = False
+) -> None:
+    row = session.query(DatabaseConnectionORM).filter(DatabaseConnectionORM.id == connection_id).one_or_none()
+    if not row:
+        return
+    now = _utcnow()
+    if health and row.health_check_enabled:
+        row.next_health_check_at = now + timedelta(minutes=row.health_check_interval_minutes)
+    if schema and row.schema_refresh_enabled:
+        row.next_schema_refresh_at = now + timedelta(hours=row.schema_refresh_interval_hours)
 
 
 def _update_connection_settings_record_sync(
@@ -426,6 +693,7 @@ async def record_health_and_schema_sync(
 
 __all__ = [
     "create_connection",
+    "create_connection_bundle",
     "list_connections",
     "get_active_connection",
     "sync_get_active_connection",
@@ -440,4 +708,12 @@ __all__ = [
     "record_schema_sync",
     "sync_record_schema_sync",
     "record_health_and_schema_sync",
+    "ConnectionRevisionConflictError",
+    "rotate_credentials_sync",
+    "get_scope_sync",
+    "update_scope_sync",
+    "update_scope_and_snapshot_sync",
+    "update_automation_sync",
+    "due_maintenance_sync",
+    "advance_maintenance_sync",
 ]

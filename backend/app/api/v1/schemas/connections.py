@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -29,6 +29,22 @@ class ConnectionResponse(BaseModel):
     last_error: Optional[str] = None
     latency_ms: float | None = None
     last_schema_sync_at: datetime | None = None
+    credential_revision: int = 1
+    credentials_updated_at: datetime | None = None
+    has_ssl_root_certificate: bool = False
+    has_ssl_client_certificate: bool = False
+    has_ssl_client_private_key: bool = False
+    scope_mode: str = "all"
+    included_schemas: list[str] = Field(default_factory=list)
+    included_tables: list[str] = Field(default_factory=list)
+    scope_revision: int = 1
+    scope_updated_at: datetime | None = None
+    health_check_enabled: bool = False
+    health_check_interval_minutes: int = 60
+    next_health_check_at: datetime | None = None
+    schema_refresh_enabled: bool = False
+    schema_refresh_interval_hours: int = 24
+    next_schema_refresh_at: datetime | None = None
 
 
 class ConnectionRequest(BaseModel):
@@ -36,10 +52,12 @@ class ConnectionRequest(BaseModel):
 
     owner_id: Optional[str] = None
     name: Optional[str] = None
-    db_type: str
-    host: Optional[str] = "localhost"
+    input_mode: Literal["fields", "uri"] = "fields"
+    connection_uri: Optional[str] = Field(default=None, max_length=8192)
+    db_type: str = "postgresql"
+    host: Optional[str] = None
     port: Optional[int] = None
-    database: str
+    database: Optional[str] = None
     username: Optional[str] = None
     password: Optional[str] = None
     ssl_mode: str = "disable"
@@ -49,6 +67,12 @@ class ConnectionRequest(BaseModel):
     ssh_username: Optional[str] = None
     ssh_password: Optional[str] = None
     ssh_private_key: Optional[str] = None
+    ssl_root_certificate: Optional[str] = None
+    ssl_client_certificate: Optional[str] = None
+    ssl_client_private_key: Optional[str] = None
+    scope_mode: Literal["all", "allowlist"] = "all"
+    included_schemas: list[str] = Field(default_factory=list)
+    included_tables: list[str] = Field(default_factory=list)
 
 
 class ActiveConnection(BaseModel):
@@ -74,6 +98,22 @@ class ActiveConnection(BaseModel):
     last_error: Optional[str] = None
     latency_ms: float | None = None
     last_schema_sync_at: datetime | None = None
+    credential_revision: int = 1
+    credentials_updated_at: datetime | None = None
+    has_ssl_root_certificate: bool = False
+    has_ssl_client_certificate: bool = False
+    has_ssl_client_private_key: bool = False
+    scope_mode: str = "all"
+    included_schemas: list[str] = Field(default_factory=list)
+    included_tables: list[str] = Field(default_factory=list)
+    scope_revision: int = 1
+    scope_updated_at: datetime | None = None
+    health_check_enabled: bool = False
+    health_check_interval_minutes: int = 60
+    next_health_check_at: datetime | None = None
+    schema_refresh_enabled: bool = False
+    schema_refresh_interval_hours: int = 24
+    next_schema_refresh_at: datetime | None = None
 
 
 class ColumnInfo(BaseModel):
@@ -120,10 +160,12 @@ class SchemaResponse(BaseModel):
 class TestConnectionRequest(BaseModel):
     """Request to test a connection without saving."""
 
-    db_type: str
-    host: Optional[str] = "localhost"
+    input_mode: Literal["fields", "uri"] = "fields"
+    connection_uri: Optional[str] = Field(default=None, max_length=8192)
+    db_type: str = "postgresql"
+    host: Optional[str] = None
     port: Optional[int] = None
-    database: str
+    database: Optional[str] = None
     username: Optional[str] = None
     password: Optional[str] = None
     ssl_mode: str = "disable"
@@ -134,6 +176,26 @@ class TestConnectionRequest(BaseModel):
     ssh_username: Optional[str] = None
     ssh_password: Optional[str] = None
     ssh_private_key: Optional[str] = None
+    ssl_root_certificate: Optional[str] = None
+    ssl_client_certificate: Optional[str] = None
+    ssl_client_private_key: Optional[str] = None
+
+
+class ConnectionDiagnosticCheck(BaseModel):
+    code: str
+    status: Literal["pending", "passed", "warning", "failed", "skipped"]
+    label: str
+    message: str | None = None
+
+
+class ConnectionDiagnosticWarning(BaseModel):
+    code: str
+    message: str
+
+
+class ConnectionInventorySchema(BaseModel):
+    name: str
+    tables: list[str] = Field(default_factory=list)
 
 
 class TestConnectionResponse(BaseModel):
@@ -143,12 +205,103 @@ class TestConnectionResponse(BaseModel):
     message: str
     tables_found: Optional[int] = None
     latency_ms: float | None = None
+    diagnostic_id: str | None = None
+    code: str = "connection_unknown"
+    category: str = "unknown"
+    suggestions: list[str] = Field(default_factory=list)
+    checks: list[ConnectionDiagnosticCheck] = Field(default_factory=list)
+    warnings: list[ConnectionDiagnosticWarning] = Field(default_factory=list)
+    inventory: list[ConnectionInventorySchema] | None = None
+    inventory_truncated: bool = False
+    server_version: str | None = None
+    role_has_write_privileges: bool | None = None
 
 
 class UpdateConnectionSettingsRequest(BaseModel):
     """Patchable security settings for an existing connection."""
 
     ssl_mode: Optional[str] = None
+
+
+class RotateConnectionCredentialsRequest(BaseModel):
+    expected_credential_revision: int = Field(ge=1)
+    username: str | None = None
+    password: str | None = None
+    ssl_mode: Literal["disable", "require", "verify-ca", "verify-full"] | None = None
+    ssl_root_certificate: str | None = None
+    ssl_client_certificate: str | None = None
+    ssl_client_private_key: str | None = None
+    ssh_username: str | None = None
+    ssh_password: str | None = None
+    ssh_private_key: str | None = None
+
+
+class ConnectionScopePayload(BaseModel):
+    mode: Literal["all", "allowlist"] = "all"
+    included_schemas: list[str] = Field(default_factory=list)
+    included_tables: list[str] = Field(default_factory=list)
+
+
+class UpdateConnectionScopeRequest(ConnectionScopePayload):
+    expected_scope_revision: int = Field(ge=1)
+    acknowledged_impact_codes: list[str] = Field(default_factory=list)
+
+
+class ConnectionScopeResponse(ConnectionScopePayload):
+    connection_id: str
+    revision: int
+    updated_at: datetime | None = None
+
+
+class ConnectionScopeImpact(BaseModel):
+    code: str
+    consumer_type: str
+    consumer_id: str
+    label: str
+
+
+class ConnectionScopePreviewResponse(BaseModel):
+    valid: bool
+    normalized_scope: ConnectionScopePayload
+    errors: list[dict] = Field(default_factory=list)
+    warnings: list[dict] = Field(default_factory=list)
+    impacts: list[ConnectionScopeImpact] = Field(default_factory=list)
+
+
+class UpdateConnectionAutomationRequest(BaseModel):
+    health_check_enabled: bool
+    health_check_interval_minutes: Literal[15, 60, 360, 1440] = 60
+    schema_refresh_enabled: bool
+    schema_refresh_interval_hours: Literal[6, 12, 24, 168] = 24
+
+
+class ConnectionAutomationResponse(UpdateConnectionAutomationRequest):
+    connection_id: str
+    next_health_check_at: datetime | None = None
+    next_schema_refresh_at: datetime | None = None
+
+
+class ConnectionHealthEventResponse(BaseModel):
+    id: str
+    source: str
+    status: str
+    diagnostic_code: str | None = None
+    message: str | None = None
+    latency_ms: float | None = None
+    created_at: datetime
+
+
+class ConnectionHealthHistoryResponse(BaseModel):
+    connection_id: str
+    items: list[ConnectionHealthEventResponse]
+    next_cursor: str | None = None
+    success_rate_24h: float
+    success_rate_7d: float
+    p50_latency_ms: float | None = None
+    p95_latency_ms: float | None = None
+    last_successful_schema_refresh_at: datetime | None = None
+    next_health_check_at: datetime | None = None
+    next_schema_refresh_at: datetime | None = None
 
 
 class MermaidErdResponse(BaseModel):
@@ -215,6 +368,16 @@ __all__ = [
     "TestConnectionResponse",
     "ActiveConnection",
     "UpdateConnectionSettingsRequest",
+    "RotateConnectionCredentialsRequest",
+    "ConnectionScopePayload",
+    "UpdateConnectionScopeRequest",
+    "ConnectionScopeResponse",
+    "ConnectionScopePreviewResponse",
+    "ConnectionAutomationResponse",
+    "UpdateConnectionAutomationRequest",
+    "ConnectionHealthHistoryResponse",
+    "ConnectionHealthEventResponse",
+    "ConnectionScopeImpact",
     "MermaidErdResponse",
     "ErdJsonColumn",
     "ErdJsonTable",

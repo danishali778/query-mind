@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, model_validator
 ConnectionHealthState = Literal["live", "failed", "stale", "unknown"]
 ConnectionLastStatus = Literal["unknown", "healthy", "failed"]
 ConnectionRuntimeStatus = Literal["live", "offline", "warning"]
+ConnectionScopeMode = Literal["all", "allowlist"]
 
 CONNECTION_HEALTH_STALE_AFTER = timedelta(hours=24)
 
@@ -59,6 +60,12 @@ class ConnectionRequest(BaseModel):
     ssh_username: Optional[str] = None
     ssh_password: Optional[str] = None
     ssh_private_key: Optional[str] = None
+    ssl_root_certificate: Optional[str] = None
+    ssl_client_certificate: Optional[str] = None
+    ssl_client_private_key: Optional[str] = None
+    scope_mode: ConnectionScopeMode = "all"
+    included_schemas: list[str] = Field(default_factory=list)
+    included_tables: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_ssh_config(self) -> "ConnectionRequest":
@@ -100,12 +107,50 @@ class ActiveConnection(BaseModel):
     last_error: Optional[str] = None
     latency_ms: float | None = None
     last_schema_sync_at: datetime | None = None
+    credential_revision: int = 1
+    credentials_updated_at: datetime | None = None
+    has_ssl_root_certificate: bool = False
+    has_ssl_client_certificate: bool = False
+    has_ssl_client_private_key: bool = False
+    scope_mode: ConnectionScopeMode = "all"
+    included_schemas: list[str] = Field(default_factory=list)
+    included_tables: list[str] = Field(default_factory=list)
+    scope_revision: int = 1
+    scope_updated_at: datetime | None = None
+    health_check_enabled: bool = False
+    health_check_interval_minutes: int = 60
+    next_health_check_at: datetime | None = None
+    schema_refresh_enabled: bool = False
+    schema_refresh_interval_hours: int = 24
+    next_schema_refresh_at: datetime | None = None
 
 
 class ConnectionTestResult(BaseModel):
     success: bool
     message: str
     latency_ms: float | None = None
+    diagnostic_id: str | None = None
+    code: str = "connection_unknown"
+    category: str = "unknown"
+    suggestions: list[str] = Field(default_factory=list)
+    checks: list[dict[str, Any]] = Field(default_factory=list)
+    warnings: list[dict[str, Any]] = Field(default_factory=list)
+    inventory: list[dict[str, Any]] | None = None
+    inventory_truncated: bool = False
+    server_version: str | None = None
+    tables_found: int | None = None
+    role_has_write_privileges: bool | None = None
+
+
+class ConnectionHealthEvent(BaseModel):
+    id: str
+    connection_id: str
+    source: str
+    status: str
+    diagnostic_code: str | None = None
+    message: str | None = None
+    latency_ms: float | None = None
+    created_at: datetime
 
 
 class ColumnInfo(BaseModel):
@@ -141,7 +186,9 @@ __all__ = [
     "ConnectionHealthState",
     "ConnectionLastStatus",
     "ConnectionRuntimeStatus",
+    "ConnectionScopeMode",
     "ConnectionTestResult",
+    "ConnectionHealthEvent",
     "derive_connection_status",
     "ColumnInfo",
     "ForeignKeyInfo",

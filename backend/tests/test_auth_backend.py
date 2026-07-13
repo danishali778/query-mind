@@ -224,7 +224,7 @@ def test_blocked_database_test_does_not_call_connection_pool(client, monkeypatch
     def fail_if_called(config):
         raise AssertionError("connection pool should not be called for blocked targets")
 
-    monkeypatch.setattr(connection_manager.connection_pool, "test_connection", fail_if_called)
+    monkeypatch.setattr(connection_manager.connection_pool, "diagnose_connection", fail_if_called)
     test_client = _connection_test_client(monkeypatch)
 
     response = test_client.post(
@@ -240,7 +240,7 @@ def test_blocked_database_test_does_not_call_connection_pool(client, monkeypatch
     )
 
     assert response.status_code == 400
-    assert response.json()["error"]["code"] == "bad_request"
+    assert response.json()["error"]["code"] == "connection_target_blocked"
 
 
 def test_blocked_database_connect_does_not_save_connection(client, monkeypatch):
@@ -278,17 +278,18 @@ def test_blocked_database_connect_does_not_save_connection(client, monkeypatch):
 def test_successful_database_test_uses_existing_connection_flow(client, monkeypatch):
     from app.core.config import settings
     from app.db import connection_manager
+    from app.db.models.connection import ConnectionTestResult
 
     called = {"value": False}
 
     async def fake_test_connection(config):
         called["value"] = True
-        return True, "Connection successful"
+        return ConnectionTestResult(success=True, message="Connection successful", code="connection_healthy")
 
     monkeypatch.setattr(settings, "app_env", "development", raising=False)
     monkeypatch.setattr(settings, "db_connect_allow_private_in_dev", True, raising=False)
     monkeypatch.setattr(connection_manager, "enforce_connection_attempt_rate_limit", lambda owner_id: None)
-    monkeypatch.setattr(connection_manager.connection_pool, "test_connection", fake_test_connection)
+    monkeypatch.setattr(connection_manager.connection_pool, "diagnose_connection", fake_test_connection)
     test_client = _connection_test_client(monkeypatch)
 
     response = test_client.post(
@@ -317,7 +318,7 @@ def test_unsupported_database_test_returns_bad_request(client, monkeypatch, db_t
     async def fail_if_called(config):
         raise AssertionError("connection pool should not be called for unsupported database types")
 
-    monkeypatch.setattr(connection_manager.connection_pool, "test_connection", fail_if_called)
+    monkeypatch.setattr(connection_manager.connection_pool, "diagnose_connection", fail_if_called)
     test_client = _connection_test_client(monkeypatch)
 
     response = test_client.post(
@@ -374,7 +375,7 @@ def test_saved_connection_diagnostic_updates_persistent_health(client, monkeypat
     from app.core import config as core_config
     from app.core import secrets, security
     from app.db import connection_manager
-    from app.db.models.connection import ConnectionRequest
+    from app.db.models.connection import ConnectionRequest, ConnectionTestResult
     from app.db.repositories import connection_repository
 
     monkeypatch.setenv("ENCRYPTION_KEY", Fernet.generate_key().decode("utf-8"))
@@ -401,9 +402,15 @@ def test_saved_connection_diagnostic_updates_persistent_health(client, monkeypat
     monkeypatch.setattr(connection_manager, "enforce_connection_attempt_rate_limit", lambda owner_id: None)
 
     async def fake_test_connection(config):
-        return False, "password authentication failed for user demo"
+        return ConnectionTestResult(
+            success=False,
+            message="Database authentication failed. Verify the connection credentials.",
+            code="connection_auth_failed",
+            category="authentication",
+            latency_ms=12.0,
+        )
 
-    monkeypatch.setattr(connection_manager.connection_pool, "test_connection", fake_test_connection)
+    monkeypatch.setattr(connection_manager.connection_pool, "diagnose_connection", fake_test_connection)
     test_client = _connection_test_client(monkeypatch)
 
     response = test_client.post(f"/api/database/connections/{connection_id}/test")

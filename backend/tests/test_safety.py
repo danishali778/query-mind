@@ -515,15 +515,22 @@ def test_connection_manager_connect_opens_connection_in_thread(monkeypatch):
     async def fake_create_connection(user_id, config):
         return "conn_1"
 
+    async def fake_create_bundle(user_id, config, schema, *, latency_ms):
+        return "conn_1", object()
+
     async def fake_record_health(*args, **kwargs):
         return True
 
     monkeypatch.setattr(connection_manager.anyio.to_thread, "run_sync", fake_run_sync)
     monkeypatch.setattr(connection_manager, "_preflight_connection_attempt", lambda *args, **kwargs: None)
-    monkeypatch.setattr(connection_manager.connection_repository, "create_connection", fake_create_connection)
+    monkeypatch.setattr(connection_manager.schema_inspector, "discover_schema_inventory", lambda *args: ([{"name": "public", "tables": ["demo"]}], False))
+    monkeypatch.setattr(connection_manager.schema_inspector, "get_schema", lambda *args, **kwargs: [connection_manager.TableInfo(name="demo", columns=[])])
+    monkeypatch.setattr(connection_manager.connection_repository, "create_connection_bundle", fake_create_bundle)
     monkeypatch.setattr(connection_manager.connection_repository, "record_connection_health", fake_record_health)
     monkeypatch.setattr(connection_manager.connection_attempt_repository, "log_connection_attempt", lambda **kwargs: None)
     monkeypatch.setattr(connection_manager.connection_pool, "cache_connection", lambda *args, **kwargs: None)
+    monkeypatch.setattr(connection_manager.connection_pool, "cache_schema", lambda *args, **kwargs: None)
+    monkeypatch.setattr(connection_manager.connection_pool, "cache_catalog", lambda *args, **kwargs: None)
 
     connection_id, engine, latency_ms = anyio.run(connection_manager.connect, "user_1", _async_boundary_config())
 

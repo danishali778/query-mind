@@ -29,31 +29,31 @@ def get(owner_id: str, connection_id: str) -> SchemaCatalog | None:
 
 
 def upsert(catalog: SchemaCatalog, owner_id: str) -> None:
-    payload = catalog.model_dump()
     with session_scope() as db:
-        row = (
-            db.query(SchemaSnapshotORM)
-            .filter(
-                SchemaSnapshotORM.owner_id == owner_id,
-                SchemaSnapshotORM.connection_id == catalog.connection_id,
+        upsert_sync(db, catalog, owner_id)
+
+
+def upsert_sync(db, catalog: SchemaCatalog, owner_id: str) -> None:
+    payload = catalog.model_dump()
+    row = db.query(SchemaSnapshotORM).filter(
+        SchemaSnapshotORM.owner_id == owner_id,
+        SchemaSnapshotORM.connection_id == catalog.connection_id,
+    ).one_or_none()
+    if row:
+        row.schema_hash = catalog.schema_hash
+        row.db_type = catalog.db_type
+        row.catalog_json = payload
+        row.updated_at = _utcnow()
+    else:
+        db.add(
+            SchemaSnapshotORM(
+                owner_id=owner_id,
+                connection_id=catalog.connection_id,
+                schema_hash=catalog.schema_hash,
+                db_type=catalog.db_type,
+                catalog_json=payload,
             )
-            .one_or_none()
         )
-        if row:
-            row.schema_hash = catalog.schema_hash
-            row.db_type = catalog.db_type
-            row.catalog_json = payload
-            row.updated_at = _utcnow()
-        else:
-            db.add(
-                SchemaSnapshotORM(
-                    owner_id=owner_id,
-                    connection_id=catalog.connection_id,
-                    schema_hash=catalog.schema_hash,
-                    db_type=catalog.db_type,
-                    catalog_json=payload,
-                )
-            )
 
 
 def delete(owner_id: str, connection_id: str) -> bool:
@@ -72,4 +72,4 @@ def delete(owner_id: str, connection_id: str) -> bool:
         return True
 
 
-__all__ = ["get", "upsert", "delete"]
+__all__ = ["get", "upsert", "upsert_sync", "delete"]

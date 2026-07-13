@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, Text, UniqueConstraint, desc, func, text, true
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, Text, UniqueConstraint, desc, false, func, text, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -46,12 +46,68 @@ class DatabaseConnectionORM(Base):
     last_error: Mapped[str | None] = mapped_column(Text)
     latency_ms: Mapped[float | None] = mapped_column(Float)
     last_schema_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    credential_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
+    credentials_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ssl_root_certificate: Mapped[str | None] = mapped_column(Text)
+    ssl_client_certificate: Mapped[str | None] = mapped_column(Text)
+    ssl_client_private_key: Mapped[str | None] = mapped_column(Text)
+    scope_mode: Mapped[str] = mapped_column(Text, nullable=False, default="all", server_default=text("'all'"))
+    included_schemas: Mapped[list] = mapped_column(JsonType, nullable=False, default=list, server_default=text("'[]'"))
+    included_tables: Mapped[list] = mapped_column(JsonType, nullable=False, default=list, server_default=text("'[]'"))
+    scope_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
+    scope_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    health_check_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
+    health_check_interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60, server_default=text("60"))
+    next_health_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    schema_refresh_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
+    schema_refresh_interval_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=24, server_default=text("24"))
+    next_schema_refresh_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
         CheckConstraint("readonly = true", name="database_connections_readonly_true"),
         CheckConstraint("db_type = 'postgresql'", name="database_connections_db_type_postgresql"),
         CheckConstraint("last_status IN ('unknown', 'healthy', 'failed')", name="database_connections_last_status_valid"),
+        CheckConstraint("ssl_mode IN ('disable', 'require', 'verify-ca', 'verify-full')", name="database_connections_ssl_mode_valid"),
+        CheckConstraint("scope_mode IN ('all', 'allowlist')", name="database_connections_scope_mode_valid"),
+        CheckConstraint(
+            "scope_mode = 'all' OR included_schemas <> '[]' OR included_tables <> '[]'",
+            name="database_connections_allowlist_nonempty",
+        ),
+        CheckConstraint("credential_revision >= 1", name="database_connections_credential_revision_positive"),
+        CheckConstraint("scope_revision >= 1", name="database_connections_scope_revision_positive"),
+        CheckConstraint("health_check_interval_minutes IN (15, 60, 360, 1440)", name="database_connections_health_interval_valid"),
+        CheckConstraint("schema_refresh_interval_hours IN (6, 12, 24, 168)", name="database_connections_schema_interval_valid"),
         Index("idx_database_connections_owner_id_created_at", "owner_id", desc("created_at")),
+        Index("idx_database_connections_due_health", "health_check_enabled", "next_health_check_at"),
+        Index("idx_database_connections_due_schema", "schema_refresh_enabled", "next_schema_refresh_at"),
+    )
+
+
+class ConnectionHealthEventORM(Base):
+    __tablename__ = "connection_health_events"
+
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    owner_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    connection_id: Mapped[str] = mapped_column(
+        GUID(), ForeignKey("database_connections.id", ondelete="CASCADE"), nullable=False
+    )
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    diagnostic_code: Mapped[str | None] = mapped_column(Text)
+    message: Mapped[str | None] = mapped_column(Text)
+    latency_ms: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "source IN ('initial_connect', 'manual_test', 'scheduled_check', 'credential_rotation', 'schema_refresh')",
+            name="connection_health_events_source_valid",
+        ),
+        CheckConstraint("status IN ('healthy', 'failed')", name="connection_health_events_status_valid"),
+        Index("idx_connection_health_owner_connection_created", "owner_id", "connection_id", desc("created_at")),
+        Index("idx_connection_health_connection_status_created", "connection_id", "status", desc("created_at")),
     )
 
 class SchemaSnapshotORM(Base):

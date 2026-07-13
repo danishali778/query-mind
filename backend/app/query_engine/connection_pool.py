@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import io
 import logging
 import threading
 import time
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+import uuid
 
 import anyio
 from sqlalchemy import create_engine, text
@@ -20,9 +23,12 @@ from app.core.db_connection_guardrails import (
     validate_supported_database_type,
 )
 from app.db.models.connection import ConnectionRequest, TableInfo
-from app.agents.schema_context.catalog import build_catalog
-from app.agents.schema_context.types import SchemaCatalog
+from app.db.models.connection import ConnectionTestResult
+from app.query_engine.connection_tls import create_tls_material
 import app.query_engine.schema_inspector as schema_inspector
+
+if TYPE_CHECKING:
+    from app.agents.schema_context.types import SchemaCatalog
 
 
 logger = logging.getLogger(__name__)
@@ -53,9 +59,19 @@ def dispose_connection_resources(
 ) -> None:
     """Close resources after they have been detached from the shared cache."""
     if engine:
-        engine.dispose()
+        tls_material = getattr(engine, "_querymind_tls_material", None)
+        try:
+            engine.dispose()
+        except Exception:
+            logger.warning("Database engine disposal failed type=%s", engine.__class__.__name__)
+        finally:
+            if tls_material:
+                tls_material.cleanup()
     if tunnel:
-        tunnel.stop()
+        try:
+            tunnel.stop()
+        except Exception:
+            logger.warning("SSH tunnel disposal failed type=%s", tunnel.__class__.__name__)
 
 
 def build_connection_url(
@@ -95,12 +111,19 @@ def start_ssh_tunnel(config: ConnectionRequest) -> tuple[Optional[SSHTunnelForwa
     return tunnel, "127.0.0.1", tunnel.local_bind_port
 
 
-def build_engine(url: URL, db_type: str, ssl_mode: str = "disable") -> Engine:
+def build_engine(
+    url: URL,
+    db_type: str,
+    ssl_mode: str = "disable",
+    *,
+    tls_connect_args: dict[str, str] | None = None,
+) -> Engine:
     validate_supported_database_type(db_type)
     connect_args = {"connect_timeout": settings.db_connect_timeout_seconds}
 
     if db_type == SUPPORTED_DATABASE_TYPE and ssl_mode != "disable":
         connect_args["sslmode"] = ssl_mode
+    connect_args.update(tls_connect_args or {})
 
     return create_engine(
         url,
@@ -112,36 +135,179 @@ def build_engine(url: URL, db_type: str, ssl_mode: str = "disable") -> Engine:
     )
 
 
-def _test_connection_sync(config: ConnectionRequest) -> tuple[bool, str]:
+def _diagnostic_for_exception(exc: Exception) -> tuple[str, str, str, list[str]]:
+    original = getattr(exc, "orig", exc)
+    if getattr(original, "code", None) == "connection_certificate_invalid":
+        return (
+            "connection_certificate_invalid",
+            "tls",
+            "The supplied certificate material is invalid or incompatible.",
+            ["Check PEM structure, expiry, size, and certificate/private-key matching."],
+        )
+    sqlstate = getattr(original, "pgcode", None) or getattr(original, "sqlstate", None)
+    lowered = str(original).lower()
+    if sqlstate == "28P01" or "password authentication failed" in lowered:
+        return "connection_auth_failed", "authentication", "Database authentication failed.", ["Verify the username and password.", "Confirm the database role can log in."]
+    if sqlstate == "3D000" or "database" in lowered and "does not exist" in lowered:
+        return "connection_database_not_found", "database", "Authentication succeeded, but the requested database was not found.", ["Check the database name.", "Confirm the user can connect to this database."]
+    if sqlstate == "42501" or "permission denied" in lowered:
+        return "connection_permission_denied", "permission", "The database user does not have the required read access.", ["Grant CONNECT and SELECT privileges to a dedicated QueryMind user."]
+    if "could not translate host" in lowered or "name or service not known" in lowered:
+        return "connection_dns_failed", "network", "The database hostname could not be resolved.", ["Check the hostname and DNS configuration."]
+    if "connection refused" in lowered:
+        return "connection_refused", "network", "The database host refused the connection.", ["Check the port, firewall, and whether PostgreSQL is listening."]
+    if "timeout" in lowered or "timed out" in lowered:
+        return "connection_timeout", "network", "The database connection timed out.", ["Check firewall rules and network reachability."]
+    if "certificate" in lowered or "ssl" in lowered:
+        return "connection_tls_failed", "tls", "The secure database connection could not be verified.", ["Check the SSL mode, hostname, and certificate chain."]
+    if "ssh" in lowered or "tunnel" in lowered:
+        return "connection_ssh_failed", "ssh", "The SSH tunnel could not be established.", ["Check the bastion host and SSH credentials."]
+    return "connection_unknown", "unknown", "Database connection could not be established.", ["Verify the connection settings and database logs."]
+
+
+def diagnose_connection_sync(config: ConnectionRequest) -> ConnectionTestResult:
     validate_connection_target(config)
     tunnel = None
     engine = None
+    tls_material = None
+    started_at = time.monotonic()
+    diagnostic_id = str(uuid.uuid4())
+    checks = [{"code": "target_policy", "status": "passed", "label": "Target allowed"}]
     try:
+        tls_material = create_tls_material(config)
         tunnel, host, port = start_ssh_tunnel(config)
-        engine = build_engine(build_connection_url(config, host, port), config.db_type, config.ssl_mode)
+        if config.use_ssh:
+            checks.append({"code": "ssh", "status": "passed", "label": "SSH tunnel established"})
+        engine = build_engine(
+            build_connection_url(config, host, port),
+            config.db_type,
+            config.ssl_mode,
+            tls_connect_args=tls_material.connect_args if tls_material else None,
+        )
+        if tls_material:
+            setattr(engine, "_querymind_tls_material", tls_material)
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
-        return True, "Connection successful"
+            server_version = str(conn.execute(text("SHOW server_version")).scalar() or "")
+            has_write = bool(
+                conn.execute(
+                    text(
+                        "SELECT EXISTS (SELECT 1 FROM information_schema.table_privileges "
+                        "WHERE grantee IN (current_user, 'PUBLIC') AND privilege_type IN "
+                        "('INSERT','UPDATE','DELETE','TRUNCATE','TRIGGER','REFERENCES'))"
+                    )
+                ).scalar()
+            )
+        inventory, truncated = schema_inspector.discover_schema_inventory(
+            engine, settings.connection_diagnostic_max_objects
+        )
+        tables_found = sum(len(item["tables"]) for item in inventory)
+        checks.extend(
+            [
+                {"code": "database", "status": "passed", "label": "Database authenticated"},
+                {"code": "schema", "status": "passed" if tables_found else "failed", "label": "Schema readable"},
+            ]
+        )
+        if not tables_found:
+            return ConnectionTestResult(
+                success=False,
+                diagnostic_id=diagnostic_id,
+                code="connection_schema_empty",
+                category="permission",
+                message="The connection succeeded, but no accessible user tables were found.",
+                suggestions=["Grant SELECT access to at least one user table."],
+                latency_ms=round((time.monotonic() - started_at) * 1000, 2),
+                checks=checks,
+                inventory=inventory,
+                inventory_truncated=truncated,
+                server_version=server_version,
+                tables_found=0,
+                role_has_write_privileges=has_write,
+            )
+        warnings = []
+        if has_write:
+            warnings.append(
+                {
+                    "code": "database_user_has_write_privileges",
+                    "message": "Use a dedicated SELECT-only database role. QueryMind still enforces read-only transactions.",
+                }
+            )
+        return ConnectionTestResult(
+            success=True,
+            diagnostic_id=diagnostic_id,
+            code="connection_healthy",
+            category="success",
+            message="Connection successful",
+            suggestions=[],
+            latency_ms=round((time.monotonic() - started_at) * 1000, 2),
+            checks=checks,
+            warnings=warnings,
+            inventory=inventory,
+            inventory_truncated=truncated,
+            server_version=server_version,
+            tables_found=tables_found,
+            role_has_write_privileges=has_write,
+        )
     except Exception as exc:
-        logger.error("Connection test failed: %s", exc)
-        return False, str(exc)
+        code, category, message, suggestions = _diagnostic_for_exception(exc)
+        logger.info("Connection diagnostic failed code=%s type=%s", code, exc.__class__.__name__)
+        checks.append({"code": category, "status": "failed", "label": message})
+        return ConnectionTestResult(
+            success=False,
+            diagnostic_id=diagnostic_id,
+            code=code,
+            category=category,
+            message=message,
+            suggestions=suggestions,
+            latency_ms=round((time.monotonic() - started_at) * 1000, 2),
+            checks=checks,
+        )
     finally:
         if engine:
-            engine.dispose()
+            dispose_connection_resources(engine, tunnel)
+            tunnel = None
+            tls_material = None
         if tunnel:
-            tunnel.stop()
+            dispose_connection_resources(None, tunnel)
+        if tls_material:
+            tls_material.cleanup()
+
+
+def _test_connection_sync(config: ConnectionRequest) -> tuple[bool, str]:
+    result = diagnose_connection_sync(config)
+    return result.success, result.message
 
 
 async def test_connection(config: ConnectionRequest) -> tuple[bool, str]:
     return await anyio.to_thread.run_sync(_test_connection_sync, config)
 
+
+async def diagnose_connection(config: ConnectionRequest) -> ConnectionTestResult:
+    return await anyio.to_thread.run_sync(diagnose_connection_sync, config)
+
 def open_connection(config: ConnectionRequest) -> tuple[Engine, Optional[SSHTunnelForwarder]]:
     validate_connection_target(config)
-    tunnel, host, port = start_ssh_tunnel(config)
-    engine = build_engine(build_connection_url(config, host, port), config.db_type, config.ssl_mode)
-    with engine.connect() as conn:
-        conn.execute(text("SELECT 1"))
-    return engine, tunnel
+    tls_material = create_tls_material(config)
+    tunnel = None
+    try:
+        tunnel, host, port = start_ssh_tunnel(config)
+        engine = build_engine(
+            build_connection_url(config, host, port),
+            config.db_type,
+            config.ssl_mode,
+            tls_connect_args=tls_material.connect_args if tls_material else None,
+        )
+        if tls_material:
+            setattr(engine, "_querymind_tls_material", tls_material)
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return engine, tunnel
+    except Exception:
+        if tls_material:
+            tls_material.cleanup()
+        if tunnel:
+            dispose_connection_resources(None, tunnel)
+        raise
 
 
 def cache_connection(user_id: str, connection_id: str, engine: Engine, tunnel: Optional[SSHTunnelForwarder] = None) -> None:
@@ -183,6 +349,7 @@ async def get_cached_schema(
     connection_id: str,
     engine_loader,
     force_refresh: bool = False,
+    config_loader=None,
 ) -> list[TableInfo] | None:
     key = (user_id, connection_id)
     now = time.monotonic()
@@ -199,7 +366,15 @@ async def get_cached_schema(
     if not engine:
         return None
 
-    schema = await anyio.to_thread.run_sync(schema_inspector.get_schema, engine)
+    config = await config_loader(user_id, connection_id) if config_loader else None
+    schema = await anyio.to_thread.run_sync(
+        lambda: schema_inspector.get_schema(
+            engine,
+            scope_mode=config.scope_mode if config else "all",
+            included_schemas=config.included_schemas if config else [],
+            included_tables=config.included_tables if config else [],
+        )
+    )
     with _cache_lock:
         _schema_cache[key] = (schema, now)
     return schema
@@ -270,6 +445,8 @@ __all__ = [
     "start_ssh_tunnel",
     "build_engine",
     "test_connection",
+    "diagnose_connection",
+    "diagnose_connection_sync",
     "open_connection",
     "cache_connection",
     "get_cached_engine",

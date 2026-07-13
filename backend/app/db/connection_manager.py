@@ -27,9 +27,22 @@ from app.db.models.connection import (
     ForeignKeyInfo,
     TableInfo,
 )
-from app.db.repositories import connection_attempt_repository, connection_repository, schema_snapshot_repository
+from app.db.repositories import (
+    connection_attempt_repository,
+    connection_health_repository,
+    connection_repository,
+    schema_snapshot_repository,
+)
+from app.db.session import session_scope
+from app.core.config import settings
 from app.query_engine.results import QueryExecutionResult
 from app.query_engine.schema_inspector import generate_erd_json, generate_erd_mermaid
+from app.query_engine import schema_inspector
+from app.query_engine.connection_scope import (
+    invalidate_scope_cache,
+    normalize_scope,
+    validate_scope_inventory,
+)
 import app.query_engine.connection_pool as connection_pool
 
 
@@ -158,21 +171,26 @@ async def test_connection(user_id: str, config: ConnectionRequest) -> Connection
     started_at = time.monotonic()
     await _preflight_connection_attempt_async(user_id, "test", config, started_at)
 
-    success, message = await connection_pool.test_connection(config)
-    latency_ms = round((time.monotonic() - started_at) * 1000, 2)
+    result = await connection_pool.diagnose_connection(config)
+    success, message, latency_ms = result.success, result.message, result.latency_ms
     await _log_attempt_async(
         user_id=user_id,
         action="test",
         config=config,
         decision="allowed",
         success=success,
-        error_code=None if success else "connection_failed",
+        error_code=None if success else result.code,
         started_at=started_at,
     )
-    return ConnectionTestResult(success=success, message=message, latency_ms=latency_ms)
+    return result
 
 
-async def test_saved_connection(user_id: str, connection_id: str) -> ConnectionTestResult | None:
+async def test_saved_connection(
+    user_id: str,
+    connection_id: str,
+    *,
+    source: str = "manual_test",
+) -> ConnectionTestResult | None:
     config = await connection_repository.get_connection_config(user_id, connection_id)
     if not config:
         return None
@@ -180,8 +198,8 @@ async def test_saved_connection(user_id: str, connection_id: str) -> ConnectionT
     started_at = time.monotonic()
     await _preflight_connection_attempt_async(user_id, "test", config, started_at)
 
-    success, message = await connection_pool.test_connection(config)
-    latency_ms = round((time.monotonic() - started_at) * 1000, 2)
+    result = await connection_pool.diagnose_connection(config)
+    success, message, latency_ms = result.success, result.message, result.latency_ms
     persisted_error = None if success else sanitize_connection_error(message)
     await connection_repository.record_connection_health(
         user_id,
@@ -190,17 +208,20 @@ async def test_saved_connection(user_id: str, connection_id: str) -> ConnectionT
         last_error=persisted_error,
         latency_ms=latency_ms,
     )
+    await anyio.to_thread.run_sync(
+        functools.partial(
+            connection_health_repository.record,
+            owner_id=user_id,
+            connection_id=connection_id,
+            source=source,
+            status="healthy" if success else "failed",
+            diagnostic_code=result.code,
+            message=result.message,
+            latency_ms=latency_ms,
+        )
+    )
     if not success:
         await _release_connection_async(user_id, connection_id)
-    else:
-        try:
-            await _refresh_catalog_for_connection(user_id, connection_id)
-        except Exception:
-            logger.warning(
-                "Failed to refresh catalog snapshot after saved connection test for %s",
-                connection_id,
-                exc_info=True,
-            )
 
     await _log_attempt_async(
         user_id=user_id,
@@ -208,10 +229,10 @@ async def test_saved_connection(user_id: str, connection_id: str) -> ConnectionT
         config=config,
         decision="allowed",
         success=success,
-        error_code=None if success else "connection_failed",
+        error_code=None if success else result.code,
         started_at=started_at,
     )
-    return ConnectionTestResult(success=success, message=message, latency_ms=latency_ms)
+    return result
 
 
 async def connect(user_id: str, config: ConnectionRequest) -> tuple[str, Engine, float]:
@@ -221,15 +242,32 @@ async def connect(user_id: str, config: ConnectionRequest) -> tuple[str, Engine,
     engine = None
     tunnel = None
     try:
+        normalized_scope = normalize_scope(config.scope_mode, config.included_schemas, config.included_tables)
+        config.scope_mode = normalized_scope["mode"]
+        config.included_schemas = normalized_scope["included_schemas"]
+        config.included_tables = normalized_scope["included_tables"]
         engine, tunnel = await anyio.to_thread.run_sync(connection_pool.open_connection, config)
-        connection_id = await connection_repository.create_connection(user_id, config)
+        inventory, _truncated = await anyio.to_thread.run_sync(
+            schema_inspector.discover_schema_inventory,
+            engine,
+            settings.connection_diagnostic_max_objects,
+        )
+        scope_errors = validate_scope_inventory(normalized_scope, inventory)
+        if scope_errors:
+            raise ValueError(scope_errors[0]["message"])
+        schema = await anyio.to_thread.run_sync(
+            lambda: schema_inspector.get_schema(
+                engine,
+                scope_mode=config.scope_mode,
+                included_schemas=config.included_schemas,
+                included_tables=config.included_tables,
+            )
+        )
+        if not schema:
+            raise ValueError("No accessible tables are available in the selected connection scope.")
         latency_ms = round((time.monotonic() - started_at) * 1000, 2)
-        await connection_repository.record_connection_health(
-            user_id,
-            connection_id,
-            last_status="healthy",
-            last_error=None,
-            latency_ms=latency_ms,
+        connection_id, catalog = await connection_repository.create_connection_bundle(
+            user_id, config, schema, latency_ms=latency_ms
         )
     except Exception as exc:
         await _dispose_resources_async(engine, tunnel)
@@ -245,14 +283,8 @@ async def connect(user_id: str, config: ConnectionRequest) -> tuple[str, Engine,
         raise
 
     await _cache_connection_async(user_id, connection_id, engine, tunnel)
-    try:
-        await _persist_catalog_for_connection(user_id, connection_id)
-    except Exception:
-        logger.warning(
-            "Failed to build catalog snapshot after connect for %s",
-            connection_id,
-            exc_info=True,
-        )
+    connection_pool.cache_schema(user_id, connection_id, schema)
+    connection_pool.cache_catalog(user_id, connection_id, catalog)
     await _log_attempt_async(
         user_id=user_id,
         action="connect",
@@ -299,6 +331,7 @@ async def get_engine(user_id: str, connection_id: str) -> Engine | None:
 
 async def disconnect(user_id: str, connection_id: str) -> bool:
     await _release_connection_async(user_id, connection_id)
+    invalidate_scope_cache(user_id, connection_id)
     return await connection_repository.delete_connection(user_id, connection_id)
 
 
@@ -330,6 +363,7 @@ async def get_cached_schema(
         connection_id=connection_id,
         engine_loader=get_engine,
         force_refresh=force_refresh,
+        config_loader=connection_repository.get_connection_config,
     )
 
 
@@ -394,28 +428,69 @@ async def get_connection_schema(user_id: str, connection_id: str) -> list[TableI
 
 
 async def refresh_schema(user_id: str, connection_id: str) -> list[TableInfo] | None:
-    # Drop the persisted catalog snapshot so agent mode rebuilds from the fresh schema.
-    await invalidate_catalog(user_id, connection_id)
+    connection = await get_connection(user_id, connection_id)
+    if not connection:
+        return None
+    config = await connection_repository.get_connection_config(user_id, connection_id)
+    if not config:
+        return None
+    engine = await get_engine(user_id, connection_id)
+    if not engine:
+        return None
     try:
-        schema = await get_cached_schema(user_id, connection_id, force_refresh=True)
+        schema = await anyio.to_thread.run_sync(
+            lambda: schema_inspector.get_schema(
+                engine,
+                scope_mode=config.scope_mode,
+                included_schemas=config.included_schemas,
+                included_tables=config.included_tables,
+            )
+        )
+        if not schema:
+            raise ValueError("The active connection scope contains no accessible tables.")
+        catalog = build_catalog(connection_id, connection.db_type, schema)
+
+        def persist_replacement() -> None:
+            with session_scope() as session:
+                schema_snapshot_repository.upsert_sync(session, catalog, user_id)
+                connection_repository._record_connection_health_sync(
+                    session,
+                    user_id,
+                    connection_id,
+                    last_status="healthy",
+                    last_error=None,
+                )
+                connection_repository._record_schema_sync_sync(session, user_id, connection_id)
+                connection_health_repository.record_sync(
+                    session,
+                    owner_id=user_id,
+                    connection_id=connection_id,
+                    source="schema_refresh",
+                    status="healthy",
+                    diagnostic_code="connection_healthy",
+                    message="Schema refreshed successfully.",
+                    latency_ms=None,
+                )
+
+        await anyio.to_thread.run_sync(persist_replacement)
     except Exception as exc:
-        await connection_repository.record_connection_health(
-            user_id,
-            connection_id,
-            last_status="failed",
-            last_error=sanitize_connection_error(exc),
+        await anyio.to_thread.run_sync(
+            functools.partial(
+                connection_health_repository.record,
+                owner_id=user_id,
+                connection_id=connection_id,
+                source="schema_refresh",
+                status="failed",
+                diagnostic_code="connection_unavailable",
+                message="Schema refresh failed; the last good schema was preserved.",
+                latency_ms=None,
+            )
         )
         raise
-
-    if schema is not None:
-        # Record health and schema-sync timestamp atomically in one transaction/session.
-        await connection_repository.record_health_and_schema_sync(
-            user_id,
-            connection_id,
-            last_status="healthy",
-            last_error=None,
-        )
-        await _persist_catalog_from_schema(user_id, connection_id, schema)
+    connection_pool.invalidate_schema_cache(user_id, connection_id)
+    invalidate_scope_cache(user_id, connection_id)
+    connection_pool.cache_schema(user_id, connection_id, schema)
+    connection_pool.cache_catalog(user_id, connection_id, catalog)
     return schema
 
 
@@ -433,11 +508,7 @@ async def _persist_catalog_from_schema(
         )
         connection_pool.cache_catalog(user_id, connection_id, catalog)
     except Exception:
-        logger.warning(
-            "Failed to build catalog snapshot for connection %s",
-            connection_id,
-            exc_info=True,
-        )
+        logger.warning("Failed to build catalog snapshot for connection %s", connection_id)
 
 
 async def _persist_catalog_for_connection(user_id: str, connection_id: str) -> None:
@@ -447,10 +518,7 @@ async def _persist_catalog_for_connection(user_id: str, connection_id: str) -> N
 
 
 async def _refresh_catalog_for_connection(user_id: str, connection_id: str) -> None:
-    await invalidate_catalog(user_id, connection_id)
-    schema = await get_cached_schema(user_id, connection_id, force_refresh=True)
-    if schema:
-        await _persist_catalog_from_schema(user_id, connection_id, schema)
+    await refresh_schema(user_id, connection_id)
 
 
 async def record_connection_health(
@@ -482,6 +550,8 @@ def record_query_execution_health_sync(
 ) -> None:
     if not connection_id:
         return
+    if not result.success and not result.connection_failure:
+        return
     connection_repository.sync_record_connection_health(
         user_id,
         connection_id,
@@ -496,6 +566,8 @@ async def record_query_execution_health(
     result: QueryExecutionResult,
 ) -> None:
     if not connection_id:
+        return
+    if not result.success and not result.connection_failure:
         return
     await connection_repository.record_connection_health(
         user_id,
@@ -545,6 +617,7 @@ async def get_catalog(user_id: str, connection_id: str, *, force_refresh: bool =
 
 async def invalidate_catalog(user_id: str, connection_id: str) -> None:
     connection_pool.invalidate_schema_cache(user_id, connection_id)
+    invalidate_scope_cache(user_id, connection_id)
     await anyio.to_thread.run_sync(
         functools.partial(schema_snapshot_repository.delete, user_id, connection_id)
     )

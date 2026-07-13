@@ -57,6 +57,16 @@ celery_app.conf.update(
             "schedule": crontab(),
             "options": {"queue": settings.celery_default_queue},
         },
+        "dispatch-connection-maintenance": {
+            "task": "app.workers.tasks.dispatch_connection_maintenance",
+            "schedule": crontab(),
+            "options": {"queue": settings.celery_scheduled_queue},
+        },
+        "cleanup-connection-health-events": {
+            "task": "app.workers.tasks.cleanup_connection_health_events",
+            "schedule": crontab(hour=3, minute=15),
+            "options": {"queue": settings.celery_scheduled_queue},
+        },
     },
 )
 

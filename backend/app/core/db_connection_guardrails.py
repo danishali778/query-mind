@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 class RateLimitError(AppError):
     def __init__(self, message: str = "Too many database connection attempts. Please wait and try again.") -> None:
-        super().__init__(message, code="rate_limited", status_code=429)
+        super().__init__(message, code="connection_rate_limited", status_code=429)
 
 
 @dataclass(frozen=True)
@@ -147,7 +147,7 @@ def validate_connection_target(config: ConnectionRequest) -> None:
         raise BadRequestError("Database port is invalid.")
 
     if host in _METADATA_HOSTS:
-        raise BadRequestError("Database target is blocked by connection security policy.")
+        raise BadRequestError("Database target is blocked by connection security policy.", code="connection_target_blocked")
 
     if host in _allowed_hosts():
         return
@@ -157,7 +157,7 @@ def validate_connection_target(config: ConnectionRequest) -> None:
 
     for ip in ips:
         if _is_metadata_ip(ip):
-            raise BadRequestError("Database target is blocked by connection security policy.")
+            raise BadRequestError("Database target is blocked by connection security policy.", code="connection_target_blocked")
 
     allow_private = not settings.is_production and settings.db_connect_allow_private_in_dev
     if allow_private:
@@ -165,7 +165,7 @@ def validate_connection_target(config: ConnectionRequest) -> None:
 
     for ip in ips:
         if _is_blocked_ip(ip) and not _is_allowed_ip(ip, allowed_networks):
-            raise BadRequestError("Database target is blocked by connection security policy.")
+            raise BadRequestError("Database target is blocked by connection security policy.", code="connection_target_blocked")
 
 
 def get_redis_client() -> Redis | None:
