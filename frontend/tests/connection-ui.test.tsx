@@ -9,6 +9,7 @@ import { ConnectionsPage } from '../src/pages/ConnectionsPage';
 import { NewConnectionWizard } from '../src/components/connections/NewConnectionWizard';
 import type { DatabaseConnection, SchemaResponse } from '../src/types/api';
 import type { ConnectionListItem } from '../src/types/connections';
+import { MemoryRouter } from 'react-router-dom';
 
 const apiMocks = vi.hoisted(() => ({
   listConnections: vi.fn(),
@@ -155,14 +156,14 @@ describe('connection detail states', () => {
     const user = userEvent.setup();
     const refresh = vi.fn();
     render(
-      <ConnectionDetail
+      <MemoryRouter><ConnectionDetail
         connection={connectionItem}
         schema={null}
         schemaState="error"
         schemaError="Schema inspection failed."
         queryHistory={[]}
         onRefreshSchema={refresh}
-      />
+      /></MemoryRouter>
     );
 
     await user.click(screen.getByText('SCHEMA'));
@@ -178,12 +179,12 @@ describe('connection detail states', () => {
     apiMocks.testSavedConnection.mockResolvedValue({ success: true, message: 'Connection successful', latency_ms: 15 });
 
     render(
-      <ConnectionDetail
+      <MemoryRouter><ConnectionDetail
         connection={connectionItem}
         schema={schema}
         schemaState="ready"
         queryHistory={[]}
-      />
+      /></MemoryRouter>
     );
 
     await user.click(screen.getByText('CREDENTIALS'));
@@ -265,7 +266,7 @@ describe('connections page retries', () => {
       .mockRejectedValueOnce(new ApiRequestError('Unavailable', { status: 503, code: 'service_unavailable' }))
       .mockResolvedValueOnce([apiConnection]);
 
-    render(<ConnectionsPage />);
+    render(<MemoryRouter><ConnectionsPage /></MemoryRouter>);
 
     expect(await screen.findByText('SOURCE LOAD FAILED')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'RETRY LOAD' }));
