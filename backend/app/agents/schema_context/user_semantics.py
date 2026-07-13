@@ -50,6 +50,7 @@ class SemanticPolicy(BaseModel):
 class SemanticContext(BaseModel):
     schema_hash: str
     definitions: list[SemanticContextEntry] = Field(default_factory=list)
+    policy_definitions: list[SemanticContextEntry] = Field(default_factory=list)
     policy: SemanticPolicy = Field(default_factory=SemanticPolicy)
 
     @property
@@ -60,10 +61,14 @@ class SemanticContext(BaseModel):
         self, references: list[str], *, usage_role: str = "applied"
     ) -> list[dict[str, Any]]:
         requested = list(dict.fromkeys(references))
-        unknown = set(requested) - self.allowed_references
+        entries = list(self.definitions)
+        if usage_role == "policy_enforced":
+            entries.extend(self.policy_definitions)
+        allowed = {item.reference for item in entries}
+        unknown = set(requested) - allowed
         if unknown:
             raise ValueError("The agent returned semantic references that were not supplied.")
-        by_ref = {item.reference: item for item in self.definitions}
+        by_ref = {item.reference: item for item in entries}
         return [
             by_ref[reference].lineage(usage_role).model_dump(mode="json")
             for reference in requested
@@ -88,6 +93,7 @@ def build_semantic_context(
     question_lower = question.casefold()
     question_tokens = set(tokenize(question))
     candidates: list[tuple[int, SemanticContextEntry]] = []
+    policy_entries: dict[str, SemanticContextEntry] = {}
     policy = SemanticPolicy()
 
     for definition, version in rows:
@@ -109,13 +115,16 @@ def build_semantic_context(
 
         if definition.kind == "table" and payload.get("visibility") == "hidden":
             policy.hidden_tables[str(payload.get("table_name", "")).casefold()] = reference
+            policy_entries[reference] = entry
         if definition.kind == "column":
             column_key = _column_key(payload.get("table_name"), payload.get("column_name"))
             classification = payload.get("classification")
             if classification == "restricted":
                 policy.restricted_columns[column_key] = reference
+                policy_entries[reference] = entry
             elif classification == "sensitive":
                 policy.sensitive_columns[column_key] = reference
+                policy_entries[reference] = entry
 
         phrases = {
             definition.key.replace("_", " ").casefold(),
@@ -144,7 +153,12 @@ def build_semantic_context(
             continue
         selected.append(entry)
         consumed += len(encoded)
-    return SemanticContext(schema_hash=catalog.schema_hash, definitions=selected, policy=policy)
+    return SemanticContext(
+        schema_hash=catalog.schema_hash,
+        definitions=selected,
+        policy_definitions=list(policy_entries.values()),
+        policy=policy,
+    )
 
 
 def render_untrusted_semantic_context(context: SemanticContext) -> str:

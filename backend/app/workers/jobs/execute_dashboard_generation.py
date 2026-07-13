@@ -58,7 +58,13 @@ def execute_dashboard_generation_task(self, run_id: str) -> None:
     acks_late=True,
     reject_on_worker_lost=True,
 )
-def regenerate_dashboard_widget_task(self, run_id: str, item_id: str, instruction: str | None = None) -> None:
+def regenerate_dashboard_widget_task(
+    self,
+    run_id: str,
+    item_id: str,
+    instruction: str | None = None,
+    use_latest_definitions: bool = False,
+) -> None:
     from app.services import dashboard_generation_service
 
     logger.info(
@@ -73,6 +79,7 @@ def regenerate_dashboard_widget_task(self, run_id: str, item_id: str, instructio
             run_id,
             item_id,
             instruction,
+            use_latest_definitions,
             reporter=reporter,
         ),
     )

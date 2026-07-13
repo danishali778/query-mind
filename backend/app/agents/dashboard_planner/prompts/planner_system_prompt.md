@@ -77,6 +77,8 @@ Keep the composition scannable. Prefer several compact KPIs near the beginning, 
 - Every `client_key` must be a unique valid UUID.
 - Widget titles must be unique, including case-insensitive duplicates.
 - Record only explicit, material assumptions and warnings; keep them concise and non-duplicative.
+- When a supplied semantic definition materially determines a widget, copy its exact opaque `reference` into that widget's `semantic_refs` array.
+- Never invent a semantic reference and never cite a definition merely because it was available.
 
 Before responding, silently verify that every widget is schema-supported, distinct, useful, visualization-compatible, correctly sized, and answerable by one read-only query. Do not output this verification or any chain-of-thought.
 
@@ -101,7 +103,8 @@ Return only one valid JSON object matching schema version 1. Do not use Markdown
       "purpose": "Track revenue level and trend",
       "visualization": "line",
       "size": "full",
-      "time_range": "12 months"
+      "time_range": "12 months",
+      "semantic_refs": ["sem_metric_revenue_v3"]
     }
   ]
 }

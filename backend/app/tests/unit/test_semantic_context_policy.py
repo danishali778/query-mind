@@ -164,3 +164,31 @@ def test_unknown_agent_reference_is_rejected():
         assert "not supplied" in str(exc)
     else:
         raise AssertionError("Unknown semantic reference was accepted")
+
+
+def test_policy_lineage_is_available_without_exposing_hidden_definition_to_prompt():
+    context = build_semantic_context(
+        catalog=_catalog(),
+        rows=[
+            _row(
+                "column",
+                "protected_total",
+                {
+                    "kind": "column",
+                    "table_name": "orders",
+                    "column_name": "total",
+                    "classification": "sensitive",
+                },
+            )
+        ],
+        question="Show order counts",
+        max_definitions=20,
+        max_characters=12_000,
+    )
+    assert context.definitions == []
+    assert context.policy_definitions[0].reference == "sem_column_protected_total_v1"
+    assert "protected_total" not in render_untrusted_semantic_context(context)
+    lineage = context.lineage_for_references(
+        ["sem_column_protected_total_v1"], usage_role="policy_enforced"
+    )
+    assert lineage[0]["usage_role"] == "policy_enforced"

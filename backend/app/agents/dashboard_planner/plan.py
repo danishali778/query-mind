@@ -42,6 +42,7 @@ class WidgetPlan(BaseModel):
     visualization: AllowedVisualization = "auto"
     size: AllowedSize = "half"
     time_range: str | None = Field(default=None, max_length=100)
+    semantic_refs: list[str] = Field(default_factory=list, max_length=20)
 
     @field_validator("title", "question", "purpose", "time_range", mode="before")
     @classmethod
@@ -72,6 +73,15 @@ class WidgetPlan(BaseModel):
         ):
             raise ValueError("Widget plans must not include SQL")
         return value
+
+    @field_validator("semantic_refs", mode="before")
+    @classmethod
+    def _normalize_semantic_refs(cls, value):
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError("semantic_refs must be a list")
+        return list(dict.fromkeys(str(item).strip() for item in value if str(item).strip()))
 
 
 class DashboardPlan(BaseModel):

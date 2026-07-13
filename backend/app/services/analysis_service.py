@@ -141,6 +141,7 @@ async def run_analysis(
     schema_context: str | None = None,
     requested_visualization: str | None = None,
     allow_schema_shortcuts: bool = True,
+    semantic_context=None,
 ) -> dict[str, Any]:
     """Execute a business question through the shared agent/pipeline path.
 
@@ -185,9 +186,10 @@ async def run_analysis(
 
             engine = await connection_service.get_engine(user_id, connection_id)
             if catalog and engine:
-                semantic_context = await semantic_context_service.load_context(
-                    user_id, connection_id, catalog, message
-                )
+                if semantic_context is None:
+                    semantic_context = await semantic_context_service.load_context(
+                        user_id, connection_id, catalog, message
+                    )
                 try:
                     agent_out = await anyio.to_thread.run_sync(
                         functools.partial(

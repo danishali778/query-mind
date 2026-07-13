@@ -22,6 +22,7 @@ from app.agents.dashboard_planner.plan import (
     reject_write_oriented_prompt,
 )
 from app.integrations.llm_client import get_chat_llm
+from app.agents.schema_context.user_semantics import SemanticContext, render_untrusted_semantic_context
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +124,7 @@ def _build_messages(
     default_time_range: str | None,
     extra_instructions: str | None,
     catalog_text: str,
+    semantic_context_text: str = "",
     repair_feedback: str | None = None,
 ) -> list:
     system = (
@@ -138,6 +140,8 @@ def _build_messages(
         f"Supported sizes: {', '.join(ALLOWED_SIZES)}",
         f"Sanitized schema catalog:\n{catalog_text}",
     ]
+    if semantic_context_text:
+        human_parts.append(semantic_context_text)
     if repair_feedback:
         human_parts.append(f"Previous plan was invalid. Fix these issues and return JSON only:\n{repair_feedback}")
     return [
@@ -154,6 +158,7 @@ def plan_dashboard(
     default_time_range: str | None = None,
     extra_instructions: str | None = None,
     progress: Callable[[str, str], None] | None = None,
+    semantic_context: SemanticContext | None = None,
 ) -> DashboardPlan:
     """Produce a validated dashboard plan. Never executes SQL."""
 
@@ -163,6 +168,10 @@ def plan_dashboard(
 
     widget_count = max(1, min(8, int(widget_count)))
     catalog_text = _sanitize_catalog_for_planner(catalog)
+    semantic_context = semantic_context or SemanticContext(
+        schema_hash=getattr(catalog, "schema_hash", "")
+    )
+    semantic_context_text = render_untrusted_semantic_context(semantic_context)
 
     def _stage(stage: str, label: str) -> None:
         if progress:
@@ -178,6 +187,7 @@ def plan_dashboard(
         default_time_range=default_time_range,
         extra_instructions=extra_instructions,
         catalog_text=catalog_text,
+        semantic_context_text=semantic_context_text,
     )
 
     try:
@@ -195,6 +205,7 @@ def plan_dashboard(
             default_time_range=default_time_range,
             extra_instructions=extra_instructions,
             catalog_text=catalog_text,
+            semantic_context_text=semantic_context_text,
             repair_feedback=feedback,
         )
         try:
@@ -211,6 +222,17 @@ def plan_dashboard(
     _stage("checking_plan", "Checking the dashboard plan")
     if len(plan.widgets) > widget_count:
         plan = plan.model_copy(update={"widgets": plan.widgets[:widget_count]})
+    unknown_refs = {
+        reference
+        for widget in plan.widgets
+        for reference in widget.semantic_refs
+        if reference not in semantic_context.allowed_references
+    }
+    if unknown_refs:
+        raise DashboardPlanningError(
+            "Planner used semantic references that were not supplied.",
+            code="invalid_dashboard_plan",
+        )
     _stage("plan_ready", "Dashboard plan ready")
     return plan
 

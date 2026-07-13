@@ -50,6 +50,7 @@ class ApproveDashboardPlanResponse(BaseModel):
 
 class RegenerateWidgetRequest(BaseModel):
     instruction: Optional[str] = Field(default=None, max_length=1000)
+    use_latest_definitions: bool = False
 
 
 class DashboardGenerationItemResponse(BaseModel):
@@ -80,6 +81,7 @@ class DashboardGenerationRunResponse(BaseModel):
     default_time_range: Optional[str] = None
     extra_instructions: Optional[str] = None
     plan_json: Optional[dict[str, Any]] = None
+    semantic_context_json: Optional[dict[str, Any]] = None
     plan_revision: int = 0
     status: str
     current_stage: str
