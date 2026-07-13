@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { T } from './tokens';
 import { DashboardCreateForm } from './DashboardCreateForm';
 import { useDashboardGenerationRun } from '../../hooks/useDashboardGenerationRun';
@@ -10,7 +10,6 @@ import type {
   WidgetPlan,
 } from '../../types/api';
 import {
-  EXAMPLE_PROMPTS,
   PROMPT_MAX_LENGTH,
   WIDGET_COUNT_DEFAULT,
   WIDGET_COUNT_MAX,
@@ -22,6 +21,7 @@ import {
   rememberGenerationRun,
   validateDescribeForm,
 } from '../../utils/dashboardGeneration';
+import { SuggestionGrid } from '../suggestions/SuggestionGrid';
 
 type WizardStep = 'describe' | 'planning' | 'review';
 type ModalMode = 'manual' | 'ai';
@@ -33,6 +33,8 @@ interface DashboardAiWizardProps {
   onApproved: (dashboardId: string, runId: string) => void;
   onManualCreate: (name: string) => Promise<void>;
   creatingManual?: boolean;
+  initialConnectionId?: string;
+  initialPrompt?: string;
 }
 
 const VISUALIZATIONS = ['auto', 'kpi', 'bar', 'line', 'area', 'pie', 'donut', 'table'] as const;
@@ -69,6 +71,8 @@ export function DashboardAiWizard({
   onApproved,
   onManualCreate,
   creatingManual = false,
+  initialConnectionId,
+  initialPrompt,
 }: DashboardAiWizardProps) {
   const [step, setStep] = useState<WizardStep>('describe');
   const [connections, setConnections] = useState<DatabaseConnection[]>([]);
@@ -86,6 +90,7 @@ export function DashboardAiWizard({
   const [snapshot, setSnapshot] = useState<DashboardGenerationRun | null>(null);
   const [planDraft, setPlanDraft] = useState<DashboardPlan | null>(null);
   const [showErrors, setShowErrors] = useState(false);
+  const initialStateAppliedRef = useRef(false);
 
   const describeValues = useMemo(() => ({
     connectionId,
@@ -142,15 +147,26 @@ export function DashboardAiWizard({
     listConnectionsSafe().then((items) => {
       if (cancelled) return;
       setConnections(items);
-      if (!connectionId && items[0]) setConnectionId(items[0].id);
+      const hasRequestedConnection = !initialConnectionId || items.some((item) => item.id === initialConnectionId);
+      const requested = initialConnectionId && hasRequestedConnection ? initialConnectionId : '';
+      if (!connectionId && (requested || items[0])) setConnectionId(requested || items[0].id);
+      if (!initialStateAppliedRef.current) {
+        initialStateAppliedRef.current = true;
+        if (initialConnectionId && !hasRequestedConnection) {
+          setError('The selected database connection is no longer available.');
+        } else if (initialPrompt) {
+          setPrompt(initialPrompt.slice(0, PROMPT_MAX_LENGTH));
+        }
+      }
     });
     return () => { cancelled = true; };
-  }, [isOpen, mode, connectionId]);
+  }, [isOpen, mode, connectionId, initialConnectionId, initialPrompt]);
 
   useEffect(() => {
     if (!isOpen) {
       disconnect();
       reset();
+      initialStateAppliedRef.current = false;
     }
   }, [isOpen, disconnect, reset]);
 
@@ -414,32 +430,19 @@ export function DashboardAiWizard({
               />
             </div>
 
-            <div>
-              <div style={{ ...labelStyle, marginBottom: 8 }}>Example prompts</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {EXAMPLE_PROMPTS.map((example) => (
-                  <button
-                    key={example}
-                    type="button"
-                    onClick={() => setPrompt(example)}
-                    style={{
-                      padding: '8px 10px',
-                      borderRadius: T.radius.sm,
-                      border: `1px solid ${T.border}`,
-                      background: T.s2,
-                      color: T.text2,
-                      fontFamily: T.fontBody,
-                      fontSize: '0.75rem',
-                      textAlign: 'left',
-                      cursor: 'pointer',
-                      maxWidth: '100%',
-                    }}
-                  >
-                    {example}
-                  </button>
-                ))}
+            {connectionId ? (
+              <SuggestionGrid
+                connectionId={connectionId}
+                surface="dashboard"
+                onSelect={(suggestion) => setPrompt(suggestion.prompt)}
+                primaryLabel="Fill prompt"
+                compact
+              />
+            ) : (
+              <div style={{ color: T.text3, fontSize: '0.75rem' }}>
+                Select a database connection to see schema-aware dashboard ideas.
               </div>
-            </div>
+            )}
 
             {error && <FieldError>{error}</FieldError>}
 

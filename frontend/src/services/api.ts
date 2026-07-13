@@ -49,6 +49,7 @@ import type {
   ConnectionAutomation,
   ConnectionHealthHistory,
 } from '../types/api';
+import type { QuestionSuggestionResponse, SuggestionSurface } from '../types/questionSuggestions';
 
 export function editSql(sessionId: string, messageId: string, data: EditSqlRequest) {
   return jsonRequest<ChatMessageRecord>(`/chat/${sessionId}/message/${messageId}/edit-sql`, 'POST', data);
@@ -122,6 +123,54 @@ export function getConnectionHealth(connectionId: string, cursor?: string | null
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) params.set('cursor', cursor);
   return request<ConnectionHealthHistory>(`/database/connections/${connectionId}/health?${params.toString()}`);
+}
+
+export function getQuestionSuggestions(
+  connectionId: string,
+  surface: SuggestionSurface,
+  limit?: number,
+  signal?: AbortSignal,
+) {
+  const params = new URLSearchParams({ surface });
+  if (limit) params.set('limit', String(limit));
+  return request<QuestionSuggestionResponse>(
+    `/database/connections/${connectionId}/question-suggestions?${params.toString()}`,
+    { signal },
+  );
+}
+
+export function refreshQuestionSuggestions(
+  connectionId: string,
+  surface: SuggestionSurface,
+  expectedContextFingerprint: string,
+  force: boolean,
+  signal?: AbortSignal,
+) {
+  return jsonRequest<QuestionSuggestionResponse>(
+    `/database/connections/${connectionId}/question-suggestions/refresh?surface=${surface}`,
+    'POST',
+    {
+      client_request_id: crypto.randomUUID(),
+      expected_context_fingerprint: expectedContextFingerprint,
+      force,
+    },
+    { signal },
+  );
+}
+
+export function dismissQuestionSuggestion(
+  connectionId: string,
+  surface: SuggestionSurface,
+  suggestionId: string,
+  expectedContextFingerprint: string,
+  signal?: AbortSignal,
+) {
+  return jsonRequest<QuestionSuggestionResponse>(
+    `/database/connections/${connectionId}/question-suggestions/${suggestionId}/dismiss?surface=${surface}`,
+    'POST',
+    { expected_context_fingerprint: expectedContextFingerprint },
+    { signal },
+  );
 }
 
 export function sendMessage(data: ChatRequest) {

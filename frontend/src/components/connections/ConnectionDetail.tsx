@@ -10,6 +10,8 @@ import {
   updateConnectionScope,
 } from '../../services/api';
 import { SemanticsWorkspace } from './SemanticsWorkspace';
+import { SuggestionGrid } from '../suggestions/SuggestionGrid';
+import { useNavigate } from 'react-router-dom';
 
 interface UiColumnSchema {
   name: string;
@@ -147,6 +149,7 @@ function Tab({ active, onClick, label, icon }: { active: boolean, onClick: () =>
 }
 
 function OverviewTab({ connection, schema, schemaState = 'idle', queryHistory, onTabSwitch }: { connection: ConnectionListItem, schema: SchemaResponse | null, schemaState?: LoadState, queryHistory: QueryRecord[], onTabSwitch: (t: ConnectionDetailTab) => void }) {
+  const navigate = useNavigate();
   const tables = schema?.tables || [];
   const tableCount = schemaState === 'loading' ? '…' : String(tables.length);
   const tableSub = schemaState === 'loading' ? 'LOADING' : 'SCHEMA MAPPED';
@@ -215,6 +218,21 @@ function OverviewTab({ connection, schema, schemaState = 'idle', queryHistory, o
             </div>
           </SectionCard>
         </div>
+      </div>
+
+      <div style={{ marginBottom: 24, padding: 20, border: `1px solid ${T.border}`, background: T.s1 }}>
+        <SuggestionGrid
+          connectionId={connection.id}
+          surface="connection"
+          primaryLabel="Ask in Chat"
+          secondaryLabel="Build Dashboard"
+          onSelect={(suggestion) => navigate('/chat', {
+            state: { connectionId: connection.id, prompt: suggestion.prompt, suggestionId: suggestion.id },
+          })}
+          onSecondarySelect={(suggestion) => navigate('/dashboard', {
+            state: { openAiWizard: true, connectionId: connection.id, prompt: suggestion.prompt, suggestionId: suggestion.id },
+          })}
+        />
       </div>
 
       <SectionCard title="RECENT QUERY ACTIVITY" onAction={() => onTabSwitch('activity')} actionText="VIEW LOG ->">
