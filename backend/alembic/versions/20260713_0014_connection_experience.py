@@ -64,8 +64,16 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["connection_id"], ["database_connections.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("idx_connection_health_owner_connection_created", "connection_health_events", ["owner_id", "connection_id", "created_at"])
-    op.create_index("idx_connection_health_connection_status_created", "connection_health_events", ["connection_id", "status", "created_at"])
+    op.create_index(
+        "idx_connection_health_owner_connection_created",
+        "connection_health_events",
+        ["owner_id", "connection_id", sa.literal_column("created_at DESC")],
+    )
+    op.create_index(
+        "idx_connection_health_connection_status_created",
+        "connection_health_events",
+        ["connection_id", "status", sa.literal_column("created_at DESC")],
+    )
 
 
 def downgrade() -> None:
