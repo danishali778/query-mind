@@ -1,5 +1,6 @@
 from functools import lru_cache
 import ipaddress
+import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -105,11 +106,32 @@ class Settings(BaseSettings):
     app_db_pool_timeout_seconds: int = Field(default=30, ge=1, le=120)
 
     llm_provider: str = "groq"
+    llm_credential_mode: str = "hybrid"
+    llm_credential_validation_timeout_seconds: int = Field(default=10, ge=1, le=60)
+    llm_credential_validation_rate_limit_attempts: int = Field(default=10, ge=1, le=1000)
+    llm_credential_validation_rate_limit_window_seconds: int = Field(default=60, ge=1, le=3600)
+    llm_credential_max_bytes: int = Field(default=8192, ge=64, le=65536)
+    llm_usage_retention_days: int = Field(default=90, ge=1, le=3650)
+    deployment_llm_trial_call_limit: int = Field(default=10, ge=0, le=100000)
+    deployment_llm_privileged_user_ids_raw: str = Field(
+        default="", validation_alias="DEPLOYMENT_LLM_PRIVILEGED_USER_IDS"
+    )
     groq_api_key: str | None = None
     groq_model: str = "llama-3.3-70b-versatile"
+    groq_allowed_models_raw: str = Field(
+        default="llama-3.3-70b-versatile", validation_alias="GROQ_ALLOWED_MODELS"
+    )
     google_api_key: str | None = None
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-2.0-flash"
+    gemini_allowed_models_raw: str = Field(
+        default="gemini-2.0-flash", validation_alias="GEMINI_ALLOWED_MODELS"
+    )
+    openai_api_key: str | None = None
+    openai_model: str = "gpt-5-mini"
+    openai_allowed_models_raw: str = Field(
+        default="gpt-5-mini,gpt-4.1-mini", validation_alias="OPENAI_ALLOWED_MODELS"
+    )
 
     agent_mode: str = "pipeline"
     agent_model: str | None = None
@@ -192,6 +214,22 @@ class Settings(BaseSettings):
         if self.auth_rate_limit_attempts < 1 or self.auth_rate_limit_window_seconds < 1:
             raise RuntimeError("Authentication rate-limit settings must be positive.")
 
+        credential_mode = self.llm_credential_mode.strip().lower()
+        if credential_mode not in {"deployment", "hybrid", "byok_required"}:
+            raise RuntimeError("LLM_CREDENTIAL_MODE must be one of: deployment, hybrid, byok_required.")
+        if self.resolved_llm_provider not in {"gemini", "groq", "openai"}:
+            raise RuntimeError("LLM_PROVIDER must be one of: gemini, groq, openai.")
+        for provider, models in self.llm_allowed_models.items():
+            if not models:
+                raise RuntimeError(f"At least one allowed model is required for {provider}.")
+            if self.llm_default_model(provider) not in models:
+                raise RuntimeError(f"The default {provider} model must be present in its allowed-model list.")
+        for owner_id in self.deployment_llm_privileged_user_ids:
+            try:
+                uuid.UUID(owner_id)
+            except ValueError as exc:
+                raise RuntimeError("DEPLOYMENT_LLM_PRIVILEGED_USER_IDS must contain UUID values.") from exc
+
         for cidr in self.trusted_proxy_cidrs:
             try:
                 ipaddress.ip_network(cidr, strict=False)
@@ -230,16 +268,48 @@ class Settings(BaseSettings):
     def resolved_google_api_key(self) -> str | None:
         return self.google_api_key or self.gemini_api_key
 
+    @staticmethod
+    def _csv_values(raw: str) -> list[str]:
+        return list(dict.fromkeys(value.strip() for value in raw.split(",") if value.strip()))
+
+    @property
+    def deployment_llm_privileged_user_ids(self) -> set[str]:
+        return set(self._csv_values(self.deployment_llm_privileged_user_ids_raw))
+
+    @property
+    def llm_allowed_models(self) -> dict[str, list[str]]:
+        return {
+            "gemini": self._csv_values(self.gemini_allowed_models_raw),
+            "groq": self._csv_values(self.groq_allowed_models_raw),
+            "openai": self._csv_values(self.openai_allowed_models_raw),
+        }
+
+    def llm_default_model(self, provider: str) -> str:
+        return {
+            "gemini": self.gemini_model,
+            "groq": self.groq_model,
+            "openai": self.openai_model,
+        }[provider]
+
+    def deployment_llm_api_key(self, provider: str) -> str | None:
+        return {
+            "gemini": self.resolved_google_api_key,
+            "groq": self.groq_api_key,
+            "openai": self.openai_api_key,
+        }.get(provider)
+
     @property
     def resolved_llm_provider(self) -> str:
         provider = (self.llm_provider or "groq").strip().lower()
-        if provider == "gemini":
-            return "gemini"
+        if provider in {"gemini", "groq", "openai"} and self.deployment_llm_api_key(provider):
+            return provider
         if self.groq_api_key:
             return "groq"
         if self.resolved_google_api_key:
             return "gemini"
-        return "groq"
+        if self.openai_api_key:
+            return "openai"
+        return provider if provider in {"gemini", "groq", "openai"} else "groq"
 
     @property
     def resolved_llm_model(self) -> str:
@@ -247,6 +317,8 @@ class Settings(BaseSettings):
             return self.agent_model
         if self.resolved_llm_provider == "gemini":
             return self.gemini_model
+        if self.resolved_llm_provider == "openai":
+            return self.openai_model
         return self.groq_model
 
     @property
@@ -306,8 +378,11 @@ class Settings(BaseSettings):
             "auth_rate_limit_window_seconds": self.auth_rate_limit_window_seconds,
             "trusted_proxy_cidrs_count": len(self.trusted_proxy_cidrs),
             "llm_provider": self.resolved_llm_provider,
+            "llm_credential_mode": self.llm_credential_mode,
+            "deployment_llm_privileged_user_count": len(self.deployment_llm_privileged_user_ids),
             "has_groq_api_key": bool(self.groq_api_key),
             "has_google_api_key": bool(self.resolved_google_api_key),
+            "has_openai_api_key": bool(self.openai_api_key),
             "groq_model": self.groq_model,
             "gemini_model": self.gemini_model,
             "resolved_llm_model": self.resolved_llm_model,

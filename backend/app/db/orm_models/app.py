@@ -286,6 +286,10 @@ class DashboardGenerationRunORM(Base):
     celery_task_id: Mapped[str | None] = mapped_column(Text)
     failure_code: Mapped[str | None] = mapped_column(Text)
     failure_message: Mapped[str | None] = mapped_column(Text)
+    llm_provider: Mapped[str | None] = mapped_column(Text)
+    llm_model: Mapped[str | None] = mapped_column(Text)
+    llm_credential_source: Mapped[str | None] = mapped_column(Text)
+    llm_credential_revision: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_utcnow, server_default=func.now())
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -549,6 +553,10 @@ class ChatAgentRunORM(Base):
     )
     failure_code: Mapped[str | None] = mapped_column(Text)
     failure_message: Mapped[str | None] = mapped_column(Text)
+    llm_provider: Mapped[str | None] = mapped_column(Text)
+    llm_model: Mapped[str | None] = mapped_column(Text)
+    llm_credential_source: Mapped[str | None] = mapped_column(Text)
+    llm_credential_revision: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_utcnow, server_default=func.now())
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -731,6 +739,10 @@ class SemanticSuggestionRunORM(Base):
     celery_task_id: Mapped[str | None] = mapped_column(Text)
     failure_code: Mapped[str | None] = mapped_column(Text)
     failure_message: Mapped[str | None] = mapped_column(Text)
+    llm_provider: Mapped[str | None] = mapped_column(Text)
+    llm_model: Mapped[str | None] = mapped_column(Text)
+    llm_credential_source: Mapped[str | None] = mapped_column(Text)
+    llm_credential_revision: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=_utcnow, server_default=func.now()
     )
@@ -788,6 +800,10 @@ class QuestionSuggestionSetORM(Base):
     celery_task_id: Mapped[str | None] = mapped_column(Text)
     failure_code: Mapped[str | None] = mapped_column(Text)
     failure_message: Mapped[str | None] = mapped_column(Text)
+    llm_provider: Mapped[str | None] = mapped_column(Text)
+    llm_model: Mapped[str | None] = mapped_column(Text)
+    llm_credential_source: Mapped[str | None] = mapped_column(Text)
+    llm_credential_revision: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=_utcnow, server_default=func.now(), nullable=False
     )
@@ -818,6 +834,62 @@ class QuestionSuggestionSetORM(Base):
     )
 
 
+class UserLlmCredentialORM(Base):
+    __tablename__ = "user_llm_credentials"
+
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    owner_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    encrypted_api_key: Mapped[str] = mapped_column(Text, nullable=False)
+    key_hint: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="valid", server_default=text("'valid'"))
+    credential_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
+    last_validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    validation_failure_code: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_utcnow, server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("provider IN ('gemini', 'groq', 'openai')", name="user_llm_credentials_provider_valid"),
+        CheckConstraint("status IN ('valid', 'invalid')", name="user_llm_credentials_status_valid"),
+        CheckConstraint("credential_revision >= 1", name="user_llm_credentials_revision_positive"),
+        UniqueConstraint("owner_id", "provider", name="uq_user_llm_credentials_owner_provider"),
+        Index("idx_user_llm_credentials_owner", "owner_id"),
+    )
+
+
+class LlmUsageEventORM(Base):
+    __tablename__ = "llm_usage_events"
+
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    owner_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    credential_source: Mapped[str] = mapped_column(Text, nullable=False)
+    credential_id: Mapped[str | None] = mapped_column(GUID(), ForeignKey("user_llm_credentials.id", ondelete="SET NULL"))
+    credential_revision: Mapped[int | None] = mapped_column(Integer)
+    feature: Mapped[str] = mapped_column(Text, nullable=False)
+    workflow_type: Mapped[str | None] = mapped_column(Text)
+    workflow_id: Mapped[str | None] = mapped_column(Text)
+    interaction_type: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="started", server_default=text("'started'"))
+    failure_code: Mapped[str | None] = mapped_column(Text)
+    input_tokens: Mapped[int | None] = mapped_column(Integer)
+    output_tokens: Mapped[int | None] = mapped_column(Integer)
+    latency_ms: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_utcnow, server_default=func.now(), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint("provider IN ('gemini', 'groq', 'openai')", name="llm_usage_events_provider_valid"),
+        CheckConstraint("credential_source IN ('user', 'deployment')", name="llm_usage_events_source_valid"),
+        CheckConstraint("interaction_type IN ('explicit', 'automatic')", name="llm_usage_events_interaction_valid"),
+        CheckConstraint("status IN ('started', 'completed', 'failed')", name="llm_usage_events_status_valid"),
+        Index("idx_llm_usage_events_owner_created", "owner_id", desc("created_at")),
+        Index("idx_llm_usage_events_source_created", "credential_source", desc("created_at")),
+    )
+
+
 class UserSettingsORM(Base):
     __tablename__ = "user_settings"
 
@@ -833,6 +905,10 @@ class UserSettingsORM(Base):
     animate_charts: Mapped[bool | None] = mapped_column(Boolean, default=True, nullable=True)
     syntax_highlighting: Mapped[bool | None] = mapped_column(Boolean, default=True, nullable=True)
     ai_model: Mapped[str | None] = mapped_column(Text, default="claude-sonnet-4-6", nullable=True)
+    preferred_llm_provider: Mapped[str | None] = mapped_column(Text)
+    preferred_llm_model: Mapped[str | None] = mapped_column(Text)
+    llm_preference_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
+    allow_background_ai: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
     stream_responses: Mapped[bool | None] = mapped_column(Boolean, default=True, nullable=True)
     default_row_limit: Mapped[int | None] = mapped_column(Integer, default=500, nullable=True)
     auto_save_queries: Mapped[bool | None] = mapped_column(Boolean, default=False, nullable=True)
@@ -857,6 +933,8 @@ class UserSubscriptionORM(Base):
     queries_limit: Mapped[int | None] = mapped_column(Integer, default=100, nullable=True)
     ai_used: Mapped[int | None] = mapped_column(Integer, default=0, nullable=True)
     ai_limit: Mapped[int | None] = mapped_column(Integer, default=30, nullable=True)
+    deployment_llm_calls_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    deployment_llm_calls_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=10, server_default=text("10"))
     next_reset_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_utcnow, server_default=func.now(), nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, server_default=func.now(), nullable=True)
@@ -882,6 +960,8 @@ __all__ = [
     "SemanticDefinitionUsageORM",
     "SemanticSuggestionRunORM",
     "QuestionSuggestionSetORM",
+    "UserLlmCredentialORM",
+    "LlmUsageEventORM",
     "UserSettingsORM",
     "UserSubscriptionORM",
 ]

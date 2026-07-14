@@ -74,6 +74,11 @@ celery_app.conf.update(
             "schedule": crontab(hour=3, minute=15),
             "options": {"queue": settings.celery_scheduled_queue},
         },
+        "cleanup-llm-usage-events": {
+            "task": "app.workers.tasks.cleanup_llm_usage_events",
+            "schedule": crontab(hour=3, minute=30),
+            "options": {"queue": settings.celery_scheduled_queue},
+        },
     },
 )
 

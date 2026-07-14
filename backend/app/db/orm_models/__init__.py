@@ -21,6 +21,8 @@ from app.db.orm_models.app import (
     TemplateGenerationORM,
     UserSettingsORM,
     UserSubscriptionORM,
+    UserLlmCredentialORM,
+    LlmUsageEventORM,
 )
 
 __all__ = [
@@ -46,4 +48,6 @@ __all__ = [
     "SemanticSuggestionRunORM",
     "UserSettingsORM",
     "UserSubscriptionORM",
+    "UserLlmCredentialORM",
+    "LlmUsageEventORM",
 ]

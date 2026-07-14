@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import TypeVar
 
+from app.core.config import settings
 from app.db.models.settings import UserSettings, UserSettingsBase, UserSubscription
 from app.db.orm_models import UserSettingsORM, UserSubscriptionORM
 from app.db.session import read_session_scope, session_scope
@@ -36,7 +37,11 @@ def _settings_to_domain(row: UserSettingsORM) -> UserSettings:
         show_run_counts=_coalesce(row.show_run_counts, defaults["show_run_counts"]),
         animate_charts=_coalesce(row.animate_charts, defaults["animate_charts"]),
         syntax_highlighting=_coalesce(row.syntax_highlighting, defaults["syntax_highlighting"]),
-        ai_model=_coalesce(row.ai_model, defaults["ai_model"]),
+        ai_model=row.preferred_llm_model or row.ai_model or settings.resolved_llm_model,
+        preferred_llm_provider=row.preferred_llm_provider,
+        preferred_llm_model=row.preferred_llm_model,
+        llm_preference_revision=_coalesce(row.llm_preference_revision, 1),
+        allow_background_ai=_coalesce(row.allow_background_ai, False),
         stream_responses=_coalesce(row.stream_responses, defaults["stream_responses"]),
         default_row_limit=_coalesce(row.default_row_limit, defaults["default_row_limit"]),
         auto_save_queries=_coalesce(row.auto_save_queries, defaults["auto_save_queries"]),
@@ -57,14 +62,17 @@ def _subscription_to_domain(row: UserSubscriptionORM) -> UserSubscription:
         plan_type=_coalesce(row.plan_type, "free"),
         queries_used=_coalesce(row.queries_used, 0),
         queries_limit=_coalesce(row.queries_limit, 100),
-        ai_used=_coalesce(row.ai_used, 0),
-        ai_limit=_coalesce(row.ai_limit, 30),
+        ai_used=_coalesce(row.deployment_llm_calls_used, 0),
+        ai_limit=_coalesce(row.deployment_llm_calls_limit, 10),
+        deployment_llm_calls_used=_coalesce(row.deployment_llm_calls_used, 0),
+        deployment_llm_calls_limit=_coalesce(row.deployment_llm_calls_limit, 10),
         next_reset_date=_as_iso(row.next_reset_date),
     )
 
 
 def _default_settings(owner_id: str) -> UserSettings:
     fallback = UserSettingsBase().model_dump()
+    fallback["ai_model"] = settings.resolved_llm_model
     fallback["owner_id"] = owner_id
     return UserSettings(**fallback)
 
@@ -82,6 +90,8 @@ def _new_subscription_row(owner_id: str) -> UserSubscriptionORM:
         queries_limit=100,
         ai_used=0,
         ai_limit=30,
+        deployment_llm_calls_used=0,
+        deployment_llm_calls_limit=10,
         next_reset_date=datetime.now(timezone.utc) + timedelta(days=30),
     )
 

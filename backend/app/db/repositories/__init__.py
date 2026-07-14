@@ -8,6 +8,7 @@ __all__ = [
     "query_history_repository",
     "query_library_repository",
     "question_suggestion_repository",
+    "llm_credential_repository",
     "settings_repository",
     "template_repository",
 ]

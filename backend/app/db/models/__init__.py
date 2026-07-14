@@ -30,6 +30,7 @@ from app.db.models.query_library import (
     UpdateQueryInput,
 )
 from app.db.models.settings import UserSettings, UserSettingsBase, UserSettingsUpdate, UserSubscription
+from app.db.models.llm import LlmCredential, LlmExecutionContext, LlmResolution, LlmUsageEvent
 from app.db.models.templates import GeneratedQueryTemplate, TemplateGenerationState
 
 __all__ = [
@@ -62,6 +63,10 @@ __all__ = [
     "UserSettings",
     "UserSettingsUpdate",
     "UserSubscription",
+    "LlmCredential",
+    "LlmExecutionContext",
+    "LlmResolution",
+    "LlmUsageEvent",
     "GeneratedQueryTemplate",
     "TemplateGenerationState",
 ]
