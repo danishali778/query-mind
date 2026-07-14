@@ -20,6 +20,7 @@ from app.db.models.question_suggestions import (
     SURFACES,
 )
 from app.integrations.llm_client import get_chat_llm
+from app.db.models.llm import LlmExecutionContext
 
 
 _PROMPT_PATH = Path(__file__).with_name("prompts") / "system_prompt.md"
@@ -133,8 +134,9 @@ def generate_ai_bundle(
     context: SuggestionGenerationContext,
     deterministic: dict[str, list[dict]],
     max_per_surface: int,
+    llm_context: LlmExecutionContext,
 ) -> dict[str, list[dict]]:
-    llm = get_chat_llm(temperature=0.2, max_tokens=6000)
+    llm = get_chat_llm(llm_context, temperature=0.2, max_tokens=6000)
     feedback: str | None = None
     for attempt in range(2):
         response = llm.invoke(_messages(context, feedback))

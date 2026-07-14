@@ -6,12 +6,13 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from app.agents._llm_content import content_to_text, log_llm_output
 from app.agents.nl_to_sql.llm import get_llm
+from app.db.models.llm import LlmExecutionContext
 
 logger = logging.getLogger("query-mind.nl_to_sql")
 
 
-def generate_sql(messages: list[dict]) -> tuple[str, dict, str]:
-    llm = get_llm()
+def generate_sql(messages: list[dict], llm_context: LlmExecutionContext) -> tuple[str, dict, str]:
+    llm = get_llm(llm_context)
 
     lc_messages = []
     for msg in messages:
@@ -99,6 +100,7 @@ def generate_error_correction(
     messages: list[dict],
     sql: str,
     error: str,
+    llm_context: LlmExecutionContext,
 ) -> tuple[str, dict, str]:
     error_message = {
         "role": "user",
@@ -109,4 +111,4 @@ def generate_error_correction(
             "Please fix the SQL query and try again. Return the corrected query in the same format."
         ),
     }
-    return generate_sql(messages + [error_message])
+    return generate_sql(messages + [error_message], llm_context)

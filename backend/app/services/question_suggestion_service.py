@@ -189,6 +189,16 @@ async def refresh(
             limit=limit or DEFAULT_SURFACE_LIMITS[surface],
             record=None,
         )
+    if force:
+        from app.services import llm_credential_service
+
+        await anyio.to_thread.run_sync(
+            lambda: llm_credential_service.preflight(
+                owner_id,
+                "question_suggestions",
+                interaction_type="explicit",
+            )
+        )
     try:
         await anyio.to_thread.run_sync(ensure_available)
     except RuntimeError as exc:
@@ -228,7 +238,11 @@ async def refresh(
             )
 
             task = generate_question_suggestions_task.apply_async(
-                args=[record.id, record.generation_revision],
+                args=[
+                    record.id,
+                    record.generation_revision,
+                    "explicit" if force else "automatic",
+                ],
                 queue=settings.celery_suggestions_queue,
             )
 

@@ -7,6 +7,7 @@ import logging
 import threading
 
 from app.core.config import settings
+from app.core.errors import AppError
 from app.db.repositories import chat_run_repository
 from app.services import chat_service
 from app.services.chat_progress import AgentRunCancelled, ProgressReporter, cancel_signalled, publish_event
@@ -51,6 +52,7 @@ def run_chat_agent_task(self, run_id: str) -> None:
                 message=question,
                 history=history,
                 progress=progress,
+                run_id=run_id,
             )
         )
         progress.check_cancelled()
@@ -91,6 +93,16 @@ def run_chat_agent_task(self, run_id: str) -> None:
             message_updates={"error": "Response stopped by user."},
         )
         publish_event(run_id, "run.cancelled", "Response stopped")
+    except AppError as exc:
+        logger.warning("Durable chat run %s failed code=%s", run_id, exc.code)
+        chat_run_repository.finalize_run(
+            run_id,
+            status="failed",
+            failure_code=exc.code,
+            failure_message=exc.message,
+            message_updates={"error": exc.message},
+        )
+        publish_event(run_id, "run.failed", exc.message)
     except Exception:
         logger.exception("Durable chat run %s failed", run_id)
         chat_run_repository.finalize_run(

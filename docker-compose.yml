@@ -2,7 +2,7 @@
 #
 # Prerequisites (bring your own accounts, see README):
 #   1. backend/.env  — copied from backend/.env.example with your Supabase,
-#      Gemini/Groq, and encryption keys filled in.
+#      optional deployment LLM fallback and encryption keys filled in.
 #   2. frontend/.env — copied from frontend/.env.example with your Supabase
 #      URL/anon key (baked into the bundle at build time).
 #

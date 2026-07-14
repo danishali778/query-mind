@@ -6,11 +6,13 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agents._prompt_loader import load_prompt
 from app.integrations.llm_client import invoke_chat_llm
+from app.db.models.llm import LlmExecutionContext
 
 _PROMPT_PATH = Path(__file__).with_name("prompts") / "widget_insight_prompt.md"
 
 
 def generate_widget_insight(
+    llm_context: LlmExecutionContext,
     title: str,
     viz_type: str,
     data: List[Dict[str, Any]],
@@ -29,6 +31,7 @@ def generate_widget_insight(
 
     try:
         return invoke_chat_llm(
+            llm_context,
             [
                 SystemMessage(content="You provide short, professional data insights."),
                 HumanMessage(content=prompt),

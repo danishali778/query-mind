@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import StreamingResponse
 
-from app.api.deps import CurrentUserDep, RateLimitChecker
+from app.api.deps import CurrentUserDep, LlmAccessChecker
 from app.api.v1.schemas.chat import (
     ChatMessage,
     ChatRequest,
@@ -17,7 +17,7 @@ from app.api.v1.schemas.chat import (
     UpdateSessionRequest,
 )
 from app.api.v1.schemas.common import MessageResponse
-from app.core.errors import BadRequestError, NotFoundError, ServiceUnavailableError
+from app.core.errors import AppError, BadRequestError, NotFoundError, ServiceUnavailableError
 from app.services import chat_service
 from app.services import chat_run_service
 from app.db.repositories.chat_run_repository import ActiveRunConflictError
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 async def start_chat_run(
     request: ChatRunRequest,
     current_user: CurrentUserDep,
-    _: object = Depends(RateLimitChecker("ai")),
+    _: object = Depends(LlmAccessChecker("chat")),
 ):
     try:
         return await chat_run_service.start_run(current_user.id, request)
@@ -91,7 +91,7 @@ async def stream_chat_run_events(
 async def send_chat_message(
     request: ChatRequest,
     current_user: CurrentUserDep,
-    _: object = Depends(RateLimitChecker("ai")),
+    _: object = Depends(LlmAccessChecker("chat")),
 ):
     try:
         result = await chat_service.send_message(
@@ -108,6 +108,8 @@ async def send_chat_message(
         if "not found" in detail.lower():
             raise NotFoundError(detail) from exc
         raise BadRequestError(detail) from exc
+    except AppError:
+        raise
     except Exception as exc:
         logger.error("Chat request failed for user %s", current_user.id, exc_info=True)
         raise ServiceUnavailableError("AI processing failed for this request.") from exc

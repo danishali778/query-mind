@@ -10,11 +10,13 @@ from app.query_engine.connection_pool import get_cached_engine
 from app.services.query_execution_service import execute_query
 from app.query_engine.safety import validate_query
 from app.query_engine.cancellation import AgentRunCancelled
+from app.db.models.llm import LlmExecutionContext
 
 logger = logging.getLogger("query-mind.graph")
 
 
 class ChatState(TypedDict):
+    llm_context: LlmExecutionContext
     user_id: str
     connection_id: str
     session_id: str
@@ -48,7 +50,7 @@ def generate_sql_node(state: ChatState) -> dict:
     progress = state.get("progress")
     if progress:
         progress.stage_started("sql_generation", "Generating a safe read-only query")
-    explanation, metadata, sql = generate_sql(state["llm_messages"])
+    explanation, metadata, sql = generate_sql(state["llm_messages"], state["llm_context"])
     if token and token.cancelled:
         raise AgentRunCancelled("Chat run cancellation requested.")
     if progress:
@@ -148,6 +150,7 @@ def analyze_results_node(state: ChatState) -> dict:
         progress.stage_started("visualization", "Selecting the best visualization")
 
     blueprint = generate_visualization_blueprint(
+        llm_context=state["llm_context"],
         user_message=state.get("user_message", ""),
         sql=state.get("sql", ""),
         preview_rows=rows[:5],
@@ -163,6 +166,7 @@ def handle_error_node(state: ChatState) -> dict:
         messages=state["llm_messages"],
         sql=state["sql"],
         error=state["error"],
+        llm_context=state["llm_context"],
     )
     retry_count = state["retry_count"] + 1
     return {
@@ -228,7 +232,14 @@ def run_chat(
     readonly: bool = True,
     cancellation_token=None,
     progress=None,
+    llm_context: LlmExecutionContext | None = None,
 ) -> ChatState:
+    llm_context = llm_context or LlmExecutionContext(
+        owner_id=user_id,
+        feature="chat",
+        workflow_type="chat_session",
+        workflow_id=session_id,
+    )
     llm_messages = build_conversation_prompt(
         schema_context=schema_context,
         history=history,
@@ -236,6 +247,7 @@ def run_chat(
     )
 
     initial_state: ChatState = {
+        "llm_context": llm_context,
         "user_id": user_id,
         "connection_id": connection_id,
         "session_id": session_id,

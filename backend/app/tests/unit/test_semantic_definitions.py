@@ -374,13 +374,16 @@ def test_suggestion_generator_returns_structurally_valid_typed_candidates_withou
                 )
             )
 
-    monkeypatch.setattr(semantic_suggester, "get_chat_llm", lambda **_kwargs: FakeLlm())
+    monkeypatch.setattr(semantic_suggester, "get_chat_llm", lambda *_args, **_kwargs: FakeLlm())
+    from app.db.models.llm import LlmExecutionContext
+
     candidates = semantic_suggester.generate_semantic_candidates(
         catalog=catalog,
         requested_kinds=["metric"],
         business_context="Finance reporting",
         verified_definitions=[],
         max_candidates=25,
+        llm_context=LlmExecutionContext(owner_id="11111111-1111-1111-1111-111111111111", feature="test"),
     )
     assert candidates[0]["kind"] == "metric"
     assert candidates[0]["structural_validation"]["valid"] is True
