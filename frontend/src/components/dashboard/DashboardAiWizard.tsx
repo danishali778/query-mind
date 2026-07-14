@@ -22,6 +22,8 @@ import {
   validateDescribeForm,
 } from '../../utils/dashboardGeneration';
 import { SuggestionGrid } from '../suggestions/SuggestionGrid';
+import { useNavigate } from 'react-router-dom';
+import { isLlmSetupError } from '../../services/llmSettings';
 
 type WizardStep = 'describe' | 'planning' | 'review';
 type ModalMode = 'manual' | 'ai';
@@ -74,6 +76,7 @@ export function DashboardAiWizard({
   initialConnectionId,
   initialPrompt,
 }: DashboardAiWizardProps) {
+  const navigate = useNavigate();
   const [step, setStep] = useState<WizardStep>('describe');
   const [connections, setConnections] = useState<DatabaseConnection[]>([]);
   const [connectionId, setConnectionId] = useState('');
@@ -83,6 +86,7 @@ export function DashboardAiWizard({
   const [extraInstructions, setExtraInstructions] = useState('');
   const [manualName, setManualName] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [setupRequired, setSetupRequired] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [savingPlan, setSavingPlan] = useState(false);
   const [approving, setApproving] = useState(false);
@@ -110,6 +114,7 @@ export function DashboardAiWizard({
     setExtraInstructions('');
     setManualName('');
     setError(null);
+    setSetupRequired(false);
     setSubmitting(false);
     setSavingPlan(false);
     setApproving(false);
@@ -189,6 +194,7 @@ export function DashboardAiWizard({
       });
       setRunId(accepted.run_id);
     } catch (err) {
+      setSetupRequired(isLlmSetupError(err));
       setError(err instanceof Error ? err.message : 'Failed to start planning');
       setStep('describe');
     } finally {
@@ -445,6 +451,11 @@ export function DashboardAiWizard({
             )}
 
             {error && <FieldError>{error}</FieldError>}
+            {setupRequired && (
+              <button type="button" style={{ border: `1px solid ${T.accent}`, background: T.s2, color: T.accent, padding: '9px 12px', cursor: 'pointer' }} onClick={() => navigate('/settings', { state: { section: 'ai', returnTo: '/dashboards', connectionId, prompt } })}>
+                Configure AI provider
+              </button>
+            )}
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>

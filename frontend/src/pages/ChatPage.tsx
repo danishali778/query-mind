@@ -15,6 +15,7 @@ import { useChatAgentRun } from '../hooks/useChatAgentRun';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { SuggestionGrid } from '../components/suggestions/SuggestionGrid';
 import type { QuestionSuggestion } from '../types/questionSuggestions';
+import { isLlmSetupError } from '../services/llmSettings';
 
 type LoadState = 'loading' | 'ready' | 'error';
 type MessageLoadState = 'idle' | LoadState;
@@ -508,7 +509,17 @@ export function ChatPage() {
         void loadSessions();
       }
     } catch (err) {
-      if (isUsageLimitError(err)) {
+      if (isLlmSetupError(err)) {
+        setMessages(prev => [...prev, { role: 'assistant', content: '', error: 'AI PROVIDER SETUP REQUIRED. ADD A PERSONAL KEY IN SETTINGS > AI PROVIDERS, THEN RETRY THIS QUESTION.' }]);
+        navigate('/settings', {
+          state: {
+            section: 'ai',
+            returnTo: '/chat',
+            connectionId: activeConnectionId,
+            prompt: message,
+          },
+        });
+      } else if (isUsageLimitError(err)) {
         setShowPaywall(true);
       } else {
         setMessages(prev => [...prev, { role: 'assistant', content: '', error: SEND_ERROR }]);

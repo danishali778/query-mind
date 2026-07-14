@@ -1,26 +1,37 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import type { LucideIcon } from 'lucide-react';
 import { 
   User, Zap, CreditCard, 
   LogOut, AlertTriangle,
-  Monitor, Smartphone, ChevronRight
+  Monitor, Smartphone, ChevronRight, KeyRound
 } from 'lucide-react';
 import { MainShell } from '../components/common/MainShell';
 import { Skeleton } from '../components/common/Skeleton';
 import { T } from '../components/dashboard/tokens';
 import { useSettingsStore } from '../store/settingsStore';
 import { useAuth } from '../context/useAuth';
+import { LlmProviderSettings } from '../components/settings/LlmProviderSettings';
 
-type Section = 'profile' | 'billing';
+type Section = 'profile' | 'ai' | 'billing';
 
 const NAV: { id: Section; label: string; icon: LucideIcon; badge?: string }[] = [
   { id: 'profile',       label: 'PROFILE',       icon: User },
+  { id: 'ai',            label: 'AI PROVIDERS',  icon: KeyRound },
   { id: 'billing',       label: 'BILLING',       icon: CreditCard, badge: 'PRO' },
 ];
 
 export function SettingsPage() {
-  const [section, setSection] = useState<Section>('profile');
+  const location = useLocation();
+  const navigate = useNavigate();
+  const navigationState = location.state as {
+    section?: Section;
+    returnTo?: '/chat' | '/dashboards';
+    connectionId?: string;
+    prompt?: string;
+  } | null;
+  const requestedSection = navigationState?.section;
+  const [section, setSection] = useState<Section>(requestedSection === 'ai' ? 'ai' : 'profile');
   const { settings, isLoading, fetchSettings } = useSettingsStore();
 
   useEffect(() => {
@@ -112,7 +123,44 @@ export function SettingsPage() {
         {/* Content Area */}
         <main style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: 'clamp(32px, 5vw, 64px) clamp(20px, 5vw, 80px)', position: 'relative', zIndex: 1 }} className="settings-scroll">
           <div style={{ maxWidth: 900, animation: 'fadeInScale 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards' }}>
+            {section === 'ai' && navigationState?.returnTo && navigationState.prompt && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (navigationState.returnTo === '/dashboards') {
+                    navigate('/dashboards', {
+                      state: {
+                        openAiWizard: true,
+                        connectionId: navigationState.connectionId,
+                        prompt: navigationState.prompt,
+                      },
+                    });
+                    return;
+                  }
+                  navigate('/chat', {
+                    state: {
+                      connectionId: navigationState.connectionId,
+                      prompt: navigationState.prompt,
+                    },
+                  });
+                }}
+                style={{
+                  marginBottom: 20,
+                  border: `1px solid ${T.accent}`,
+                  background: T.s2,
+                  color: T.accent,
+                  padding: '10px 14px',
+                  cursor: 'pointer',
+                  fontFamily: T.fontMono,
+                  fontWeight: 900,
+                  fontSize: '0.66rem',
+                }}
+              >
+                RETURN TO YOUR SAVED {navigationState.returnTo === '/chat' ? 'QUESTION' : 'DASHBOARD PROMPT'}
+              </button>
+            )}
             {section === 'profile'       && <ProfileSection />}
+            {section === 'ai'            && <AISection />}
             {section === 'billing'       && <BillingSection />}
           </div>
         </main>
@@ -405,77 +453,7 @@ export function SecuritySection() {
 // ── AI Engine & Queries ───────────────────────────────────
 
 export function AISection() {
-  const { settings, updateSetting } = useSettingsStore();
-  const [prompt, setPrompt] = useState(settings?.system_prompt || '');
-  const [saving, setSaving] = useState(false);
-
-  if (!settings) return null;
-
-  const handleSavePrompt = async () => {
-    setSaving(true);
-    await updateSetting({ system_prompt: prompt });
-    setSaving(false);
-  };
-
-  return (
-    <>
-      <PageTitle title="AI_ENGINE_CONFIG" sub="NEURAL MODEL AND QUERY DISPATCH PARAMETERS" />
-
-      <Card title="MODEL_SPECIFICATIONS">
-        <Row label="PRIMARY_LLM" sub="Generative model for SQL synthesis">
-          <select
-            value={settings.ai_model}
-            onChange={e => updateSetting({ ai_model: e.target.value })}
-            style={{ width: 280, padding: '10px 16px', borderRadius: 0, background: T.s1, border: `1px solid ${T.border}`, color: T.text, fontSize: '0.72rem', fontFamily: T.fontMono, outline: 'none', cursor: 'pointer', fontWeight: 600 }}
-          >
-            <option value="claude-sonnet-4-6">CLAUDE_SONNET_4.6</option>
-            <option value="claude-opus-4-6">CLAUDE_OPUS_4.6</option>
-            <option value="claude-haiku-4-5">CLAUDE_HAIKU_4.5</option>
-            <option value="gpt-4o">GPT_4O_LATEST</option>
-          </select>
-        </Row>
-        <Row label="STREAM_RESPONSES" sub="Real-time token dispatch for lower latency" noBorder>
-          <Toggle on={settings.stream_responses} onToggle={() => updateSetting({ stream_responses: !settings.stream_responses })} />
-        </Row>
-      </Card>
-
-      <Card title="EXECUTION_LIMITS">
-        <Row label="DEFAULT_ROW_LIMIT" sub="Maximum entities returned per query cycle">
-          <select
-            value={settings.default_row_limit.toString()}
-            onChange={e => updateSetting({ default_row_limit: parseInt(e.target.value, 10) })}
-            style={{ width: 140, padding: '10px 16px', borderRadius: 0, background: T.s1, border: `1px solid ${T.border}`, color: T.text, fontSize: '0.72rem', fontFamily: T.fontMono, outline: 'none', cursor: 'pointer', fontWeight: 600 }}
-          >
-            {['100', '250', '500', '1000', '5000'].map(v => (
-              <option key={v} value={v}>{v} ROWS</option>
-            ))}
-          </select>
-        </Row>
-        <Row label="AUTO_ARCHIVE" sub="Persist all AI-generated queries to Library" noBorder>
-          <Toggle on={settings.auto_save_queries} onToggle={() => updateSetting({ auto_save_queries: !settings.auto_save_queries })} />
-        </Row>
-      </Card>
-
-      <Card title="SYSTEM_INSTRUCTIONS">
-        <div style={{ fontSize: '0.65rem', color: T.text3, marginBottom: 16, fontFamily: T.fontMono, lineHeight: 1.6, fontWeight: 500 }}>
-          CONTEXTUAL OVERRIDE: THESE INSTRUCTIONS ARE INJECTED INTO EVERY AI DISPATCH. USE THIS TO DEFINE BUSINESS LOGIC, FISCAL CALENDARS, OR DATA PRIVACY RULES.
-        </div>
-        <textarea
-          value={prompt}
-          onChange={e => setPrompt(e.target.value)}
-          placeholder="e.g. FISCAL_YEAR_START: APRIL_1. IGNORE_SOFT_DELETES: TRUE."
-          style={{
-            width: '100%', minHeight: 140, background: T.s2, border: `1px solid ${T.border}`,
-            borderRadius: 0, padding: '16px', fontFamily: T.fontMono, fontSize: '0.72rem',
-            lineHeight: 1.8, color: T.text, outline: 'none', resize: 'vertical', boxSizing: 'border-box',
-            fontWeight: 500,
-          }}
-          className="settings-input"
-        />
-        <SaveBtn onClick={handleSavePrompt} loading={saving} />
-      </Card>
-    </>
-  );
+  return <LlmProviderSettings />;
 }
 
 // ── Notifications (Alerts) ────────────────────────────────
@@ -618,7 +596,7 @@ function BillingSection() {
 
       <Card title="RESOURCE_CONSUMPTION">
         <UsageBar label="QUERY_CYCLES" value={sub.queries_used} max={sub.queries_limit} color={T.accent} />
-        <UsageBar label="NEURAL_TOKENS" value={sub.ai_used} max={sub.ai_limit} color={T.purple} />
+        <UsageBar label="QUERYMIND_DEPLOYMENT_LLM_CALLS" value={sub.deployment_llm_calls_used} max={sub.deployment_llm_calls_limit} color={T.purple} />
       </Card>
       
       <div style={{ fontSize: '0.6rem', color: T.text3, marginTop: 40, fontFamily: T.fontMono, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', opacity: 0.7 }}>
