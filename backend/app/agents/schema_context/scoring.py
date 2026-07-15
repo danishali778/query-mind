@@ -7,7 +7,7 @@ import re
 from app.agents.schema_context.types import SchemaCatalog, ScoredTable
 
 DEFAULT_SYNONYMS: dict[str, list[str]] = {
-    "revenue": ["sales", "income", "gross", "paid", "amount", "payment"],
+    "revenue": ["sales", "income", "gross", "paid", "amount", "payment", "order"],
     "customer": ["client", "buyer", "account", "user"],
     "user": ["member", "account", "profile"],
     "order": ["purchase", "transaction", "sale"],
@@ -41,7 +41,7 @@ def tokenize(text: str) -> list[str]:
     return list(dict.fromkeys(tokens))
 
 
-def _expand_terms(tokens: list[str]) -> set[str]:
+def expand_terms(tokens: list[str]) -> set[str]:
     expanded = set(tokens)
     for token in tokens:
         for canonical, synonyms in DEFAULT_SYNONYMS.items():
@@ -53,13 +53,12 @@ def _expand_terms(tokens: list[str]) -> set[str]:
 
 def _table_tokens(table_name: str) -> set[str]:
     base = table_name.split(".")[-1].lower()
-    parts = re.findall(r"[a-z0-9]+", base.replace("_", " "))
-    return set(parts)
+    return set(tokenize(base))
 
 
 def score_tables(query: str, catalog: SchemaCatalog, *, top_k: int = 8) -> list[ScoredTable]:
     """Score catalog tables against a natural-language query."""
-    terms = _expand_terms(tokenize(query))
+    terms = expand_terms(tokenize(query))
     scored: list[ScoredTable] = []
 
     for table in catalog.tables:
@@ -78,7 +77,7 @@ def score_tables(query: str, catalog: SchemaCatalog, *, top_k: int = 8) -> list[
             reasons.append(f"table tokens: {', '.join(sorted(overlap))}")
 
         for col in table.columns:
-            col_tokens = set(re.findall(r"[a-z0-9]+", col.name.lower()))
+            col_tokens = set(tokenize(col.name))
             col_overlap = terms & col_tokens
             if col_overlap:
                 score += 1.0
@@ -94,12 +93,16 @@ def score_tables(query: str, catalog: SchemaCatalog, *, top_k: int = 8) -> list[
                     score += 1.0
                     reasons.append(f"synonym: {canonical}")
 
-        score += table.importance_score * 0.5
+        # Importance is a ranking signal only. It must never make a table
+        # eligible when the query has no lexical or semantic overlap.
+        eligible = score > 0
+        if eligible:
+            score += table.importance_score * 0.5
         if table.is_internal:
             score -= 2.0
             reasons.append("internal penalty")
 
-        if score > 0:
+        if eligible and score > 0:
             scored.append(
                 ScoredTable(
                     name=table.name,
@@ -113,4 +116,4 @@ def score_tables(query: str, catalog: SchemaCatalog, *, top_k: int = 8) -> list[
     return scored[:top_k]
 
 
-__all__ = ["DEFAULT_SYNONYMS", "tokenize", "score_tables"]
+__all__ = ["DEFAULT_SYNONYMS", "expand_terms", "tokenize", "score_tables"]

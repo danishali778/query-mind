@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import json
+from typing import Literal
 
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+
+from app.core.secret_detection import detect_secret
 
 
 class AnalystProposal(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    response_type: Literal["query", "clarification"] = "query"
+    clarification_question: str | None = None
     analysis_summary: str
     relevant_tables: list[str]
     relevant_columns: list[str]
@@ -31,6 +38,30 @@ class AnalystProposal(BaseModel):
             return None
         cleaned = value.strip()
         return cleaned or None
+
+    @model_validator(mode="after")
+    def validate_response_contract(self):
+        text_values = [
+            self.analysis_summary,
+            self.clarification_question or "",
+            self.sql or "",
+            *self.assumptions,
+        ]
+        if any(detect_secret(value) for value in text_values):
+            raise ValueError("proposal contains credential-shaped content")
+        if self.response_type == "query":
+            if not self.sql:
+                raise ValueError("query proposals require sql")
+            if self.clarification_question is not None:
+                raise ValueError("query proposals cannot include a clarification question")
+        else:
+            if self.sql is not None:
+                raise ValueError("clarification proposals cannot include sql")
+            if not (self.clarification_question or "").strip():
+                raise ValueError("clarification proposals require clarification_question")
+            if self.relevant_tables or self.relevant_columns or self.semantic_refs:
+                raise ValueError("clarification proposals cannot cite schema evidence")
+        return self
 
 
 class AgentFinishError(ValueError):

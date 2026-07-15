@@ -10,6 +10,8 @@ from redis.exceptions import RedisError
 
 from app.core.config import settings
 from app.db.repositories import chat_run_repository
+from app.services.chat_input_guard import ChatInputGuard
+from app.services.chat_intent_orchestrator import prepare_chat_intent
 from app.services.chat_progress import ensure_available, publish_event, read_events, signal_cancel
 
 
@@ -33,11 +35,29 @@ def _accepted(run) -> dict:
 
 
 async def start_run(user_id: str, request) -> dict:
+    ChatInputGuard.enforce_sensitive(request.message)
     if not settings.chat_streaming_enabled:
         raise StreamingUnavailableError("Durable chat streaming is disabled.")
     existing = await chat_run_repository.get_run_by_client_request(user_id, request.client_request_id)
     if existing:
         return _accepted(existing)
+    prepared = await prepare_chat_intent(
+        user_id=user_id,
+        connection_id=request.connection_id,
+        message=request.message,
+        session_id=request.session_id,
+    )
+    if prepared.intent.decision == "clarify":
+        run, _ = await chat_run_repository.create_completed_clarification(
+            user_id=user_id,
+            connection_id=request.connection_id,
+            message=request.message,
+            client_request_id=request.client_request_id,
+            session_id=request.session_id,
+            clarification=prepared.intent.clarification_message or "Clarification needed.",
+            clarification_context=prepared.intent.clarification_context or {},
+        )
+        return _accepted(run)
     active_count = await anyio.to_thread.run_sync(chat_run_repository.active_run_count, user_id)
     if active_count >= settings.chat_run_max_active_per_user:
         raise RunLimitError("Too many active responses. Wait for an existing response to finish.")
@@ -101,6 +121,8 @@ def _chat_response(run, message, user_message=None) -> dict | None:
         "agent_trace": message.agent_trace,
         "agent_tier": message.agent_tier,
         "semantic_lineage": message.semantic_lineage,
+        "response_kind": message.response_kind,
+        "clarification_context": message.clarification_context,
     }
 
 

@@ -46,6 +46,8 @@ def _map_message(row: ChatMessageORM, run: ChatAgentRunORM | None = None) -> Cha
         agent_run_stage=run.current_stage if run else None,
         agent_run_stage_label=run.current_stage_label if run else None,
         semantic_lineage=row.semantic_lineage or [],
+        response_kind=row.response_kind or "answer",
+        clarification_context=row.clarification_context,
         created_at=_iso(row.created_at),
     )
 
@@ -288,6 +290,8 @@ def _add_message_sync(session: Session, user_id: str, session_id: str, message: 
         agent_tier=message.agent_tier,
         agent_run_id=message.agent_run_id,
         semantic_lineage=message.semantic_lineage or [],
+        response_kind=message.response_kind,
+        clarification_context=message.clarification_context,
     )
     session.add(row)
     _record_semantic_message_usages(session, user_id, message)
@@ -342,6 +346,40 @@ def _get_history_for_llm_sync(session: Session, user_id: str, session_id: str) -
             content = f"{content}\n```sql\n{row.sql}\n```"
         history.append({"role": row.role, "content": content})
     return history
+
+
+async def get_intent_history(user_id: str, session_id: str) -> list[dict]:
+    """Return safe lifecycle metadata used to decide whether history is relevant."""
+    def _run() -> list[dict]:
+        with read_session_scope() as session:
+            rows = (
+                session.query(ChatMessageORM)
+                .filter(ChatMessageORM.session_id == session_id, ChatMessageORM.owner_id == user_id)
+                .order_by(ChatMessageORM.created_at.asc())
+                .all()
+            )
+            run_ids = [row.agent_run_id for row in rows if row.agent_run_id]
+            statuses = {}
+            if run_ids:
+                statuses = {
+                    row.id: row.status
+                    for row in session.query(ChatAgentRunORM).filter(ChatAgentRunORM.id.in_(run_ids)).all()
+                }
+            return [
+                {
+                    "id": row.id,
+                    "role": row.role,
+                    "content": row.content,
+                    "sql": row.sql,
+                    "error": row.error,
+                    "parent_id": row.parent_id,
+                    "response_kind": row.response_kind or "answer",
+                    "clarification_context": row.clarification_context,
+                    "run_status": statuses.get(row.agent_run_id),
+                }
+                for row in rows
+            ]
+    return await anyio.to_thread.run_sync(_run)
 
 
 async def get_latest_user_message_id(user_id: str, session_id: str) -> Optional[str]:
@@ -400,6 +438,58 @@ async def record_user_turn(
     return await anyio.to_thread.run_sync(_run)
 
 
+async def record_clarification_turn(
+    *,
+    user_id: str,
+    connection_id: str,
+    message: str,
+    clarification: str,
+    clarification_context: dict,
+    session_id: str | None,
+) -> tuple[str, ChatMessage, ChatMessage, Optional[str]]:
+    """Atomically persist a blocking user turn and deterministic clarification."""
+    def _run() -> tuple[str, ChatMessage, ChatMessage, Optional[str]]:
+        with session_scope() as session:
+            nonlocal session_id
+            created_session = False
+            if session_id:
+                row = session.query(ChatSessionORM).filter(
+                    ChatSessionORM.id == session_id,
+                    ChatSessionORM.owner_id == user_id,
+                ).one_or_none()
+                if not row:
+                    raise ValueError("Session not found.")
+            else:
+                session_id = _create_session_sync(session, user_id, connection_id).id
+                created_session = True
+            _track_connection_sync(session, user_id, session_id, connection_id)
+            previous_user_id = _get_latest_user_message_id_sync(session, user_id, session_id)
+            user_message = ChatMessage(
+                role="user",
+                content=message,
+                connection_id=connection_id,
+                prev_query_id=previous_user_id,
+            )
+            _add_message_sync(session, user_id, session_id, user_message)
+            session.flush()
+            assistant_message = ChatMessage(
+                role="assistant",
+                content=clarification,
+                connection_id=connection_id,
+                parent_id=user_message.id,
+                response_kind="clarification",
+                clarification_context=clarification_context,
+                agent_tier="deterministic",
+            )
+            _add_message_sync(session, user_id, session_id, assistant_message)
+            if created_session:
+                title = message[:50].strip() + ("..." if len(message) > 50 else "")
+                session.query(ChatSessionORM).filter(ChatSessionORM.id == session_id).update({"title": title})
+            session.flush()
+            return session_id, user_message, assistant_message, previous_user_id
+    return await anyio.to_thread.run_sync(_run)
+
+
 def reconstruct_dual_chain(messages: list[ChatMessage]) -> list[ChatMessage]:
     """Reconstruct conversation order using prev_query_id and parent_id links."""
     if not messages:
@@ -445,7 +535,9 @@ __all__ = [
     "add_message",
     "update_message",
     "get_history_for_llm",
+    "get_intent_history",
     "get_latest_user_message_id",
     "record_user_turn",
+    "record_clarification_turn",
     "reconstruct_dual_chain",
 ]

@@ -664,12 +664,16 @@ class TestChatTruncatedMetadata:
         async def fake_add_message(user_id, session_id, message):
             stored_messages.append(message)
 
+        async def fake_prepare_chat_intent(**kwargs):
+            return SimpleNamespace(intent=SimpleNamespace(decision="analyze"), history=[])
+
         monkeypatch.setattr(chat_service.connection_service, "get_engine", fake_get_engine)
         monkeypatch.setattr(chat_service.connection_service, "get_schema_for_ai", fake_get_schema_for_ai)
         monkeypatch.setattr(chat_service, "create_session", fake_create_session)
         monkeypatch.setattr(chat_service, "rename_session", fake_noop)
         monkeypatch.setattr(chat_service, "record_user_turn", fake_record_user_turn)
         monkeypatch.setattr(chat_service, "add_message", fake_add_message)
+        monkeypatch.setattr(chat_service, "prepare_chat_intent", fake_prepare_chat_intent)
         monkeypatch.setattr(
             chat_service.analysis_service,
             "run_analysis",
@@ -818,11 +822,15 @@ class TestChatPersistenceFailures:
         async def fake_record_user_turn(user_id, session_id, connection_id, message):
             raise RuntimeError("write failed")
 
+        async def fake_prepare_chat_intent(**kwargs):
+            return SimpleNamespace(intent=SimpleNamespace(decision="analyze"), history=[])
+
         monkeypatch.setattr(chat_service.connection_service, "get_engine", fake_get_engine)
         monkeypatch.setattr(chat_service.connection_service, "get_schema_for_ai", fake_get_schema_for_ai)
         monkeypatch.setattr(chat_service, "create_session", fake_create_session)
         monkeypatch.setattr(chat_service, "rename_session", fake_noop)
         monkeypatch.setattr(chat_service, "record_user_turn", fake_record_user_turn)
+        monkeypatch.setattr(chat_service, "prepare_chat_intent", fake_prepare_chat_intent)
         analysis_mock = AsyncMock(side_effect=AssertionError("LLM should not run"))
         monkeypatch.setattr(chat_service.analysis_service, "run_analysis", analysis_mock)
 
@@ -855,12 +863,16 @@ class TestChatPersistenceFailures:
             add_calls += 1
             raise RuntimeError("assistant write failed")
 
+        async def fake_prepare_chat_intent(**kwargs):
+            return SimpleNamespace(intent=SimpleNamespace(decision="analyze"), history=[])
+
         monkeypatch.setattr(chat_service.connection_service, "get_engine", fake_get_engine)
         monkeypatch.setattr(chat_service.connection_service, "get_schema_for_ai", fake_get_schema_for_ai)
         monkeypatch.setattr(chat_service, "create_session", fake_create_session)
         monkeypatch.setattr(chat_service, "rename_session", fake_noop)
         monkeypatch.setattr(chat_service, "record_user_turn", fake_record_user_turn)
         monkeypatch.setattr(chat_service, "add_message", fake_add_message)
+        monkeypatch.setattr(chat_service, "prepare_chat_intent", fake_prepare_chat_intent)
         monkeypatch.setattr(
             chat_service.analysis_service,
             "run_analysis",

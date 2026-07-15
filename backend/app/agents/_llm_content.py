@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 
+from app.core.secret_detection import redact_secrets
+
 
 def content_to_text(content: object) -> str:
     """Convert LangChain/Gemini message content to plain text."""
@@ -33,10 +35,11 @@ def content_to_text(content: object) -> str:
 def log_llm_output(logger: logging.Logger, label: str, content: object, *, max_chars: int = 6000) -> str:
     """Log normalized model output and return the normalized text."""
     text = content_to_text(content).strip()
-    if len(text) <= max_chars:
-        logged = text
+    safe_text = redact_secrets(text)
+    if len(safe_text) <= max_chars:
+        logged = safe_text
     else:
-        logged = f"{text[:max_chars]}... [truncated {len(text) - max_chars} chars]"
+        logged = f"{safe_text[:max_chars]}... [truncated {len(safe_text) - max_chars} chars]"
     logger.info("[llm-output] %s (%d chars): %s", label, len(text), logged or "<empty>")
     return text
 

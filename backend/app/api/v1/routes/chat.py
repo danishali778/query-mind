@@ -1,9 +1,9 @@
 import logging
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, status
 from fastapi.responses import StreamingResponse
 
-from app.api.deps import CurrentUserDep, LlmAccessChecker
+from app.api.deps import CurrentUserDep
 from app.api.v1.schemas.chat import (
     ChatMessage,
     ChatRequest,
@@ -31,7 +31,6 @@ logger = logging.getLogger(__name__)
 async def start_chat_run(
     request: ChatRunRequest,
     current_user: CurrentUserDep,
-    _: object = Depends(LlmAccessChecker("chat")),
 ):
     try:
         return await chat_run_service.start_run(current_user.id, request)
@@ -91,7 +90,6 @@ async def stream_chat_run_events(
 async def send_chat_message(
     request: ChatRequest,
     current_user: CurrentUserDep,
-    _: object = Depends(LlmAccessChecker("chat")),
 ):
     try:
         result = await chat_service.send_message(

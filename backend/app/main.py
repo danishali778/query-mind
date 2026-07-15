@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from app.api.router import api_router
 from app.api.v1.schemas.common import HealthResponse
 from app.core.config import settings
-from app.core import auth_metrics
+from app.core import auth_metrics, chat_guard_metrics
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import configure_cors
@@ -195,6 +195,7 @@ def streaming_health_check():
         **semantic_counts,
         **auth_counts,
         **{f"auth_{key}": value for key, value in auth_metrics.snapshot().items()},
+        **{f"chat_guard_{key}": value for key, value in chat_guard_metrics.snapshot().items()},
         **counts,
     }
 

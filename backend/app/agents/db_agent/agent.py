@@ -19,6 +19,7 @@ from app.agents.db_agent.output import AgentFinishError, AnalystProposal, parse_
 from app.agents.db_agent.salvage import SALVAGE_FINISH_INSTRUCTION, build_mechanical_salvage
 from app.agents.db_agent.tools import ToolContext, build_tools
 from app.agents.db_agent.trace import TraceRecorder, log_agent_event
+from app.agents.schema_context.scoring import tokenize
 from app.agents.schema_context.semantics import render_semantics_prompt, resolve_semantics
 from app.agents.schema_context.types import SchemaCatalog
 from app.agents.schema_context.user_semantics import (
@@ -32,13 +33,15 @@ from app.integrations.llm_client import get_chat_llm_with_tools
 from app.query_engine.results import QueryExecutionResult
 from app.query_engine.safety import validate_query
 from app.query_engine.semantic_policy import validate_ai_semantic_policy
+from app.query_engine.connection_scope import referenced_tables
 from app.services.query_execution_service import execute_query
 
 logger = logging.getLogger("query-mind.db_agent")
 
 _PROMPT_PATH = Path(__file__).with_name("prompts") / "agent_system_prompt.md"
 _PROPOSAL_KEYS = (
-    "analysis_summary, relevant_tables, relevant_columns, sql, column_metadata, assumptions, semantic_refs"
+    "response_type, clarification_question, analysis_summary, relevant_tables, relevant_columns, "
+    "sql, column_metadata, assumptions, semantic_refs"
 )
 _VALIDATION_REPAIR_LIMIT = 1
 _EXECUTION_REPAIR_LIMIT = 2
@@ -65,6 +68,8 @@ class AgentRunResult:
     wall_ms: float = 0.0
     fallback_reason: str | None = None
     semantic_lineage: list[dict] = field(default_factory=list)
+    response_kind: str = "answer"
+    clarification_context: dict | None = None
 
     def as_chat_dict(self) -> dict:
         return {
@@ -87,6 +92,8 @@ class AgentRunResult:
             "wall_ms": self.wall_ms,
             "fallback_reason": self.fallback_reason,
             "semantic_lineage": self.semantic_lineage,
+            "response_kind": self.response_kind,
+            "clarification_context": self.clarification_context,
         }
 
 
@@ -182,6 +189,15 @@ def _finalize_execution(
     semantic_policy = validate_ai_semantic_policy(proposal.sql, semantic_context)
     if not semantic_policy.allowed:
         return None, semantic_policy.reason or "SQL violated semantic policy.", "validation", []
+    if ctx.enforce_grounding:
+        try:
+            sql_tables = referenced_tables(proposal.sql)
+        except Exception:
+            return None, "SQL relevance could not be verified.", "relevance", []
+        allowed = {item.casefold() for item in ctx.matched_tables | ctx.inspected_tables}
+        allowed |= {f"public.{item}" for item in allowed if "." not in item}
+        if any(table.casefold() not in allowed for table in sql_tables):
+            return None, "SQL references a table unsupported by the current request.", "relevance", []
 
     if progress:
         progress.stage_completed("sql_validation", "Read-only safety checks passed")
@@ -457,6 +473,7 @@ def run_agent(
     progress=None,
     semantic_context: SemanticContext | None = None,
     llm_context: LlmExecutionContext | None = None,
+    intent_result=None,
 ) -> AgentRunResult:
     started = time.monotonic()
     semantic_context = semantic_context or SemanticContext(schema_hash=catalog.schema_hash)
@@ -471,16 +488,38 @@ def run_agent(
         invalidate_catalog=invalidate_catalog,
         rebuild_catalog=rebuild_catalog,
         cancellation_token=getattr(progress, "cancellation_token", None),
+        grounded_terms=(
+            set(tokenize(question))
+            | {
+                token
+                for entry in semantic_context.definitions
+                for token in tokenize(
+                    " ".join(
+                        [
+                            entry.key,
+                            entry.display_name,
+                            entry.description,
+                            str(entry.payload.get("table_name") or ""),
+                            str(entry.payload.get("source_table") or ""),
+                            str(entry.payload.get("column_name") or ""),
+                        ]
+                    )
+                )
+            }
+        ),
+        matched_tables=set(getattr(intent_result, "matched_tables", []) or []),
+        allow_broad_discovery=bool(getattr(intent_result, "broad_discovery", False)),
+        enforce_grounding=intent_result is not None,
     )
     tools = build_tools(ctx)
     tool_map = {tool.name: tool for tool in tools}
     budget = BudgetGuard(settings.agent_max_tool_calls, settings.agent_wall_clock_seconds)
 
     log_agent_event(
-        "[agent] run start model=%s connection=%s question=%r",
+        "[agent] run start model=%s connection=%s question_chars=%d",
         settings.resolved_llm_model,
         connection_id,
-        question[:160],
+        len(question),
     )
 
     try:
@@ -496,11 +535,13 @@ def run_agent(
         messages: list[BaseMessage] = [SystemMessage(content=_build_system_prompt(catalog))]
         messages.extend(_build_context_messages(catalog, question, semantic_context))
         if history:
+            messages.append(SystemMessage(content="CONVERSATION HISTORY — CONTEXT ONLY"))
             for msg in history[-10:]:
                 if msg["role"] == "user":
                     messages.append(HumanMessage(content=msg["content"]))
                 elif msg["role"] == "assistant":
                     messages.append(AIMessage(content=msg["content"]))
+        messages.append(SystemMessage(content="CURRENT USER REQUEST — AUTHORITATIVE"))
         messages.append(HumanMessage(content=question))
 
         recursion_limit = settings.agent_max_tool_calls * 2 + 10
@@ -529,6 +570,22 @@ def run_agent(
                 fallback_reason=finish_error or "no_valid_proposal",
             )
 
+        if proposal.response_type == "clarification":
+            wall_ms = round((time.monotonic() - started) * 1000, 2)
+            return AgentRunResult(
+                success=True,
+                tier="agent",
+                explanation=proposal.clarification_question or proposal.analysis_summary,
+                trace=trace.to_list(),
+                tool_calls=budget.call_count,
+                wall_ms=wall_ms,
+                response_kind="clarification",
+                clarification_context={
+                    "reason_code": "agent_requires_clarification",
+                    "expected_input": "metric_table_or_outcome",
+                },
+            )
+
         try:
             applied_lineage = semantic_context.lineage_for_references(proposal.semantic_refs)
         except ValueError as exc:
@@ -550,6 +607,20 @@ def run_agent(
         last_stage: str | None = None
 
         while True:
+            if proposal.response_type == "clarification":
+                return AgentRunResult(
+                    success=True,
+                    tier="agent",
+                    explanation=proposal.clarification_question or proposal.analysis_summary,
+                    trace=trace.to_list(),
+                    tool_calls=budget.call_count,
+                    wall_ms=round((time.monotonic() - started) * 1000, 2),
+                    response_kind="clarification",
+                    clarification_context={
+                        "reason_code": "agent_requires_clarification",
+                        "expected_input": "metric_table_or_outcome",
+                    },
+                )
             if progress:
                 progress.stage_started("sql_validation", "Validating generated SQL")
             execution, exec_error, stage, policy_refs = _finalize_execution(
@@ -579,7 +650,12 @@ def run_agent(
 
             last_error = exec_error or "SQL proposal failed."
             last_stage = stage or "execution"
-            error_class = _classify_execution_error(last_error) if last_stage == "execution" else "validation_error"
+            error_class = (
+                _classify_execution_error(last_error)
+                if last_stage == "execution"
+                else "schema_relevance_rejected" if last_stage == "relevance"
+                else "validation_error"
+            )
             trace.record(
                 f"backend_{last_stage}",
                 f"sql={proposal.sql or 'null'}",
@@ -589,11 +665,13 @@ def run_agent(
                 error_class=error_class,
             )
 
-            can_repair_validation = last_stage == "validation" and validation_repairs < _VALIDATION_REPAIR_LIMIT
+            can_repair_validation = last_stage in {"validation", "relevance"} and validation_repairs < _VALIDATION_REPAIR_LIMIT
             can_repair_execution = last_stage == "execution" and execution_repairs < _EXECUTION_REPAIR_LIMIT
             if not (can_repair_validation or can_repair_execution):
                 fallback_reason = (
-                    "validation_repair_exhausted" if last_stage == "validation" else "execution_repair_exhausted"
+                    "schema_relevance_rejected" if last_stage == "relevance"
+                    else "validation_repair_exhausted" if last_stage == "validation"
+                    else "execution_repair_exhausted"
                 )
                 wall_ms = round((time.monotonic() - started) * 1000, 2)
                 return AgentRunResult(
@@ -612,7 +690,7 @@ def run_agent(
                     fallback_reason=fallback_reason,
                 )
 
-            if last_stage == "validation":
+            if last_stage in {"validation", "relevance"}:
                 validation_repairs += 1
                 retry_count = validation_repairs
             else:
