@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 import app.db.session as db_session
 from app.db.base import Base
 from app.db.repositories import chat_run_repository
+from app.db.orm_models import ChatMessageORM
 from app.query_engine.cancellation import QueryCancellationToken
 
 
@@ -69,6 +70,39 @@ def test_only_one_non_terminal_run_is_allowed_per_session():
 
     with pytest.raises(chat_run_repository.ActiveRunConflictError):
         _create("22222222-2222-2222-2222-222222222222", run.session_id)
+
+
+def test_immediate_clarification_is_atomic_completed_and_idempotent():
+    kwargs = {
+        "user_id": "user-1",
+        "connection_id": "connection-1",
+        "message": "Please help with this thing",
+        "client_request_id": "33333333-3333-3333-3333-333333333333",
+        "session_id": None,
+        "clarification": "Which metric should I analyze?",
+        "clarification_context": {
+            "reason_code": "insufficient_analytical_intent",
+            "expected_input": "metric_table_or_outcome",
+        },
+    }
+    run, created = asyncio.run(chat_run_repository.create_completed_clarification(**kwargs))
+
+    assert created is True
+    assert run.status == "completed"
+    assert run.current_stage_label == "Clarification needed"
+    message = chat_run_repository.get_assistant_message(run.id)
+    assert message is not None
+    assert message.response_kind == "clarification"
+    assert message.sql is None
+    assert message.clarification_context["expected_input"] == "metric_table_or_outcome"
+
+    duplicate, duplicate_created = asyncio.run(
+        chat_run_repository.create_completed_clarification(**kwargs)
+    )
+    assert duplicate_created is False
+    assert duplicate.id == run.id
+    with db_session.read_session_scope() as session:
+        assert session.query(ChatMessageORM).count() == 2
 
 
 def test_cancellation_wins_before_completion():
