@@ -96,6 +96,23 @@ def test_redis_failure_trips_circuit_breaker(monkeypatch):
     assert asyncio.run(user_cache.is_user_cached_active("user-6")) is True
 
 
+def test_production_redis_failure_does_not_use_memory_cache(monkeypatch):
+    monkeypatch.setattr(user_cache, "_get_client", _REAL_GET_CLIENT)
+    monkeypatch.setattr(settings, "app_env", "production", raising=False)
+    monkeypatch.setattr(settings, "redis_url", "redis://127.0.0.1:6399/0")
+
+    class _FailingClient:
+        def exists(self, _key):
+            raise RedisError("connection refused")
+
+    monkeypatch.setattr(user_cache, "_client", _FailingClient())
+    user_cache._memory_cache["user-production"] = time.monotonic() + 60
+
+    assert asyncio.run(user_cache.is_user_cached_active("user-production")) is False
+    asyncio.run(user_cache.mark_user_active("user-production"))
+    assert "user-production" in user_cache._memory_cache  # Pre-existing only; no new production write.
+
+
 def test_redis_hit_skips_memory(monkeypatch):
     class _HitClient:
         def exists(self, key):
