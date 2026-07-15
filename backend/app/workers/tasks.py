@@ -4,7 +4,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 from app.core.config import settings
-from app.db.repositories import chat_run_repository, dashboard_repository, query_library_repository
+from app.db.repositories import auth_session_repository, chat_run_repository, dashboard_repository, query_library_repository
 from app.db.repositories import connection_health_repository, connection_repository
 from app.db.repositories import llm_credential_repository
 from app.db.session import read_session_scope, session_scope
@@ -160,6 +160,17 @@ def cleanup_connection_health_events() -> dict[str, int]:
 def cleanup_llm_usage_events() -> dict[str, int]:
     cutoff = _utcnow() - timedelta(days=settings.llm_usage_retention_days)
     return {"deleted": llm_credential_repository.delete_expired_usage_events(cutoff)}
+
+
+@celery_app.task(
+    name="app.workers.tasks.cleanup_revoked_auth_sessions",
+    queue=settings.celery_scheduled_queue,
+)
+def cleanup_revoked_auth_sessions() -> dict[str, int]:
+    cutoff = _utcnow() - timedelta(
+        seconds=settings.auth_revoked_session_retention_grace_seconds
+    )
+    return {"deleted": auth_session_repository.cleanup_expired(cutoff)}
 
 
 @celery_app.task(name="app.workers.tasks.recover_stale_chat_runs", queue=settings.celery_default_queue)

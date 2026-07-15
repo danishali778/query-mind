@@ -8,12 +8,21 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.core import auth_metrics
 from app.core.errors import ServiceUnavailableError
 from app.core.supabase_auth import ACCESS_TOKEN_COOKIE_NAME
 from app.db.orm_models import UserSettingsORM
 from app.db.session import read_session_scope
 from app.integrations.supabase_auth import user_cache
-from app.integrations.supabase_auth.jwt import JWTError, decode_supabase_jwt, get_jwt_key
+from app.integrations.supabase_auth.jwt import (
+    JOSEError,
+    JWTError,
+    JwtConfigurationError,
+    claims_from_payload,
+    decode_supabase_jwt,
+    get_jwt_key,
+)
+from app.services import auth as auth_service
 
 
 logger = logging.getLogger(__name__)
@@ -93,30 +102,44 @@ async def authenticate_credentials(
     try:
         try:
             payload = decode_supabase_jwt(token)
-        except ValueError as exc:
+        except JwtConfigurationError as exc:
             raise ServiceUnavailableError("Authentication service is not configured correctly.") from exc
 
-        user_id: str | None = payload.get("sub")
-        email: str | None = payload.get("email")
-        if not isinstance(user_id, str) or not user_id.strip():
+        claims = claims_from_payload(payload)
+        revoked = await anyio.to_thread.run_sync(
+            functools.partial(
+                auth_service.is_session_revoked,
+                claims.owner_id,
+                claims.session_id,
+            )
+        )
+        if revoked:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token payload",
+                detail="Could not validate credentials",
             )
 
         if verify_existence:
-            await assert_user_exists(user_id)
+            await assert_user_exists(claims.owner_id)
 
-        return User(id=user_id, email=email)
-    except JWTError as exc:
+        return User(id=claims.owner_id, email=claims.email)
+    except JOSEError as exc:
+        auth_metrics.increment("jwt_request_rejections")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
         ) from exc
+    except ServiceUnavailableError:
+        raise
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("Unexpected auth middleware error: %s", exc, exc_info=True)
+        auth_metrics.increment("unexpected_auth_failures")
+        logger.error(
+            "Unexpected auth middleware error type=%s",
+            type(exc).__name__,
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal authentication service error.",
@@ -138,6 +161,7 @@ async def get_user_no_check(
 
 
 __all__ = [
+    "JWTError",
     "security",
     "User",
     "get_jwt_key",

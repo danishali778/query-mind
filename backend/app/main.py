@@ -5,14 +5,17 @@ from fastapi import FastAPI
 from app.api.router import api_router
 from app.api.v1.schemas.common import HealthResponse
 from app.core.config import settings
+from app.core import auth_metrics
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import configure_cors
 from app.core.secrets import validate_core_credentials
+from app.integrations.supabase_auth.jwt import validate_jwt_configuration
 from app.lifespan import lifespan
 from app.services.chat_progress import ensure_available
 from app.db.repositories import (
     chat_run_repository,
+    auth_session_repository,
     dashboard_generation_repository,
     llm_credential_repository,
     semantic_repository,
@@ -23,6 +26,7 @@ from app.workers.celery_app import celery_app
 
 configure_logging()
 validate_core_credentials()
+validate_jwt_configuration()
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
@@ -133,6 +137,13 @@ def streaming_health_check():
             "llm_provider_failure_rate": 0.0,
             "llm_average_latency_ms": 0.0,
         }
+    try:
+        auth_counts = auth_session_repository.health_counts()
+    except Exception:
+        auth_counts = {
+            "auth_unexpired_revoked_sessions": 0,
+            "auth_expired_revocations_pending_cleanup": 0,
+        }
     dashboard_healthy = (
         not settings.dashboard_ai_enabled
         or (dashboard_worker_status == "healthy" and dashboard_counts["stale_runs"] == 0)
@@ -182,6 +193,8 @@ def streaming_health_check():
         **llm_counts,
         **suggestion_counts,
         **semantic_counts,
+        **auth_counts,
+        **{f"auth_{key}": value for key, value in auth_metrics.snapshot().items()},
         **counts,
     }
 

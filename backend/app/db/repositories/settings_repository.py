@@ -106,6 +106,22 @@ def is_user_active(user_id: str) -> bool:
         raise RuntimeError("Account storage is unavailable.") from exc
 
 
+def set_user_active(user_id: str, is_active: bool) -> bool:
+    """Update application account state; cache invalidation is service-owned."""
+    try:
+        with session_scope() as session:
+            row = session.get(UserSettingsORM, user_id)
+            if row is None:
+                return False
+            row.is_active = is_active
+            row.updated_at = datetime.now(timezone.utc)
+            session.flush()
+            return True
+    except Exception as exc:
+        logger.error("Failed to update account state for %s", user_id, exc_info=True)
+        raise RuntimeError("Account storage is unavailable.") from exc
+
+
 def get_user_settings(user_id: str) -> UserSettings:
     """Fetch user settings, falling back to defaults if the row is missing."""
     try:
@@ -234,6 +250,7 @@ def onboard_user(user_id: str) -> bool:
 __all__ = [
     "get_user_settings",
     "is_user_active",
+    "set_user_active",
     "update_user_settings",
     "get_user_subscription",
     "increment_usage",
