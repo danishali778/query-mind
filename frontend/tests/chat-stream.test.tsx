@@ -1,7 +1,16 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { AgentActivity } from '../src/components/chat/AgentActivity';
 import { parseSseBlock } from '../src/services/chatStream';
+import { useChatAgentRun } from '../src/hooks/useChatAgentRun';
+
+const apiMocks = vi.hoisted(() => ({
+  startChatRun: vi.fn(),
+  getChatRun: vi.fn(),
+  cancelChatRun: vi.fn(),
+}));
+
+vi.mock('../src/services/api', () => apiMocks);
 
 
 describe('durable chat event stream', () => {
@@ -42,5 +51,45 @@ describe('durable chat event stream', () => {
   it('communicates reconnecting state without marking the run failed', () => {
     render(<AgentActivity status="running" label="Running query" streamState="reconnecting" />);
     expect(screen.getByText('Reconnecting to live updates')).toBeInTheDocument();
+  });
+
+  it('retrieves an immediate completed clarification without opening a stream', async () => {
+    const accepted = {
+      run_id: 'run-clarification',
+      session_id: 'session-1',
+      user_message_id: 'user-message-1',
+      assistant_message_id: 'assistant-message-1',
+      status: 'completed' as const,
+      events_url: '/api/chat/runs/run-clarification/events',
+    };
+    const snapshot = {
+      ...accepted,
+      current_stage: 'completed',
+      current_stage_label: 'Clarification needed',
+      created_at: new Date().toISOString(),
+      response: null,
+    };
+    apiMocks.startChatRun.mockResolvedValue(accepted);
+    apiMocks.getChatRun.mockResolvedValue(snapshot);
+    const onAccepted = vi.fn();
+    const onSnapshot = vi.fn();
+    const { result } = renderHook(() => useChatAgentRun({
+      onAccepted,
+      onSnapshot,
+      onEvent: vi.fn(),
+      onError: vi.fn(),
+    }));
+
+    await act(async () => {
+      await result.current.start({
+        connection_id: 'connection-1',
+        message: 'ambiguous request',
+        client_request_id: crypto.randomUUID(),
+      });
+    });
+
+    expect(onAccepted).toHaveBeenCalledWith(accepted);
+    expect(apiMocks.getChatRun).toHaveBeenCalledOnce();
+    expect(onSnapshot).toHaveBeenCalledWith(snapshot);
   });
 });

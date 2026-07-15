@@ -1,5 +1,7 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
+import { ChatInput } from '../src/components/chat/ChatInput';
 import { MessageBubble } from '../src/components/chat/MessageBubble';
 import { ResultsTable } from '../src/components/chat/ResultsTable';
 import type { ChatMessageView } from '../src/types/chat';
@@ -42,5 +44,45 @@ describe('chat result controls', () => {
     expect(screen.getByText('RESULTS')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'CSV' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'JSON' })).not.toBeInTheDocument();
+  });
+
+  it('renders clarification without agent activity or result controls', () => {
+    render(
+      <MessageBubble
+        message={{
+          id: 'clarification-1',
+          role: 'assistant',
+          content: 'Which metric should I analyze?',
+          response_kind: 'clarification',
+          agent_run_id: 'run-1',
+          agent_run_status: 'completed',
+        }}
+        connectionId="conn_1"
+      />,
+    );
+
+    expect(screen.getByText('Clarification needed')).toBeInTheDocument();
+    expect(screen.queryByText('Answer ready')).not.toBeInTheDocument();
+    expect(screen.queryByText('COPY SQL')).not.toBeInTheDocument();
+  });
+
+  it('does not clear the controlled draft before the parent accepts the request', async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    render(
+      <ChatInput
+        connections={[]}
+        activeConnectionId="conn_1"
+        onConnectionChange={vi.fn()}
+        onSend={onSend}
+        draft="synthetic draft"
+        onDraftChange={vi.fn()}
+        loading={false}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Send message' }));
+    expect(onSend).toHaveBeenCalledWith('synthetic draft');
+    expect(screen.getByDisplayValue('synthetic draft')).toBeInTheDocument();
   });
 });

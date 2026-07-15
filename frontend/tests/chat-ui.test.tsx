@@ -4,6 +4,7 @@ import { vi } from 'vitest';
 import { ChatPage } from '../src/pages/ChatPage';
 import { MemoryRouter } from 'react-router-dom';
 import type { DatabaseConnection, SessionMessagesResponse, SessionSummary } from '../src/types/api';
+import { ApiRequestError } from '../src/services/http';
 
 const apiMocks = vi.hoisted(() => ({
   listConnections: vi.fn(),
@@ -215,5 +216,27 @@ describe('chat bootstrap states', () => {
     expect(await screen.findByText('NO DATABASE CONNECTIONS')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('CONNECT A DATABASE')).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
+  });
+
+  it('restores a rejected sensitive draft and removes its optimistic bubble', async () => {
+    const user = userEvent.setup();
+    apiMocks.sendMessage.mockRejectedValue(
+      new ApiRequestError('safe rejection', {
+        status: 422,
+        code: 'chat_sensitive_input_detected',
+      }),
+    );
+    renderChatPage();
+    const input = await screen.findByPlaceholderText('What would you like to know?');
+    await user.type(input, 'synthetic rejected draft');
+    await user.click(screen.getByRole('button', { name: 'Send message' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Remove the credential from this message and rotate it before continuing.',
+    );
+    expect(screen.getByDisplayValue('synthetic rejected draft')).toBeInTheDocument();
+    expect(
+      screen.queryAllByText('synthetic rejected draft').filter((element) => element.tagName !== 'TEXTAREA'),
+    ).toHaveLength(0);
   });
 });
