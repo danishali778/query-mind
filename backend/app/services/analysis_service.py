@@ -14,6 +14,7 @@ from app.agents.nl_to_sql.graph import run_chat
 from app.agents.visualization.generator import generate_visualization_blueprint
 from app.core.config import settings
 from app.core.errors import AppError
+from app.core import chat_guard_metrics
 from app.db.models.llm import LlmExecutionContext
 from app.services import connection_service
 from app.services import semantic_context_service
@@ -47,6 +48,7 @@ def _run_pipeline_sync(
     history: list[dict],
     progress=None,
     llm_context: LlmExecutionContext | None = None,
+    intent_result=None,
 ) -> dict:
     result = run_chat(
         user_id=user_id,
@@ -59,6 +61,9 @@ def _run_pipeline_sync(
         cancellation_token=getattr(progress, "cancellation_token", None),
         progress=progress,
         llm_context=llm_context,
+        grounded_tables=list(getattr(intent_result, "matched_tables", []) or []),
+        enforce_grounding=intent_result is not None,
+        broad_discovery=bool(getattr(intent_result, "broad_discovery", False)),
     )
     result["tier"] = "pipeline"
     result["trace"] = []
@@ -77,6 +82,7 @@ def _run_agent_sync(
     progress=None,
     semantic_context=None,
     llm_context: LlmExecutionContext | None = None,
+    intent_result=None,
 ) -> dict:
     from app.agents.schema_context.catalog import build_catalog
     from app.db.repositories import schema_snapshot_repository
@@ -113,6 +119,10 @@ def _run_agent_sync(
         progress=progress,
         semantic_context=semantic_context,
         llm_context=llm_context,
+        grounded_tables=list(getattr(intent_result, "matched_tables", []) or []),
+        enforce_grounding=intent_result is not None,
+        broad_discovery=bool(getattr(intent_result, "broad_discovery", False)),
+        intent_result=intent_result,
     )
     return agent_result.as_chat_dict()
 
@@ -165,6 +175,7 @@ async def run_analysis(
     allow_schema_shortcuts: bool = True,
     semantic_context=None,
     llm_context: LlmExecutionContext | None = None,
+    intent_result=None,
 ) -> dict[str, Any]:
     """Execute a business question through the shared agent/pipeline path.
 
@@ -233,6 +244,7 @@ async def run_analysis(
                             progress,
                             semantic_context,
                             llm_context,
+                            intent_result,
                         )
                     )
                 except Exception as exc:
@@ -278,11 +290,35 @@ async def run_analysis(
                                 "wall_ms": agent_out.get("wall_ms", 0.0),
                                 "assumptions": [],
                                 "semantic_lineage": agent_out.get("semantic_lineage", []),
+                                "response_kind": agent_out.get("response_kind", "answer"),
+                                "clarification_context": agent_out.get("clarification_context"),
                             },
                             requested_visualization=requested_visualization,
                         )
                     failed_agent_trace = agent_out.get("trace", []) or []
                     fallback_reason = agent_out.get("fallback_reason") or "agent_failed"
+                    if fallback_reason == "schema_relevance_rejected":
+                        chat_guard_metrics.increment("schema_relevance_rejections")
+                        chat_guard_metrics.increment("prevented_sql_executions")
+                        return {
+                            "explanation": "I couldn't verify that the proposed analysis matched your request. Tell me which metric, table, or business outcome you want to analyze.",
+                            "sql": None,
+                            "columns": [],
+                            "rows": [],
+                            "row_count": 0,
+                            "truncated": False,
+                            "execution_time_ms": 0.0,
+                            "chart_recommendation": None,
+                            "error": None,
+                            "trace": failed_agent_trace,
+                            "tier": "agent",
+                            "response_kind": "clarification",
+                            "clarification_context": {
+                                "reason_code": "schema_relevance_rejected",
+                                "expected_input": "metric_table_or_outcome",
+                            },
+                            "semantic_lineage": [],
+                        }
                     if progress and hasattr(progress, "fallback"):
                         progress.fallback(fallback_reason)
             else:
@@ -310,8 +346,32 @@ async def run_analysis(
             history,
             progress,
             llm_context,
+            intent_result,
         )
     )
+    if pipeline_result.get("relevance_rejected") and pipeline_result.get("error"):
+        chat_guard_metrics.increment("schema_relevance_rejections")
+        chat_guard_metrics.increment("prevented_sql_executions")
+        return {
+            "explanation": "I couldn't verify that the proposed analysis matched your request. Tell me which metric, table, or business outcome you want to analyze.",
+            "sql": None,
+            "columns": [],
+            "rows": [],
+            "row_count": 0,
+            "truncated": False,
+            "execution_time_ms": 0.0,
+            "chart_recommendation": None,
+            "error": None,
+            "trace": [],
+            "tier": "pipeline",
+            "response_kind": "clarification",
+            "clarification_context": {
+                "reason_code": "schema_relevance_rejected",
+                "expected_input": "metric_table_or_outcome",
+            },
+            "semantic_lineage": [],
+            "assumptions": [],
+        }
     tier = "fallback" if settings.agent_mode == "tools" else "pipeline"
     pipeline_result["tier"] = tier
     pipeline_result["assumptions"] = []

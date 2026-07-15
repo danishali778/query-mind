@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { T } from '../dashboard/tokens';
 import type { ChatInputProps } from '../../types/chat';
 
-export function ChatInput({ connections, activeConnectionId, onConnectionChange, onSend, draft, onDraftChange, focusRequest = 0, loading, disabled = false, disabledReason }: ChatInputProps) {
+export function ChatInput({ connections, activeConnectionId, onConnectionChange, onSend, draft, onDraftChange, focusRequest = 0, loading, disabled = false, disabledReason, errorMessage }: ChatInputProps) {
   const [isFocused, setIsFocused] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const textRef = useRef<HTMLTextAreaElement>(null);
@@ -18,7 +18,6 @@ export function ChatInput({ connections, activeConnectionId, onConnectionChange,
   const handleSend = () => {
     if (!draft.trim() || loading || disabled) return;
     onSend(draft.trim());
-    onDraftChange('');
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -174,6 +173,12 @@ export function ChatInput({ connections, activeConnectionId, onConnectionChange,
             </button>
           </div>
         </div>
+
+        {errorMessage && (
+          <div role="alert" aria-live="polite" style={{ color: T.red, fontSize: '0.72rem', lineHeight: 1.5 }}>
+            {errorMessage}
+          </div>
+        )}
 
         {/* Hints */}
         <div style={{ display: 'flex', justifyContent: 'center', gap: 16, opacity: 0.6 }}>

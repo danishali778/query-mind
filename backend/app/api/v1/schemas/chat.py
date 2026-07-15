@@ -104,6 +104,8 @@ class ChatResponse(BaseModel):
     agent_run_stage: Optional[str] = None
     agent_run_stage_label: Optional[str] = None
     semantic_lineage: list[dict] = Field(default_factory=list)
+    response_kind: str = "answer"
+    clarification_context: Optional[dict] = None
 
 
 class ChatMessage(BaseModel):
@@ -125,6 +127,8 @@ class ChatMessage(BaseModel):
     agent_trace: Optional[list] = None
     agent_tier: Optional[str] = None
     semantic_lineage: list[dict] = Field(default_factory=list)
+    response_kind: str = "answer"
+    clarification_context: Optional[dict] = None
     created_at: str
 
 

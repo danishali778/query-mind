@@ -83,7 +83,8 @@ export function MessageBubble({
     );
   }
   // Assistant
-  const hasRunActivity = Boolean(message.agent_run_id && message.agent_run_status);
+  const isClarification = message.response_kind === 'clarification';
+  const hasRunActivity = Boolean(message.agent_run_id && message.agent_run_status && !isClarification);
   return (
     <div id={message.id ? `msg-${message.id}` : undefined} style={{ padding: '24px 0', display: 'flex', flexDirection: 'column', alignItems: 'stretch', width: '100%', minWidth: 0, maxWidth: '100%' }}>
       {hasRunActivity && message.agent_run_status && (
@@ -111,6 +112,11 @@ export function MessageBubble({
         </div>
 
         <div style={{ fontSize: '1rem', lineHeight: 1.6, color: T.text, fontWeight: 450, flex: 1 }}>
+          {isClarification && !message.error && (
+            <div style={{ marginBottom: 8, fontFamily: T.fontMono, fontSize: '0.62rem', fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.yellow }}>
+              Clarification needed
+            </div>
+          )}
           {message.error ? (
             <div style={{ color: T.red, background: 'rgba(239, 68, 68, 0.05)', padding: '12px 16px', borderRadius: 12, border: `1px solid ${T.red}20` }}>
               <span style={{ fontWeight: 700, marginRight: 8 }}>Error</span>

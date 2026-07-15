@@ -10,6 +10,7 @@ from app.query_engine.connection_pool import get_cached_engine
 from app.services.query_execution_service import execute_query
 from app.query_engine.safety import validate_query
 from app.query_engine.cancellation import AgentRunCancelled
+from app.query_engine.connection_scope import referenced_tables
 from app.db.models.llm import LlmExecutionContext
 
 logger = logging.getLogger("query-mind.graph")
@@ -38,6 +39,10 @@ class ChatState(TypedDict):
     readonly: bool
     cancellation_token: object | None
     progress: object | None
+    enforce_grounding: bool
+    broad_discovery: bool
+    grounded_tables: list[str]
+    relevance_rejected: bool
 
 
 _DESTRUCTIVE_KEYWORDS = {"delete", "update", "insert", "drop", "truncate", "alter"}
@@ -85,6 +90,19 @@ def validate_sql_node(state: ChatState) -> dict:
     is_safe, error_msg = validate_query(sql)
     if not is_safe:
         return {"error": error_msg}
+
+    if state.get("enforce_grounding") and not state.get("broad_discovery"):
+        try:
+            references = referenced_tables(sql)
+        except Exception:
+            return {"error": "SQL relevance could not be verified.", "relevance_rejected": True}
+        allowed = {item.casefold() for item in state.get("grounded_tables", [])}
+        allowed |= {f"public.{item}" for item in allowed if "." not in item}
+        if any(item.casefold() not in allowed for item in references):
+            return {
+                "error": "SQL references a table unsupported by the current request.",
+                "relevance_rejected": True,
+            }
 
     if progress:
         progress.stage_completed("sql_validation", "Read-only safety checks passed")
@@ -233,6 +251,9 @@ def run_chat(
     cancellation_token=None,
     progress=None,
     llm_context: LlmExecutionContext | None = None,
+    grounded_tables: list[str] | None = None,
+    enforce_grounding: bool = False,
+    broad_discovery: bool = False,
 ) -> ChatState:
     llm_context = llm_context or LlmExecutionContext(
         owner_id=user_id,
@@ -269,5 +290,9 @@ def run_chat(
         "readonly": readonly,
         "cancellation_token": cancellation_token,
         "progress": progress,
+        "enforce_grounding": enforce_grounding,
+        "broad_discovery": broad_discovery,
+        "grounded_tables": grounded_tables or [],
+        "relevance_rejected": False,
     }
     return chat_graph.invoke(initial_state)

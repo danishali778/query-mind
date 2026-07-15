@@ -76,7 +76,11 @@ export function useChatAgentRun(callbacks: {
   const start = useCallback(async (request: ChatRunRequest) => {
     const accepted = await api.startChatRun(request);
     callbacksRef.current.onAccepted(accepted);
-    void connect(accepted.run_id);
+    if (TERMINAL.has(accepted.status)) {
+      callbacksRef.current.onSnapshot(await api.getChatRun(accepted.run_id));
+    } else {
+      void connect(accepted.run_id);
+    }
     return accepted;
   }, [connect]);
 

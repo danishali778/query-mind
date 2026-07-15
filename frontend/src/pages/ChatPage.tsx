@@ -16,6 +16,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { SuggestionGrid } from '../components/suggestions/SuggestionGrid';
 import type { QuestionSuggestion } from '../types/questionSuggestions';
 import { isLlmSetupError } from '../services/llmSettings';
+import { ApiRequestError } from '../services/http';
 
 type LoadState = 'loading' | 'ready' | 'error';
 type MessageLoadState = 'idle' | LoadState;
@@ -49,6 +50,8 @@ function mapSessionMessages(data: SessionMessagesResponse): ChatMessageView[] {
     agent_run_stage: message.agent_run_stage || undefined,
     agent_run_stage_label: message.agent_run_stage_label || undefined,
     semantic_lineage: message.semantic_lineage || undefined,
+    response_kind: message.response_kind || 'answer',
+    clarification_context: message.clarification_context || undefined,
   }));
 }
 
@@ -71,9 +74,11 @@ function applyCompletedResponse(message: ChatMessageView, response: ChatResponse
     agent_trace: response.agent_trace || undefined,
     agent_tier: response.agent_tier || undefined,
     semantic_lineage: response.semantic_lineage || undefined,
+    response_kind: response.response_kind || 'answer',
+    clarification_context: response.clarification_context || undefined,
     agent_run_status: 'completed',
     agent_run_stage: 'completed',
-    agent_run_stage_label: 'Answer ready',
+    agent_run_stage_label: response.response_kind === 'clarification' ? 'Clarification needed' : 'Answer ready',
     agent_stream_state: 'closed',
   };
 }
@@ -171,6 +176,7 @@ export function ChatPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [focusRequest, setFocusRequest] = useState(0);
+  const [composerError, setComposerError] = useState<string | null>(null);
   const suggestionDraftRef = useRef(false);
 
   useEffect(() => {
@@ -275,9 +281,9 @@ export function ChatPage() {
           agent_run_id: accepted.run_id,
           agent_run_status: accepted.status,
           agent_run_stage: 'preparing',
-          agent_run_stage_label: 'Response queued',
+          agent_run_stage_label: accepted.status === 'completed' ? 'Clarification needed' : 'Response queued',
           agent_run_events: [],
-          agent_stream_state: 'connecting',
+          agent_stream_state: accepted.status === 'completed' ? 'closed' : 'connecting',
         }];
       });
       attachedRunRef.current = accepted.run_id;
@@ -457,6 +463,7 @@ export function ChatPage() {
     const userMsg: ChatMessageView = { id: clientRequestId, role: 'user', content: message };
     pendingRequestRef.current = clientRequestId;
     setMessagesState('ready');
+    setComposerError(null);
     setMessages(prev => [...prev, userMsg]);
     setLoading(true);
     try {
@@ -467,10 +474,12 @@ export function ChatPage() {
           message,
           client_request_id: clientRequestId,
         });
+        setDraft('');
         setLoading(false);
         return;
       }
       const r = await api.sendMessage({ connection_id: activeConnectionId, session_id: activeSessionId || undefined, message });
+      setDraft('');
       const assistantMsg: ChatMessageView = {
         id: r.message_id,
         role: 'assistant',
@@ -490,6 +499,8 @@ export function ChatPage() {
         agent_trace: r.agent_trace || undefined,
         agent_tier: r.agent_tier || undefined,
         semantic_lineage: r.semantic_lineage || undefined,
+        response_kind: r.response_kind || 'answer',
+        clarification_context: r.clarification_context || undefined,
       };
       setMessages(prev => {
         const updated = [...prev];
@@ -509,7 +520,16 @@ export function ChatPage() {
         void loadSessions();
       }
     } catch (err) {
-      if (isLlmSetupError(err)) {
+      if (err instanceof ApiRequestError && ['chat_sensitive_input_detected', 'chat_input_unintelligible'].includes(err.code)) {
+        setMessages(prev => prev.filter(item => item.id !== clientRequestId));
+        setDraft(message);
+        setFocusRequest(value => value + 1);
+        setComposerError(
+          err.code === 'chat_sensitive_input_detected'
+            ? 'Remove the credential from this message and rotate it before continuing.'
+            : 'Enter a database question using a metric, table, or business outcome.'
+        );
+      } else if (isLlmSetupError(err)) {
         setMessages(prev => [...prev, { role: 'assistant', content: '', error: 'AI PROVIDER SETUP REQUIRED. ADD A PERSONAL KEY IN SETTINGS > AI PROVIDERS, THEN RETRY THIS QUESTION.' }]);
         navigate('/settings', {
           state: {
@@ -769,8 +789,9 @@ export function ChatPage() {
               <ChatInput
                 connections={connections} activeConnectionId={activeConnectionId}
                 onConnectionChange={changeComposerConnection} onSend={handleSend} loading={loading}
-                draft={draft} onDraftChange={(value) => { suggestionDraftRef.current = false; setDraft(value); }} focusRequest={focusRequest}
+                draft={draft} onDraftChange={(value) => { suggestionDraftRef.current = false; setDraft(value); setComposerError(null); }} focusRequest={focusRequest}
                 disabled={chatInputDisabled} disabledReason={chatInputDisabledReason}
+                errorMessage={composerError}
               />
             </div>
           </div>

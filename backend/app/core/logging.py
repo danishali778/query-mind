@@ -5,6 +5,8 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from app.core.secret_detection import redact_secrets
+
 
 # Anchor logs under backend/logs/ regardless of the process working directory,
 # so debug logs never land next to source files.
@@ -42,7 +44,8 @@ class SecretRedactionFilter(logging.Filter):
 
     @staticmethod
     def redact_text(text: str) -> str:
-        redacted = _BEARER_RE.sub("Bearer [REDACTED]", text)
+        redacted = redact_secrets(text)
+        redacted = _BEARER_RE.sub("Bearer [REDACTED]", redacted)
         redacted = _AUTH_HEADER_RE.sub(r"\1=[REDACTED]", redacted)
         redacted = _APIKEY_RE.sub(r"\1=[REDACTED]", redacted)
         redacted = _TOKEN_VALUE_RE.sub(r"\1=[REDACTED]", redacted)

@@ -19,12 +19,14 @@ from app.db.repositories.chat_repository import (
     get_session,
     list_sessions,
     record_user_turn,
+    record_clarification_turn,
     reconstruct_dual_chain,
     rename_session,
     track_connection,
     update_message,
 )
 from app.services import analysis_service, connection_service, query_execution_service
+from app.services.chat_intent_orchestrator import prepare_chat_intent
 
 
 logger = logging.getLogger(__name__)
@@ -60,6 +62,7 @@ async def _execute_chat_turn(
     history: list[dict],
     progress=None,
     llm_workflow_id: str | None = None,
+    intent_result=None,
 ) -> dict:
     return await analysis_service.run_analysis(
         user_id=user_id,
@@ -77,6 +80,7 @@ async def _execute_chat_turn(
             workflow_id=llm_workflow_id or session_id,
             interaction_type="explicit",
         ),
+        intent_result=intent_result,
     )
 
 
@@ -86,9 +90,43 @@ async def send_message(
     message: str,
     session_id: str | None = None,
 ) -> dict:
-    engine = await connection_service.get_engine(user_id, connection_id)
-    if not engine:
-        raise ValueError("Database connection not found. Connect first.")
+    prepared = await prepare_chat_intent(
+        user_id=user_id,
+        connection_id=connection_id,
+        message=message,
+        session_id=session_id,
+    )
+    if prepared.intent.decision == "clarify":
+        resolved_session_id, user_msg, assistant_msg, prev_query_id = await record_clarification_turn(
+            user_id=user_id,
+            connection_id=connection_id,
+            message=message,
+            clarification=prepared.intent.clarification_message or "Clarification needed.",
+            clarification_context=prepared.intent.clarification_context or {},
+            session_id=session_id,
+        )
+        return {
+            "session_id": resolved_session_id,
+            "message_id": assistant_msg.id,
+            "user_message_id": user_msg.id,
+            "message": assistant_msg.content,
+            "sql": None,
+            "columns": [],
+            "rows": [],
+            "row_count": 0,
+            "truncated": False,
+            "execution_time_ms": 0.0,
+            "chart_recommendation": None,
+            "error": None,
+            "column_metadata": {},
+            "is_pinned": False,
+            "prev_query_id": prev_query_id,
+            "agent_trace": [],
+            "agent_tier": "deterministic",
+            "semantic_lineage": [],
+            "response_kind": "clarification",
+            "clarification_context": prepared.intent.clarification_context,
+        }
 
     schema_context: str | None = None
     if settings.agent_mode != "tools":
@@ -124,7 +162,7 @@ async def send_message(
     # Track the active connection, resolve prev_query_id, persist the user
     # message, and load LLM history in one atomic transaction/session.
     try:
-        user_msg, prev_query_id, history = await record_user_turn(
+        user_msg, prev_query_id, _history = await record_user_turn(
             user_id, session_id, connection_id, message
         )
     except Exception as exc:
@@ -137,8 +175,9 @@ async def send_message(
         session_id=session_id,
         message=message,
         schema_context=schema_context,
-        history=history,
+        history=prepared.history,
         progress=None,
+        intent_result=prepared.intent,
     )
 
     assistant_msg_id = ""
@@ -161,6 +200,8 @@ async def send_message(
         agent_trace=result.get("trace"),
         agent_tier=result.get("tier"),
         semantic_lineage=result.get("semantic_lineage", []),
+        response_kind=result.get("response_kind", "answer"),
+        clarification_context=result.get("clarification_context"),
     )
     assistant_msg_id = assistant_msg.id
     try:
@@ -190,6 +231,8 @@ async def send_message(
         "agent_trace": result.get("trace"),
         "agent_tier": result.get("tier"),
         "semantic_lineage": result.get("semantic_lineage", []),
+        "response_kind": result.get("response_kind", "answer"),
+        "clarification_context": result.get("clarification_context"),
     }
 
 
@@ -205,6 +248,29 @@ async def execute_prepared_turn(
 ) -> dict:
     """Execute an already-persisted durable turn without creating messages."""
     progress.check_cancelled()
+    prepared = await prepare_chat_intent(
+        user_id=user_id,
+        connection_id=connection_id,
+        message=message,
+        session_id=session_id,
+    )
+    if prepared.intent.decision == "clarify":
+        return {
+            "explanation": prepared.intent.clarification_message or "Clarification needed.",
+            "sql": None,
+            "columns": [],
+            "rows": [],
+            "row_count": 0,
+            "truncated": False,
+            "execution_time_ms": 0.0,
+            "chart_recommendation": None,
+            "error": None,
+            "trace": [],
+            "tier": "deterministic",
+            "semantic_lineage": [],
+            "response_kind": "clarification",
+            "clarification_context": prepared.intent.clarification_context,
+        }
     engine = await connection_service.get_engine(user_id, connection_id)
     if not engine:
         raise ValueError("Database connection not found. Connect first.")
@@ -220,9 +286,10 @@ async def execute_prepared_turn(
         session_id=session_id,
         message=message,
         schema_context=schema_context,
-        history=history,
+        history=prepared.history,
         progress=progress,
         llm_workflow_id=run_id,
+        intent_result=prepared.intent,
     )
 
 

@@ -6,6 +6,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Callable
 
+from app.core.secret_detection import redact_secrets
+
 logger = logging.getLogger("query-mind.db_agent")
 
 
@@ -53,10 +55,10 @@ class TraceRecorder:
     ) -> None:
         step = TraceStep(
             tool=tool,
-            args_summary=args_summary[:500],
+            args_summary=redact_secrets(args_summary)[:500],
             duration_ms=round(duration_ms, 2),
             outcome=outcome,
-            output_summary=output_summary[:500] if output_summary else None,
+            output_summary=redact_secrets(output_summary)[:500] if output_summary else None,
             output_row_count=output_row_count,
             error_class=error_class,
             retry_count=retry_count,

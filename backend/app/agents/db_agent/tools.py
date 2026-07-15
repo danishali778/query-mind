@@ -15,7 +15,7 @@ from sqlalchemy.engine import Engine
 
 from app.agents.db_agent.trace import TraceRecorder, summarize_args
 from app.agents.schema_context.catalog import catalog_table_by_name
-from app.agents.schema_context.scoring import score_tables
+from app.agents.schema_context.scoring import expand_terms, score_tables, tokenize
 from app.agents.schema_context.types import CatalogColumn, CatalogTable, SchemaCatalog
 from app.core.config import settings
 from app.query_engine.executor import execute_query as guarded_execute_query
@@ -43,6 +43,11 @@ class ToolContext:
     scratchpad: list[str] = field(default_factory=list)
     live_query_count: int = 0
     cancellation_token: QueryCancellationToken | None = None
+    grounded_terms: set[str] = field(default_factory=set)
+    matched_tables: set[str] = field(default_factory=set)
+    inspected_tables: set[str] = field(default_factory=set)
+    allow_broad_discovery: bool = False
+    enforce_grounding: bool = False
 
 
 class SearchSchemaInput(BaseModel):
@@ -102,6 +107,35 @@ def _catalog_column_names(catalog: SchemaCatalog, table_name: str | None = None)
     for table in catalog.tables:
         names.extend(column.name for column in table.columns)
     return names
+
+
+def _canonical_table_name(catalog: SchemaCatalog, name: str) -> str | None:
+    table = catalog_table_by_name(catalog, name)
+    if not table:
+        return None
+    if "." in table.name:
+        return table.name
+    return f"{table.schema_name or 'public'}.{table.name}"
+
+
+def _table_is_grounded(ctx: ToolContext, name: str) -> bool:
+    if not ctx.enforce_grounding or ctx.allow_broad_discovery:
+        return True
+    canonical = _canonical_table_name(ctx.catalog, name)
+    if not canonical:
+        return False
+    candidates = {canonical.casefold(), canonical.split(".")[-1].casefold()}
+    allowed = {item.casefold() for item in ctx.matched_tables | ctx.inspected_tables}
+    allowed |= {item.split(".")[-1] for item in allowed}
+    return bool(candidates & allowed)
+
+
+def _grounding_refusal(ctx: ToolContext, tool: str, table: str) -> str | None:
+    if _table_is_grounded(ctx, table):
+        return None
+    message = "Tool request refused because the table was not grounded in the current user request."
+    ctx.trace.record(tool, "table=[REDACTED]", 0, "refused", output_summary=message)
+    return message
 
 
 def _append_suggestions(payload: dict, suggestions: list[str]) -> dict:
@@ -331,6 +365,10 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
 
     def list_tables() -> str:
         started = time.monotonic()
+        if ctx.enforce_grounding and not ctx.allow_broad_discovery:
+            message = "Table listing is allowed only for explicit schema or broad analytical discovery."
+            ctx.trace.record("list_tables", "{}", (time.monotonic() - started) * 1000, "refused", output_summary=message)
+            return message
         sorted_tables = _sort_tables_for_listing(ctx.catalog.tables)
         total = len(sorted_tables)
         shown = sorted_tables[:max_tables_listed]
@@ -352,6 +390,13 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
 
     def search_schema(query: str) -> str:
         started = time.monotonic()
+        if ctx.enforce_grounding:
+            allowed_terms = expand_terms(list(ctx.grounded_terms))
+            query_terms = set(tokenize(query))
+            if not query_terms or not (query_terms & allowed_terms):
+                message = "Schema search terms must be grounded in the current user request."
+                ctx.trace.record("search_schema", "query=[REDACTED]", (time.monotonic() - started) * 1000, "refused", output_summary=message)
+                return message
         scored = score_tables(query, ctx.catalog, top_k=8)
         if not scored:
             ctx.trace.record(
@@ -363,6 +408,7 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
             return "No matching tables found."
         lines = []
         for item in scored:
+            ctx.matched_tables.add(item.name)
             cols = f" columns={item.matched_columns}" if item.matched_columns else ""
             lines.append(f"- {item.name} (score={item.score}): {item.reason}{cols}")
         body = "\n".join(lines)
@@ -386,10 +432,15 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
             ignored = table_names[max_tables:]
         column_cap_hit = False
         for name in selected_names:
+            refusal = _grounding_refusal(ctx, "get_table_schema", name)
+            if refusal:
+                parts.append(refusal)
+                continue
             table = catalog_table_by_name(ctx.catalog, name)
             if not table:
                 unknown.append(name)
                 continue
+            ctx.inspected_tables.add(table.name)
             lines = [f"Table: {table.name}"]
             if table.row_estimate is not None:
                 lines.append(f"  row_estimate: {table.row_estimate}")
@@ -435,6 +486,9 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
 
     def get_sample_values(table: str, column: str) -> str:
         started = time.monotonic()
+        refusal = _grounding_refusal(ctx, "get_sample_values", table)
+        if refusal:
+            return refusal
         table_obj = catalog_table_by_name(ctx.catalog, table)
         if not table_obj:
             ctx.trace.record(
@@ -639,13 +693,19 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
         lines: list[str] = []
         unknown: list[str] = []
         for name in selected:
+            refusal = _grounding_refusal(ctx, "get_relationships", name)
+            if refusal:
+                lines.append(refusal)
+                continue
             table = catalog_table_by_name(ctx.catalog, name)
             if not table:
                 unknown.append(name)
                 continue
+            ctx.inspected_tables.add(table.name)
             lines.append(f"Table: {table.name}")
             for col in table.columns:
                 if col.fk_referred_table:
+                    ctx.matched_tables.add(col.fk_referred_table)
                     lines.append(
                         f"  outbound: {col.name} -> {col.fk_referred_table}.{col.fk_referred_column}"
                     )
@@ -655,6 +715,7 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
                         table.name.lower(),
                         table.name.split(".")[-1].lower(),
                     }:
+                        ctx.matched_tables.add(other.name)
                         lines.append(f"  inbound: {other.name}.{col.name} -> {table.name}.{col.fk_referred_column}")
         if unknown:
             lines.append(f"Unknown tables: {', '.join(unknown)}")
@@ -683,6 +744,9 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
 
     def preview_table(table: str) -> str:
         started = time.monotonic()
+        refusal = _grounding_refusal(ctx, "preview_table", table)
+        if refusal:
+            return json.dumps({"success": False, "error": refusal})
         table_obj = catalog_table_by_name(ctx.catalog, table)
         if not table_obj:
             suggestions = _suggest_similar(table, _catalog_table_names(ctx.catalog))
@@ -723,6 +787,9 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
 
     def profile_table(table: str) -> str:
         started = time.monotonic()
+        refusal = _grounding_refusal(ctx, "profile_table", table)
+        if refusal:
+            return json.dumps({"success": False, "error": refusal})
         table_obj = catalog_table_by_name(ctx.catalog, table)
         if not table_obj:
             ctx.trace.record("profile_table", summarize_args("profile_table", {"table": table}), (time.monotonic() - started) * 1000, "error")
@@ -768,6 +835,9 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
     def run_count(table: str, filters: list[RunCountFilterInput] | None = None, conjunction: str = "AND") -> str:
         started = time.monotonic()
         args_summary = summarize_args("run_count", {"table": table, "filters": filters or [], "conjunction": conjunction})
+        refusal = _grounding_refusal(ctx, "run_count", table)
+        if refusal:
+            return json.dumps({"success": False, "error": refusal})
         table_obj = catalog_table_by_name(ctx.catalog, table)
         if not table_obj:
             ctx.trace.record("run_count", args_summary, (time.monotonic() - started) * 1000, "error")

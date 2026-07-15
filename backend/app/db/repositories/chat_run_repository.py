@@ -156,6 +156,109 @@ def create_queued_run_sync(
     return _map_run(session, run_row), user_message, assistant_message, history, True
 
 
+def create_completed_clarification_sync(
+    session: Session,
+    *,
+    user_id: str,
+    connection_id: str,
+    message: str,
+    client_request_id: str,
+    session_id: str | None,
+    clarification: str,
+    clarification_context: dict,
+) -> tuple[ChatAgentRun, bool]:
+    existing = session.query(ChatAgentRunORM).filter(
+        ChatAgentRunORM.owner_id == user_id,
+        ChatAgentRunORM.client_request_id == client_request_id,
+    ).one_or_none()
+    if existing:
+        return _map_run(session, existing), False
+
+    created_session = False
+    if session_id:
+        session_row = session.query(ChatSessionORM).filter(
+            ChatSessionORM.id == session_id,
+            ChatSessionORM.owner_id == user_id,
+        ).one_or_none()
+        if not session_row:
+            raise ValueError("Session not found.")
+    else:
+        session_id = _create_session_sync(session, user_id, connection_id).id
+        created_session = True
+
+    active = session.query(ChatAgentRunORM.id).filter(
+        ChatAgentRunORM.session_id == session_id,
+        ChatAgentRunORM.status.in_(ACTIVE_STATUSES),
+    ).first()
+    if active:
+        raise ActiveRunConflictError("This conversation already has an active response.")
+
+    _track_connection_sync(session, user_id, session_id, connection_id)
+    previous_user_id = _get_latest_user_message_id_sync(session, user_id, session_id)
+    user_message = ChatMessage(
+        role="user",
+        content=message,
+        connection_id=connection_id,
+        prev_query_id=previous_user_id,
+    )
+    _add_message_sync(session, user_id, session_id, user_message)
+    session.flush()
+    now = _now()
+    run_row = ChatAgentRunORM(
+        id=str(uuid.uuid4()),
+        owner_id=user_id,
+        session_id=session_id,
+        connection_id=connection_id,
+        user_message_id=user_message.id,
+        client_request_id=client_request_id,
+        status="completed",
+        current_stage="completed",
+        current_stage_label="Clarification needed",
+        started_at=now,
+        heartbeat_at=now,
+        finished_at=now,
+        updated_at=now,
+    )
+    session.add(run_row)
+    session.flush()
+    assistant_message = ChatMessage(
+        role="assistant",
+        content=clarification,
+        connection_id=connection_id,
+        parent_id=user_message.id,
+        agent_run_id=run_row.id,
+        agent_run_status="completed",
+        agent_run_stage="completed",
+        agent_run_stage_label="Clarification needed",
+        response_kind="clarification",
+        clarification_context=clarification_context,
+        agent_tier="deterministic",
+    )
+    _add_message_sync(session, user_id, session_id, assistant_message)
+    if created_session:
+        title = message[:50].strip() + ("..." if len(message) > 50 else "")
+        session.query(ChatSessionORM).filter(ChatSessionORM.id == session_id).update({"title": title})
+    session.flush()
+    return _map_run(session, run_row), True
+
+
+async def create_completed_clarification(**kwargs) -> tuple[ChatAgentRun, bool]:
+    def _run():
+        try:
+            with session_scope() as session:
+                return create_completed_clarification_sync(session, **kwargs)
+        except IntegrityError as exc:
+            with read_session_scope() as session:
+                existing = session.query(ChatAgentRunORM).filter(
+                    ChatAgentRunORM.owner_id == kwargs["user_id"],
+                    ChatAgentRunORM.client_request_id == kwargs["client_request_id"],
+                ).one_or_none()
+                if existing:
+                    return _map_run(session, existing), False
+            raise ActiveRunConflictError("This conversation already has an active response.") from exc
+    return await anyio.to_thread.run_sync(_run)
+
+
 async def create_queued_run(**kwargs) -> tuple[ChatAgentRun, ChatMessage, ChatMessage, list[dict], bool]:
     def _run():
         try:
@@ -324,6 +427,8 @@ def finalize_run(
 
 
 def get_history_for_run(run_id: str) -> list[dict]:
+    from app.services.question_intent_service import bounded_follow_up_history, explicit_follow_up
+
     with read_session_scope() as session:
         run = session.query(ChatAgentRunORM).filter(ChatAgentRunORM.id == run_id).one()
         rows = session.query(ChatMessageORM).filter(
@@ -331,11 +436,29 @@ def get_history_for_run(run_id: str) -> list[dict]:
             ChatMessageORM.owner_id == run.owner_id,
             ChatMessageORM.created_at <= session.query(ChatMessageORM.created_at).filter(ChatMessageORM.id == run.user_message_id).scalar_subquery(),
         ).order_by(ChatMessageORM.created_at.asc()).all()
-        return [
-            {"role": row.role, "content": f"{row.content}\n```sql\n{row.sql}\n```" if row.role == "assistant" and row.sql else row.content}
-            for row in rows
-            if row.content or row.role == "user"
+        previous_rows = [row for row in rows if row.id != run.user_message_id]
+        history = [
+            {
+                "id": row.id,
+                "role": row.role,
+                "content": row.content,
+                "sql": row.sql,
+                "error": row.error,
+                "parent_id": row.parent_id,
+                "response_kind": row.response_kind or "answer",
+                "clarification_context": row.clarification_context,
+                "run_status": (
+                    session.query(ChatAgentRunORM.status).filter(ChatAgentRunORM.id == row.agent_run_id).scalar()
+                    if row.agent_run_id else None
+                ),
+            }
+            for row in previous_rows
         ]
+        question_row = next(row for row in rows if row.id == run.user_message_id)
+        return bounded_follow_up_history(
+            history,
+            include=explicit_follow_up(question_row.content, history),
+        )
 
 
 def get_assistant_message(run_id: str) -> ChatMessage | None:
@@ -405,6 +528,7 @@ def fail_stale_runs(stale_after_seconds: int) -> list[str]:
 
 __all__ = [
     "ACTIVE_STATUSES", "TERMINAL_STATUSES", "ActiveRunConflictError", "create_queued_run",
+    "create_completed_clarification",
     "get_run", "get_run_by_client_request", "get_run_unscoped_sync", "set_task_id", "claim_run", "update_stage",
     "request_cancel", "is_cancel_requested", "finalize_run", "get_history_for_run",
     "get_assistant_message", "get_triggering_user_message", "active_run_count", "run_health_counts", "fail_stale_runs",

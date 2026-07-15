@@ -511,6 +511,8 @@ class ChatMessageORM(Base):
     agent_trace: Mapped[list | dict | None] = mapped_column(JsonType, nullable=True)
     agent_tier: Mapped[str | None] = mapped_column(Text, nullable=True)
     semantic_lineage: Mapped[list | None] = mapped_column(JsonType, default=list, nullable=True)
+    response_kind: Mapped[str | None] = mapped_column(Text, nullable=True)
+    clarification_context: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
     agent_run_id: Mapped[str | None] = mapped_column(
         GUID(),
         ForeignKey("chat_agent_runs.id", ondelete="SET NULL"),
@@ -524,6 +526,10 @@ class ChatMessageORM(Base):
     )
 
     __table_args__ = (
+        CheckConstraint(
+            "response_kind IS NULL OR response_kind IN ('answer', 'clarification')",
+            name="chat_messages_response_kind_valid",
+        ),
         Index("idx_chat_messages_session_id_created_at", "session_id", "created_at"),
         Index("idx_chat_messages_owner_id_created_at", "owner_id", desc("created_at")),
         Index("idx_chat_messages_connection_id", "connection_id"),
