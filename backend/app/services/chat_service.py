@@ -8,6 +8,7 @@ import anyio
 from app.agents.visualization.generator import generate_visualization_blueprint
 from app.core.config import settings
 from app.db.models.chat import ChatMessage, SessionSummary
+from app.db.models.llm import LlmExecutionContext
 from app.db.repositories.chat_repository import (
     add_message,
     create_session,
@@ -58,6 +59,7 @@ async def _execute_chat_turn(
     schema_context: str | None,
     history: list[dict],
     progress=None,
+    llm_workflow_id: str | None = None,
 ) -> dict:
     return await analysis_service.run_analysis(
         user_id=user_id,
@@ -68,6 +70,13 @@ async def _execute_chat_turn(
         session_id=session_id,
         schema_context=schema_context,
         allow_schema_shortcuts=True,
+        llm_context=LlmExecutionContext(
+            owner_id=user_id,
+            feature="chat",
+            workflow_type="chat_run" if llm_workflow_id else "chat_session",
+            workflow_id=llm_workflow_id or session_id,
+            interaction_type="explicit",
+        ),
     )
 
 
@@ -192,6 +201,7 @@ async def execute_prepared_turn(
     message: str,
     history: list[dict],
     progress,
+    run_id: str | None = None,
 ) -> dict:
     """Execute an already-persisted durable turn without creating messages."""
     progress.check_cancelled()
@@ -212,6 +222,7 @@ async def execute_prepared_turn(
         schema_context=schema_context,
         history=history,
         progress=progress,
+        llm_workflow_id=run_id,
     )
 
 
@@ -316,6 +327,13 @@ async def edit_message_sql(
                 preview_rows=result.rows[:5],
                 column_metadata={},
                 is_edited=True,
+                llm_context=LlmExecutionContext(
+                    owner_id=user_id,
+                    feature="chat_visualization",
+                    workflow_type="chat_session",
+                    workflow_id=session_id,
+                    interaction_type="explicit",
+                ),
             )
         )
 

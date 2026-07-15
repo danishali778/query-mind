@@ -18,6 +18,8 @@ def require_llm_api_key() -> str:
         if not key:
             raise RuntimeError("Required configuration value is missing: google_api_key or gemini_api_key")
         return key
+    if settings.resolved_llm_provider == "openai":
+        return settings.require("openai_api_key")
     return settings.require("groq_api_key")
 
 
@@ -38,11 +40,9 @@ def validate_core_credentials() -> None:
         if not getattr(settings, name, None):
             missing.append(name)
 
-    if settings.resolved_llm_provider == "gemini":
-        if not settings.resolved_google_api_key:
-            missing.append("google_api_key or gemini_api_key")
-    elif not settings.groq_api_key:
-        missing.append("groq_api_key")
+    if settings.llm_credential_mode.strip().lower() == "deployment":
+        if not settings.deployment_llm_api_key(settings.resolved_llm_provider):
+            missing.append(f"{settings.resolved_llm_provider} deployment API key")
 
     if not settings.mock_auth_enabled:
         for name in ("supabase_url", "supabase_anon_key", "supabase_jwt_secret"):

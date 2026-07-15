@@ -11,6 +11,7 @@ import anyio
 from app.agents.schema_context.semantic_suggester import generate_semantic_candidates
 from app.agents.schema_context.user_semantics import apply_semantic_catalog_overlay
 from app.core.config import settings
+from app.db.models.llm import LlmExecutionContext
 from app.db.repositories import semantic_repository
 from app.db.session import read_session_scope, session_scope
 from app.services import connection_service, semantic_context_service
@@ -48,6 +49,13 @@ async def _execute(run) -> list[dict]:
             business_context=run.business_context,
             verified_definitions=verified,
             max_candidates=settings.semantic_suggestion_max_candidates,
+            llm_context=LlmExecutionContext(
+                owner_id=run.owner_id,
+                feature="semantic_suggestions",
+                workflow_type="semantic_suggestion",
+                workflow_id=run.id,
+                interaction_type="explicit",
+            ),
         )
     )
     return candidates

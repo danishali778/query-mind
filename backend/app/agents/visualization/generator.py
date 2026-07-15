@@ -10,6 +10,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from app.agents._llm_content import log_llm_output
 from app.agents._prompt_loader import load_prompt
 from app.agents.nl_to_sql.llm import get_llm
+from app.db.models.llm import LlmExecutionContext
 
 logger = logging.getLogger("query-mind.visualization")
 
@@ -25,6 +26,7 @@ def _json_serializable(obj):
 
 
 def generate_visualization_blueprint(
+    llm_context: LlmExecutionContext,
     user_message: str,
     sql: str,
     preview_rows: list[dict],
@@ -54,7 +56,7 @@ def generate_visualization_blueprint(
 
     human_message += "\n\nBased on this, generate the optimal chart visualization JSON blueprint."
 
-    response = get_llm().invoke(
+    response = get_llm(llm_context).invoke(
         [
             SystemMessage(content=load_prompt(str(_PROMPT_PATH))),
             HumanMessage(content=human_message),

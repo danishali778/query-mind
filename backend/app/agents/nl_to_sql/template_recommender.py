@@ -7,6 +7,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agents.nl_to_sql.llm import get_llm
 from app.agents.nl_to_sql.prompts import build_template_recommender_prompt
+from app.db.models.llm import LlmExecutionContext
 
 CATEGORY_COLORS: dict[str, str] = {
     "Sales": "#22d3a5",
@@ -45,8 +46,13 @@ class DynamicTemplate:
     difficulty: str
 
 
-def generate_templates(connection_id: str, schema_text: str, db_type: str) -> list[DynamicTemplate]:
-    response = get_llm().invoke(
+def generate_templates(
+    connection_id: str,
+    schema_text: str,
+    db_type: str,
+    llm_context: LlmExecutionContext,
+) -> list[DynamicTemplate]:
+    response = get_llm(llm_context).invoke(
         [
             SystemMessage(
                 content=(

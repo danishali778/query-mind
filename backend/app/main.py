@@ -14,6 +14,7 @@ from app.services.chat_progress import ensure_available
 from app.db.repositories import (
     chat_run_repository,
     dashboard_generation_repository,
+    llm_credential_repository,
     semantic_repository,
     question_suggestion_repository,
 )
@@ -120,6 +121,18 @@ def streaming_health_check():
             "question_suggestion_failed_sets": 0,
             "question_suggestion_stale_sets": 0,
         }
+    try:
+        llm_counts = llm_credential_repository.health_counts()
+    except Exception:
+        llm_counts = {
+            "llm_valid_credentials": 0,
+            "llm_invalid_credentials": 0,
+            "llm_byok_invocations": 0,
+            "llm_deployment_invocations": 0,
+            "llm_trial_exhaustions": 0,
+            "llm_provider_failure_rate": 0.0,
+            "llm_average_latency_ms": 0.0,
+        }
     dashboard_healthy = (
         not settings.dashboard_ai_enabled
         or (dashboard_worker_status == "healthy" and dashboard_counts["stale_runs"] == 0)
@@ -158,6 +171,15 @@ def streaming_health_check():
         "question_suggestions_ai_enabled": settings.question_suggestions_ai_enabled,
         "suggestions_worker": suggestions_worker_status,
         "suggestions_queue": settings.celery_suggestions_queue,
+        "llm_credential_mode": settings.llm_credential_mode,
+        "llm_enabled_providers": [
+            provider for provider in ("gemini", "groq", "openai")
+            if settings.llm_allowed_models[provider]
+        ],
+        "llm_deployment_fallback_available": bool(
+            settings.deployment_llm_api_key(settings.resolved_llm_provider)
+        ) and settings.llm_credential_mode != "byok_required",
+        **llm_counts,
         **suggestion_counts,
         **semantic_counts,
         **counts,

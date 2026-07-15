@@ -22,6 +22,7 @@ from app.agents.dashboard_planner.plan import (
     reject_write_oriented_prompt,
 )
 from app.integrations.llm_client import get_chat_llm
+from app.db.models.llm import LlmExecutionContext
 from app.agents.schema_context.user_semantics import SemanticContext, render_untrusted_semantic_context
 
 logger = logging.getLogger(__name__)
@@ -159,6 +160,7 @@ def plan_dashboard(
     extra_instructions: str | None = None,
     progress: Callable[[str, str], None] | None = None,
     semantic_context: SemanticContext | None = None,
+    llm_context: LlmExecutionContext,
 ) -> DashboardPlan:
     """Produce a validated dashboard plan. Never executes SQL."""
 
@@ -180,7 +182,7 @@ def plan_dashboard(
     _stage("reading_objective", "Reading the dashboard objective")
     _stage("designing_widgets", "Designing dashboard widgets")
 
-    llm = get_chat_llm(temperature=0.2, max_tokens=4096)
+    llm = get_chat_llm(llm_context, temperature=0.2, max_tokens=4096)
     messages = _build_messages(
         objective=objective,
         widget_count=widget_count,

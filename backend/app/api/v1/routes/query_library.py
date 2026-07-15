@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, HTTPException, Body, Depends
 from typing import Optional
 
-from app.api.deps import CurrentUserDep
+from app.api.deps import CurrentUserDep, LlmAccessChecker
 from app.api.v1.schemas.common import MessageResponse
 from app.api.v1.schemas.query_library import (
     FolderSummary,
@@ -180,7 +180,11 @@ async def list_public_templates(current_user: CurrentUserDep, connection_id: Opt
 
 
 @router.post("/public/generate", response_model=TemplateGenerationResponse)
-async def trigger_template_generation(connection_id: str, current_user: CurrentUserDep):
+async def trigger_template_generation(
+    connection_id: str,
+    current_user: CurrentUserDep,
+    _: object = Depends(LlmAccessChecker("query_templates")),
+):
     """Manually trigger (or re-trigger) template generation for a connection."""
     try:
         return await store.trigger_template_generation(current_user.id, connection_id)

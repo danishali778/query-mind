@@ -426,6 +426,10 @@ export interface UserSettings {
   animate_charts: boolean;
   syntax_highlighting: boolean;
   ai_model: string;
+  preferred_llm_provider: string | null;
+  preferred_llm_model: string | null;
+  llm_preference_revision: number;
+  allow_background_ai: boolean;
   stream_responses: boolean;
   default_row_limit: number;
   auto_save_queries: boolean;
@@ -457,6 +461,8 @@ export interface UserSubscription {
   queries_limit: number;
   ai_used: number;
   ai_limit: number;
+  deployment_llm_calls_used: number;
+  deployment_llm_calls_limit: number;
   next_reset_date: string;
 }
 

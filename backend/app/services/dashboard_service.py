@@ -14,6 +14,7 @@ from app.db.models.dashboard import (
     UpdateDashboardInput,
     UpdateWidgetInput,
 )
+from app.db.models.llm import LlmExecutionContext
 from app.db.repositories import dashboard_repository
 from app.services import scheduling_service
 from app.services.query_execution_service import execute_for_connection
@@ -165,6 +166,13 @@ async def build_widget_insight(user_id: str, widget_id: str) -> str:
     return await anyio.to_thread.run_sync(
         functools.partial(
             generate_widget_insight,
+            LlmExecutionContext(
+                owner_id=user_id,
+                feature="dashboard_insight",
+                workflow_type="dashboard_widget",
+                workflow_id=widget_id,
+                interaction_type="explicit",
+            ),
             widget.title,
             widget.viz_type,
             widget.rows,

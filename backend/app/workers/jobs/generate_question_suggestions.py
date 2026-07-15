@@ -10,6 +10,8 @@ import anyio
 from app.agents.question_suggestions.deterministic import generate_deterministic_bundle
 from app.agents.question_suggestions.generator import generate_ai_bundle
 from app.core.config import settings
+from app.core.errors import AppError
+from app.db.models.llm import LlmExecutionContext
 from app.db.repositories import question_suggestion_repository
 from app.db.session import session_scope
 from app.services.question_suggestion_service import build_current_context
@@ -19,20 +21,32 @@ from app.workers.celery_app import celery_app
 logger = logging.getLogger(__name__)
 
 
-async def _execute(run):
+async def _execute(run, interaction_type: str):
     context = await build_current_context(run.owner_id, run.connection_id)
     if context.context_fingerprint != run.context_fingerprint:
         return None
     deterministic = generate_deterministic_bundle(context)
     if not settings.question_suggestions_ai_enabled:
         return deterministic
-    return await anyio.to_thread.run_sync(
-        lambda: generate_ai_bundle(
-            context=context,
-            deterministic=deterministic,
-            max_per_surface=settings.question_suggestions_max_per_surface,
+    try:
+        return await anyio.to_thread.run_sync(
+            lambda: generate_ai_bundle(
+                context=context,
+                deterministic=deterministic,
+                max_per_surface=settings.question_suggestions_max_per_surface,
+                llm_context=LlmExecutionContext(
+                    owner_id=run.owner_id,
+                    feature="question_suggestions",
+                    workflow_type="question_suggestion",
+                    workflow_id=run.id,
+                    interaction_type=interaction_type,
+                ),
+            )
         )
-    )
+    except AppError as exc:
+        if exc.code in {"llm_background_usage_disabled", "llm_credential_required"}:
+            return deterministic
+        raise
 
 
 @celery_app.task(
@@ -44,8 +58,9 @@ async def _execute(run):
     max_retries=0,
 )
 def generate_question_suggestions_task(
-    self, set_id: str, generation_revision: int
+    self, set_id: str, generation_revision: int, interaction_type: str = "automatic"
 ) -> None:
+    interaction_type = "explicit" if interaction_type == "explicit" else "automatic"
     with session_scope() as session:
         run = question_suggestion_repository.claim_sync(
             session, set_id, generation_revision, self.request.id
@@ -53,7 +68,7 @@ def generate_question_suggestions_task(
     if run is None:
         return
     try:
-        suggestions = asyncio.run(_execute(run))
+        suggestions = asyncio.run(_execute(run, interaction_type))
         if suggestions is None:
             with session_scope() as session:
                 question_suggestion_repository.finalize_sync(

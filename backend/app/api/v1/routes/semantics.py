@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
-from app.api.deps import CurrentUserDep
+from app.api.deps import CurrentUserDep, LlmAccessChecker
 from app.api.v1.schemas.common import StatusMessageResponse
 from app.api.v1.schemas.semantics import (
     CreateSemanticDefinitionRequest,
@@ -39,6 +39,7 @@ async def create_semantic_suggestions(
     connection_id: str,
     request: CreateSemanticSuggestionRequest,
     current_user: CurrentUserDep,
+    _: object = Depends(LlmAccessChecker("semantic_suggestions")),
 ):
     return await semantic_suggestion_service.start(
         owner_id=current_user.id,

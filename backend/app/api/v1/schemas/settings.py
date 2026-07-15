@@ -15,7 +15,6 @@ class UserSettingsUpdate(BaseModel):
     animate_charts: Optional[bool] = None
     syntax_highlighting: Optional[bool] = None
 
-    ai_model: Optional[str] = None
     stream_responses: Optional[bool] = None
     default_row_limit: Optional[int] = None
     auto_save_queries: Optional[bool] = None
@@ -42,7 +41,11 @@ class UserSettingsBase(BaseModel):
     animate_charts: bool = True
     syntax_highlighting: bool = True
 
-    ai_model: str = "claude-sonnet-4-6"
+    ai_model: str = ""
+    preferred_llm_provider: Optional[str] = None
+    preferred_llm_model: Optional[str] = None
+    llm_preference_revision: int = 1
+    allow_background_ai: bool = False
     stream_responses: bool = True
     default_row_limit: int = 500
     auto_save_queries: bool = False
@@ -68,6 +71,8 @@ class UserSubscription(BaseModel):
     queries_limit: int
     ai_used: int
     ai_limit: int
+    deployment_llm_calls_used: int = 0
+    deployment_llm_calls_limit: int = 10
     next_reset_date: str
 
 

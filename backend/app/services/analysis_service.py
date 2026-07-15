@@ -13,11 +13,29 @@ from app.agents.db_agent.trace import combine_failed_agent_trace
 from app.agents.nl_to_sql.graph import run_chat
 from app.agents.visualization.generator import generate_visualization_blueprint
 from app.core.config import settings
+from app.core.errors import AppError
+from app.db.models.llm import LlmExecutionContext
 from app.services import connection_service
 from app.services import semantic_context_service
 from app.services.schema_command_service import handle_schema_or_control_command
 
 logger = logging.getLogger(__name__)
+
+_NON_FALLBACK_LLM_ERRORS = {
+    "llm_credential_required",
+    "llm_credential_invalid",
+    "llm_provider_permission_denied",
+    "llm_provider_rate_limited",
+    "llm_provider_unavailable",
+    "llm_background_usage_disabled",
+    "deployment_llm_unavailable",
+    "deployment_llm_trial_exhausted",
+}
+
+
+def _raise_if_llm_access_error(exc: Exception) -> None:
+    if isinstance(exc, AppError) and exc.code in _NON_FALLBACK_LLM_ERRORS:
+        raise exc
 
 
 def _run_pipeline_sync(
@@ -28,6 +46,7 @@ def _run_pipeline_sync(
     schema_context: str,
     history: list[dict],
     progress=None,
+    llm_context: LlmExecutionContext | None = None,
 ) -> dict:
     result = run_chat(
         user_id=user_id,
@@ -39,6 +58,7 @@ def _run_pipeline_sync(
         readonly=True,
         cancellation_token=getattr(progress, "cancellation_token", None),
         progress=progress,
+        llm_context=llm_context,
     )
     result["tier"] = "pipeline"
     result["trace"] = []
@@ -56,6 +76,7 @@ def _run_agent_sync(
     engine,
     progress=None,
     semantic_context=None,
+    llm_context: LlmExecutionContext | None = None,
 ) -> dict:
     from app.agents.schema_context.catalog import build_catalog
     from app.db.repositories import schema_snapshot_repository
@@ -91,6 +112,7 @@ def _run_agent_sync(
         rebuild_catalog=rebuild_sync,
         progress=progress,
         semantic_context=semantic_context,
+        llm_context=llm_context,
     )
     return agent_result.as_chat_dict()
 
@@ -142,6 +164,7 @@ async def run_analysis(
     requested_visualization: str | None = None,
     allow_schema_shortcuts: bool = True,
     semantic_context=None,
+    llm_context: LlmExecutionContext | None = None,
 ) -> dict[str, Any]:
     """Execute a business question through the shared agent/pipeline path.
 
@@ -160,6 +183,13 @@ async def run_analysis(
     fallback_reason: str | None = None
     agent_error: str | None = None
     analysis_session_id = session_id or f"analysis-{connection_id}"
+    llm_context = llm_context or LlmExecutionContext(
+        owner_id=user_id,
+        feature="analysis",
+        workflow_type="chat_session",
+        workflow_id=analysis_session_id,
+        interaction_type="explicit",
+    )
 
     if settings.agent_mode == "tools":
         try:
@@ -202,9 +232,11 @@ async def run_analysis(
                             engine,
                             progress,
                             semantic_context,
+                            llm_context,
                         )
                     )
-                except Exception:
+                except Exception as exc:
+                    _raise_if_llm_access_error(exc)
                     logger.exception("Agent path raised; falling back to pipeline")
                     agent_error = "agent_exception"
                 else:
@@ -220,6 +252,7 @@ async def run_analysis(
                                         sql=agent_out.get("sql") or "",
                                         preview_rows=agent_out.get("rows", [])[:5],
                                         column_metadata=agent_out.get("column_metadata", {}),
+                                        llm_context=llm_context,
                                     )
                                 )
                                 agent_out["chart_recommendation"] = chart
@@ -254,7 +287,8 @@ async def run_analysis(
                         progress.fallback(fallback_reason)
             else:
                 fallback_reason = "missing_catalog_or_engine"
-        except Exception:
+        except Exception as exc:
+            _raise_if_llm_access_error(exc)
             logger.exception("Agent path raised; falling back to pipeline")
             agent_error = "agent_exception"
 
@@ -275,6 +309,7 @@ async def run_analysis(
             schema_context,
             history,
             progress,
+            llm_context,
         )
     )
     tier = "fallback" if settings.agent_mode == "tools" else "pipeline"

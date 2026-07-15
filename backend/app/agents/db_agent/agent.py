@@ -27,6 +27,7 @@ from app.agents.schema_context.user_semantics import (
     render_untrusted_semantic_context,
 )
 from app.core.config import settings
+from app.db.models.llm import LlmExecutionContext
 from app.integrations.llm_client import get_chat_llm_with_tools
 from app.query_engine.results import QueryExecutionResult
 from app.query_engine.safety import validate_query
@@ -117,8 +118,8 @@ def _build_context_messages(
     return messages
 
 
-def _get_llm(tools):
-    return get_chat_llm_with_tools(tools)
+def _get_llm(llm_context: LlmExecutionContext, tools):
+    return get_chat_llm_with_tools(llm_context, tools)
 
 
 def _is_tool_use_failed(exc: Exception) -> bool:
@@ -455,6 +456,7 @@ def run_agent(
     rebuild_catalog=None,
     progress=None,
     semantic_context: SemanticContext | None = None,
+    llm_context: LlmExecutionContext | None = None,
 ) -> AgentRunResult:
     started = time.monotonic()
     semantic_context = semantic_context or SemanticContext(schema_hash=catalog.schema_hash)
@@ -482,7 +484,13 @@ def run_agent(
     )
 
     try:
-        llm = _get_llm(tools)
+        llm_context = llm_context or LlmExecutionContext(
+            owner_id=user_id,
+            feature="chat",
+            workflow_type="chat_session",
+            workflow_id=connection_id,
+        )
+        llm = _get_llm(llm_context, tools)
         agent_graph = build_agent_graph(llm, tool_map, budget, ctx, trace, progress)
 
         messages: list[BaseMessage] = [SystemMessage(content=_build_system_prompt(catalog))]

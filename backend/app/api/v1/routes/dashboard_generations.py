@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Header, Query
 from fastapi.responses import StreamingResponse
 
-from app.api.deps import CurrentUserDep, RateLimitChecker
+from app.api.deps import CurrentUserDep, LlmAccessChecker
 from app.api.v1.schemas.dashboard_generation import (
     ApproveDashboardPlanRequest,
     ApproveDashboardPlanResponse,
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/api/dashboard/generations", tags=["Dashboard Generat
 async def create_generation(
     request: CreateDashboardGenerationRequest,
     current_user: CurrentUserDep,
-    _: object = Depends(RateLimitChecker("ai")),
+    _: object = Depends(LlmAccessChecker("dashboard")),
 ):
     return await generation_service.start_planning(
         owner_id=current_user.id,
@@ -91,7 +91,7 @@ async def approve_generation_plan(
     run_id: str,
     request: ApproveDashboardPlanRequest,
     current_user: CurrentUserDep,
-    _: object = Depends(RateLimitChecker("ai")),
+    _: object = Depends(LlmAccessChecker("dashboard")),
 ):
     return await generation_service.approve(
         current_user.id,
@@ -110,7 +110,7 @@ async def retry_generation_item(
     run_id: str,
     item_id: str,
     current_user: CurrentUserDep,
-    _: object = Depends(RateLimitChecker("ai")),
+    _: object = Depends(LlmAccessChecker("dashboard")),
 ):
     return await generation_service.retry_item(current_user.id, run_id, item_id)
 
@@ -121,7 +121,7 @@ async def regenerate_generation_item(
     item_id: str,
     request: RegenerateWidgetRequest,
     current_user: CurrentUserDep,
-    _: object = Depends(RateLimitChecker("ai")),
+    _: object = Depends(LlmAccessChecker("dashboard")),
 ):
     return await generation_service.regenerate_item(
         current_user.id,

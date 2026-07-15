@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 
 from app.agents.nl_to_sql.template_recommender import generate_templates
 from app.core.config import settings
+from app.core.errors import AppError
+from app.db.models.llm import LlmExecutionContext
 from app.db.models.templates import GeneratedQueryTemplate
 from app.db.repositories import template_repository
 from app.workers.celery_app import celery_app
@@ -20,10 +22,29 @@ def _utcnow() -> datetime:
     retry_backoff=True,
     retry_kwargs={"max_retries": 3},
 )
-def generate_templates_task(self, connection_id: str, owner_id: str, schema_text: str, db_type: str) -> None:
+def generate_templates_task(
+    self,
+    connection_id: str,
+    owner_id: str,
+    schema_text: str,
+    db_type: str,
+    interaction_type: str = "explicit",
+) -> None:
+    interaction_type = "automatic" if interaction_type == "automatic" else "explicit"
     template_repository.mark_generation_started(owner_id, connection_id)
     try:
-        templates = generate_templates(connection_id, schema_text, db_type)
+        templates = generate_templates(
+            connection_id,
+            schema_text,
+            db_type,
+            LlmExecutionContext(
+                owner_id=owner_id,
+                feature="query_templates",
+                workflow_type="connection",
+                workflow_id=connection_id,
+                interaction_type=interaction_type,
+            ),
+        )
         persisted_templates = [
             GeneratedQueryTemplate(
                 id=template.id,
@@ -43,6 +64,11 @@ def generate_templates_task(self, connection_id: str, owner_id: str, schema_text
             for template in templates
         ]
         template_repository.mark_generation_ready(owner_id, connection_id, persisted_templates)
+    except AppError as exc:
+        if exc.code in {"llm_background_usage_disabled", "llm_credential_required"}:
+            template_repository.mark_generation_ready(owner_id, connection_id, [])
+            return
+        template_repository.mark_generation_error(owner_id, connection_id, exc.message)
     except (ConnectionError, TimeoutError, OSError) as exc:
         template_repository.mark_generation_error(owner_id, connection_id, str(exc))
         raise self.retry(exc=exc, countdown=30)
@@ -50,9 +76,16 @@ def generate_templates_task(self, connection_id: str, owner_id: str, schema_text
         template_repository.mark_generation_error(owner_id, connection_id, str(exc))
 
 
-def enqueue_template_generation(connection_id: str, owner_id: str, schema_text: str, db_type: str) -> None:
+def enqueue_template_generation(
+    connection_id: str,
+    owner_id: str,
+    schema_text: str,
+    db_type: str,
+    *,
+    interaction_type: str = "explicit",
+) -> None:
     template_repository.mark_generation_started(owner_id, connection_id)
     generate_templates_task.apply_async(
-        args=[connection_id, owner_id, schema_text, db_type],
+        args=[connection_id, owner_id, schema_text, db_type, interaction_type],
         queue=settings.celery_templates_queue,
     )

@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional
 
-from app.api.deps import CurrentUserDep
+from app.api.deps import CurrentUserDep, LlmAccessChecker
 from app.api.v1.schemas.common import MessageResponse
 from app.api.v1.schemas.dashboards import (
     AddWidgetRequest,
@@ -113,7 +113,11 @@ async def refresh_widget(widget_id: str, current_user: CurrentUserDep):
 
 
 @router.post("/widgets/{widget_id}/insight", response_model=WidgetInsightResponse)
-async def get_widget_insight_route(widget_id: str, current_user: CurrentUserDep):
+async def get_widget_insight_route(
+    widget_id: str,
+    current_user: CurrentUserDep,
+    _: object = Depends(LlmAccessChecker("widget_insight")),
+):
     try:
         insight = await store.build_widget_insight(current_user.id, widget_id)
     except ValueError as exc:

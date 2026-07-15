@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.agents._llm_content import content_to_text
 from app.db.models.semantic import SemanticKind, validate_payload
 from app.integrations.llm_client import get_chat_llm
+from app.db.models.llm import LlmExecutionContext
 from app.query_engine.semantic_validation import validate_structure
 
 
@@ -81,6 +82,7 @@ def generate_semantic_candidates(
     business_context: str | None,
     verified_definitions: list[dict[str, Any]],
     max_candidates: int,
+    llm_context: LlmExecutionContext,
 ) -> list[dict[str, Any]]:
     request_data = {
         "requested_kinds": requested_kinds,
@@ -89,7 +91,7 @@ def generate_semantic_candidates(
         "physical_schema": _sanitized_catalog(catalog),
         "verified_definitions": verified_definitions,
     }
-    llm = get_chat_llm(temperature=0.2, max_tokens=6000)
+    llm = get_chat_llm(llm_context, temperature=0.2, max_tokens=6000)
     response = llm.invoke(
         [
             SystemMessage(content=_SYSTEM_PROMPT),

@@ -16,6 +16,7 @@ from app.agents.dashboard_planner import (
 from app.core.config import settings
 from app.core.errors import BadRequestError, ConflictError, NotFoundError, ServiceUnavailableError
 from app.db.models.dashboard import ChartConfig, UpdateWidgetInput
+from app.db.models.llm import LlmExecutionContext
 from app.db.repositories import dashboard_generation_repository as gen_repo
 from app.db.repositories import dashboard_repository
 from app.db.session import session_scope
@@ -691,6 +692,13 @@ async def _execute_item(
             requested_visualization=str(plan.get("visualization") or "auto"),
             allow_schema_shortcuts=False,
             semantic_context=semantic_context,
+            llm_context=LlmExecutionContext(
+                owner_id=owner_id,
+                feature="dashboard_widget_generation",
+                workflow_type="dashboard_run",
+                workflow_id=run_id,
+                interaction_type="explicit",
+            ),
         )
         if result.get("error") or not result.get("sql"):
             raise RuntimeError(result.get("error") or "Widget generation produced no SQL.")
@@ -853,6 +861,13 @@ async def execute_planning(
                 extra_instructions=extra_instructions,
                 progress=progress,
                 semantic_context=semantic_context,
+                llm_context=LlmExecutionContext(
+                    owner_id=owner_id,
+                    feature="dashboard_planning",
+                    workflow_type="dashboard_run",
+                    workflow_id=run_id,
+                    interaction_type="explicit",
+                ),
             )
         )
         with session_scope() as session:

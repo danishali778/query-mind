@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.core.config import settings
 from app.db.repositories import chat_run_repository, dashboard_repository, query_library_repository
 from app.db.repositories import connection_health_repository, connection_repository
+from app.db.repositories import llm_credential_repository
 from app.db.session import read_session_scope, session_scope
 from app.services import connection_service
 from app.services.chat_progress import publish_event
@@ -150,6 +151,15 @@ def cleanup_connection_health_events() -> dict[str, int]:
             settings.connection_health_retention_days
         )
     }
+
+
+@celery_app.task(
+    name="app.workers.tasks.cleanup_llm_usage_events",
+    queue=settings.celery_scheduled_queue,
+)
+def cleanup_llm_usage_events() -> dict[str, int]:
+    cutoff = _utcnow() - timedelta(days=settings.llm_usage_retention_days)
+    return {"deleted": llm_credential_repository.delete_expired_usage_events(cutoff)}
 
 
 @celery_app.task(name="app.workers.tasks.recover_stale_chat_runs", queue=settings.celery_default_queue)
