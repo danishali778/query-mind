@@ -35,6 +35,8 @@ export interface ChatMessageView {
   agent_run_events?: ChatRunEvent[];
   agent_stream_state?: 'connecting' | 'connected' | 'reconnecting' | 'closed';
   semantic_lineage?: SemanticLineageItem[];
+  response_kind?: 'answer' | 'clarification';
+  clarification_context?: { reason_code: string; expected_input: string };
 }
 
 export interface ChatSidebarProps {
@@ -64,6 +66,7 @@ export interface ChatInputProps {
   loading: boolean;
   disabled?: boolean;
   disabledReason?: string;
+  errorMessage?: string | null;
 }
 
 export interface AddToDashboardMessage {

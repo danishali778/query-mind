@@ -338,6 +338,8 @@ export interface ChatMessageRecord {
   agent_run_stage?: string | null;
   agent_run_stage_label?: string | null;
   semantic_lineage?: SemanticLineageItem[];
+  response_kind?: 'answer' | 'clarification' | null;
+  clarification_context?: { reason_code: string; expected_input: string } | null;
   timestamp: string;
 }
 
@@ -392,6 +394,8 @@ export interface ChatResponse {
   }> | null;
   agent_tier?: string | null;
   semantic_lineage?: SemanticLineageItem[];
+  response_kind?: 'answer' | 'clarification';
+  clarification_context?: { reason_code: string; expected_input: string } | null;
 }
 
 export interface ChatUiMessage {
