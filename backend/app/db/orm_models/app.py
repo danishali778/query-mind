@@ -858,6 +858,31 @@ class UserLlmCredentialORM(Base):
     )
 
 
+class RevokedAuthSessionORM(Base):
+    __tablename__ = "revoked_auth_sessions"
+
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=_uuid)
+    # The migration owns the auth.users FK; ORM metadata omits cross-schema
+    # ownership FKs consistently so SQLite unit-test metadata remains portable.
+    owner_id: Mapped[str] = mapped_column(GUID(), nullable=False)
+    session_id_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    access_token_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source: Mapped[str] = mapped_column(Text, nullable=False, default="logout", server_default=text("'logout'"))
+    revoked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, server_default=func.now(), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("source IN ('logout')", name="revoked_auth_sessions_source_valid"),
+        UniqueConstraint("session_id_hash", name="uq_revoked_auth_sessions_session_hash"),
+        Index("idx_revoked_auth_sessions_owner_revoked", "owner_id", desc("revoked_at")),
+        Index("idx_revoked_auth_sessions_expires", "access_token_expires_at"),
+    )
+
+
 class LlmUsageEventORM(Base):
     __tablename__ = "llm_usage_events"
 

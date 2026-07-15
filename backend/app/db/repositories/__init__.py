@@ -1,6 +1,7 @@
 """Persistence repositories."""
 
 __all__ = [
+    "auth_session_repository",
     "chat_repository",
     "connection_attempt_repository",
     "connection_repository",

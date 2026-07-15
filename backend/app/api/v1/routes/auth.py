@@ -5,7 +5,8 @@ from fastapi.responses import JSONResponse
 
 from app.api.deps import CurrentUserDep
 from app.api.v1.schemas.auth import (
-    AuthCredentialsRequest,
+    LoginCredentialsRequest,
+    SignupCredentialsRequest,
     AuthSessionResponse,
     AuthUserResponse,
 )
@@ -56,7 +57,7 @@ def _request_access_token(request: Request) -> str | None:
 
 
 @router.post("/signup", response_model=AuthSessionResponse)
-def signup(payload: AuthCredentialsRequest, response: Response, request: Request):
+def signup(payload: SignupCredentialsRequest, response: Response, request: Request):
     enforce_auth_attempt_rate_limit(request, payload.email)
     try:
         result = auth_service.signup(payload.email, payload.password)
@@ -68,7 +69,7 @@ def signup(payload: AuthCredentialsRequest, response: Response, request: Request
 
 
 @router.post("/login", response_model=AuthSessionResponse)
-def login(payload: AuthCredentialsRequest, response: Response, request: Request):
+def login(payload: LoginCredentialsRequest, response: Response, request: Request):
     enforce_auth_attempt_rate_limit(request, payload.email)
     try:
         result = auth_service.login(payload.email, payload.password)
@@ -103,7 +104,20 @@ def refresh_session(request: Request, response: Response):
 
 @router.post("/logout", response_model=StatusMessageResponse)
 def logout(request: Request, response: Response):
-    auth_service.logout(_request_access_token(request))
+    result = auth_service.logout(_request_access_token(request))
+    if not result.local_revocation_confirmed:
+        error_response = JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "error": {
+                    "code": "auth_revocation_unavailable",
+                    "message": "Authentication session revocation is temporarily unavailable.",
+                    "details": None,
+                }
+            },
+        )
+        clear_auth_cookies(error_response)
+        return error_response
     clear_auth_cookies(response)
     return {"message": "Signed out.", "status": "signed_out"}
 

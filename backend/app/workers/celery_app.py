@@ -79,6 +79,11 @@ celery_app.conf.update(
             "schedule": crontab(hour=3, minute=30),
             "options": {"queue": settings.celery_scheduled_queue},
         },
+        "cleanup-revoked-auth-sessions": {
+            "task": "app.workers.tasks.cleanup_revoked_auth_sessions",
+            "schedule": crontab(hour=3, minute=45),
+            "options": {"queue": settings.celery_scheduled_queue},
+        },
     },
 )
 

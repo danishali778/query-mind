@@ -1,20 +1,15 @@
 """Short-TTL cache for the per-request user existence check.
 
 Every authenticated request verifies that the user still exists and is
-active. That verification costs a full database session (multiple network
-round-trips to the app database), so positive results are cached briefly:
-in Redis when configured (shared across processes), in process memory
-otherwise. Only positive results are cached — a missing or inactive user
-is always re-verified against the database.
+active. Positive results are cached briefly in Redis when configured.
+Development may use a process-memory fallback. In production, Redis failure
+bypasses the cache and forces a database check. Missing or inactive users are
+always re-verified against the database.
 
-Redis access is guarded by tight socket timeouts and a short circuit
-breaker: after a Redis failure, Redis is skipped entirely for a cooldown
-period so an unavailable Redis degrades to the memory cache instead of
-adding connection-failure latency to every request.
-
-If an account-deactivation path is ever added, it must call
-``invalidate_user_cache`` so revocation takes effect immediately instead
-of after the TTL expires.
+Redis access uses tight socket timeouts and a short circuit breaker so an
+outage does not add connection-failure latency to every request.
+Application-driven account changes invalidate the shared positive cache after
+committing the new state.
 """
 
 from __future__ import annotations
@@ -29,6 +24,7 @@ from redis import Redis
 from redis.exceptions import RedisError
 
 from app.core.config import settings
+from app.core import auth_metrics
 
 
 logger = logging.getLogger(__name__)
@@ -67,9 +63,9 @@ def _mark_redis_down(exc: RedisError) -> None:
     global _redis_down_until
     _redis_down_until = time.monotonic() + _REDIS_RETRY_COOLDOWN_SECONDS
     logger.warning(
-        "Auth user cache: Redis unavailable, using memory fallback for %.0fs: %s",
+        "Auth user cache: Redis unavailable for %.0fs; error_type=%s",
         _REDIS_RETRY_COOLDOWN_SECONDS,
-        exc,
+        type(exc).__name__,
     )
 
 
@@ -86,6 +82,14 @@ async def is_user_cached_active(user_id: str) -> bool:
             return exists == 1
         except RedisError as exc:
             _mark_redis_down(exc)
+            if settings.is_production:
+                auth_metrics.increment("production_user_cache_redis_bypasses")
+                return False
+
+    if settings.is_production:
+        if settings.resolved_redis_url:
+            auth_metrics.increment("production_user_cache_redis_bypasses")
+        return False
 
     expires_at = _memory_cache.get(user_id)
     if expires_at is None:
@@ -111,6 +115,11 @@ async def mark_user_active(user_id: str) -> None:
             return
         except RedisError as exc:
             _mark_redis_down(exc)
+
+    if settings.is_production:
+        if settings.resolved_redis_url:
+            auth_metrics.increment("production_user_cache_redis_bypasses")
+        return
 
     _memory_cache[user_id] = time.monotonic() + ttl
 

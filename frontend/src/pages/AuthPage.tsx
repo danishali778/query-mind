@@ -6,6 +6,9 @@ import { Mail, ChevronRight, Activity, Globe, LockKeyhole } from 'lucide-react';
 import { LandingOverlay } from '../components/landing/LandingOverlay';
 import { ApiRequestError } from '../services/http';
 
+const SIGNUP_PASSWORD_MIN_LENGTH = 12;
+const PASSWORD_MAX_LENGTH = 1024;
+
 function authErrorMessage(error: unknown, isLogin: boolean): string {
   if (error instanceof ApiRequestError) {
     if (isLogin && error.status === 401) {
@@ -170,6 +173,8 @@ export function AuthPage() {
 
           {error && (
             <div
+              role="alert"
+              aria-live="polite"
               style={{
                 padding: '16px', background: `${T.red}11`, border: `1px solid ${T.red}`,
                 color: T.red, fontFamily: T.fontMono, fontSize: '0.7rem', fontWeight: 950,
@@ -182,14 +187,16 @@ export function AuthPage() {
 
           <form onSubmit={handleEmailAuth} style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
             <div>
-              <label style={{ display: 'block', fontFamily: T.fontMono, fontSize: '0.6rem', fontWeight: 950, letterSpacing: 1.5, marginBottom: 8, color: T.text3, textTransform: 'uppercase' }}>Email Address</label>
+              <label htmlFor="auth-email" style={{ display: 'block', fontFamily: T.fontMono, fontSize: '0.6rem', fontWeight: 950, letterSpacing: 1.5, marginBottom: 8, color: T.text3, textTransform: 'uppercase' }}>Email Address</label>
               <div style={{ position: 'relative' }}>
                 <Mail size={16} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: T.text3 }} />
                 <input
                   type="email"
+                  id="auth-email"
                   name="email"
                   autoComplete="email"
                   required
+                  maxLength={320}
                   value={email}
                   onChange={e => setEmail(e.target.value)}
                   placeholder="name@company.com"
@@ -205,14 +212,18 @@ export function AuthPage() {
             </div>
 
             <div>
-              <label style={{ display: 'block', fontFamily: T.fontMono, fontSize: '0.6rem', fontWeight: 950, letterSpacing: 1.5, marginBottom: 8, color: T.text3, textTransform: 'uppercase' }}>Password</label>
+              <label htmlFor="auth-password" style={{ display: 'block', fontFamily: T.fontMono, fontSize: '0.6rem', fontWeight: 950, letterSpacing: 1.5, marginBottom: 8, color: T.text3, textTransform: 'uppercase' }}>Password</label>
               <div style={{ position: 'relative' }}>
                 <LockKeyhole size={16} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: T.text3 }} />
                 <input
                   type="password"
+                  id="auth-password"
                   name="password"
                   autoComplete={isLogin ? 'current-password' : 'new-password'}
                   required
+                  minLength={isLogin ? 1 : SIGNUP_PASSWORD_MIN_LENGTH}
+                  maxLength={PASSWORD_MAX_LENGTH}
+                  aria-describedby={!isLogin ? 'signup-password-guidance' : undefined}
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   placeholder="............"
@@ -225,6 +236,18 @@ export function AuthPage() {
                   onBlur={e => e.currentTarget.style.borderColor = T.border}
                 />
               </div>
+              {!isLogin && (
+                <p
+                  id="signup-password-guidance"
+                  style={{
+                    marginTop: 8, color: T.text3, fontFamily: T.fontMono,
+                    fontSize: '0.58rem', fontWeight: 800, letterSpacing: 1,
+                    textTransform: 'uppercase'
+                  }}
+                >
+                  Use at least {SIGNUP_PASSWORD_MIN_LENGTH} characters.
+                </p>
+              )}
             </div>
 
             <button

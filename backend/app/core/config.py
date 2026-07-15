@@ -92,6 +92,9 @@ class Settings(BaseSettings):
     auth_cookie_samesite: str = "lax"
     auth_rate_limit_attempts: int = 5
     auth_rate_limit_window_seconds: int = 900
+    auth_signup_password_min_length: int = Field(default=12, ge=8, le=128)
+    auth_password_max_length: int = Field(default=1024, ge=64, le=8192)
+    auth_revoked_session_retention_grace_seconds: int = Field(default=300, ge=0, le=86400)
     # TTL for caching the per-request "user exists and is active" check.
     # 0 disables the cache; a deactivated user may retain access for up to this long.
     auth_user_cache_ttl_seconds: int = Field(default=60, ge=0, le=300)
@@ -213,6 +216,10 @@ class Settings(BaseSettings):
 
         if self.auth_rate_limit_attempts < 1 or self.auth_rate_limit_window_seconds < 1:
             raise RuntimeError("Authentication rate-limit settings must be positive.")
+        if self.auth_signup_password_min_length > self.auth_password_max_length:
+            raise RuntimeError(
+                "AUTH_SIGNUP_PASSWORD_MIN_LENGTH cannot exceed AUTH_PASSWORD_MAX_LENGTH."
+            )
 
         credential_mode = self.llm_credential_mode.strip().lower()
         if credential_mode not in {"deployment", "hybrid", "byok_required"}:
@@ -376,6 +383,11 @@ class Settings(BaseSettings):
             "auth_cookie_samesite": self.auth_cookie_samesite,
             "auth_rate_limit_attempts": self.auth_rate_limit_attempts,
             "auth_rate_limit_window_seconds": self.auth_rate_limit_window_seconds,
+            "auth_signup_password_min_length": self.auth_signup_password_min_length,
+            "auth_password_max_length": self.auth_password_max_length,
+            "auth_revoked_session_retention_grace_seconds": (
+                self.auth_revoked_session_retention_grace_seconds
+            ),
             "trusted_proxy_cidrs_count": len(self.trusted_proxy_cidrs),
             "llm_provider": self.resolved_llm_provider,
             "llm_credential_mode": self.llm_credential_mode,
