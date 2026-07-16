@@ -197,8 +197,8 @@ export function ConnectionsPage() {
 
   return (
     <MainShell
-      title="Connection Ledger"
-      subtitle="Source distribution and technical bridge telemetry"
+      title="Connections"
+      subtitle="Connect and manage the data sources QueryMind can analyze"
       badge={pageBadge}
       headerActions={
         <button
@@ -235,6 +235,7 @@ export function ConnectionsPage() {
           onRetry={fetchConnections}
         />
         <ConnectionDetail
+          key={activeConnection?.id || 'no-connection'}
           connection={activeConnection}
           schema={schema}
           schemaState={schemaStatus}
