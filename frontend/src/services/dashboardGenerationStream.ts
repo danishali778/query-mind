@@ -32,7 +32,7 @@ export async function consumeDashboardGenerationEvents(
   options: {
     signal: AbortSignal;
     lastEventId?: string;
-    onEvent: (event: ParsedSseEvent<DashboardGenerationEvent>) => void;
+    onEvent: (event: ParsedSseEvent<DashboardGenerationEvent>) => boolean | void;
   },
 ): Promise<string | undefined> {
   const response = await openStream(runId, options.lastEventId, options.signal);
@@ -49,7 +49,16 @@ export async function consumeDashboardGenerationEvents(
       const parsed = parseSseBlock<DashboardGenerationEvent>(block);
       if (!parsed) continue;
       if (parsed.id) lastEventId = parsed.id;
-      options.onEvent(parsed);
+      const shouldStop = options.onEvent(parsed);
+      if (shouldStop) {
+        try {
+          await reader.cancel();
+        } catch {
+          // The planning pause was received; cleanup failure must not prevent
+          // the caller from loading the durable awaiting-approval snapshot.
+        }
+        return lastEventId;
+      }
     }
     if (done) break;
   }

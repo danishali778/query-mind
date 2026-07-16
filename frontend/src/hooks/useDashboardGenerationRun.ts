@@ -53,7 +53,11 @@ export function useDashboardGenerationRun(callbacks: {
           lastEventId,
           onEvent: ({ event, data }) => {
             if (event !== 'heartbeat') callbacksRef.current.onEvent?.(data);
-            if (stopEvents.has(event) || stopEvents.has(data.type)) stopSeen = true;
+            if (stopEvents.has(event) || stopEvents.has(data.type)) {
+              stopSeen = true;
+              return true;
+            }
+            return false;
           },
         });
         failures = 0;
