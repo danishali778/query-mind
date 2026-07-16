@@ -13,10 +13,8 @@ from app.db.models.connection import ActiveConnection, ConnectionRequest, derive
 from app.db.orm_models import DatabaseConnectionORM
 from app.db.models.connection import TableInfo
 from app.db.repositories import connection_health_repository, schema_snapshot_repository
+from app.db.sentinels import UNSET
 from app.db.session import read_session_scope, session_scope
-
-
-_UNSET = object()
 
 
 class ConnectionRevisionConflictError(RuntimeError):
@@ -553,8 +551,8 @@ def _record_connection_health_sync(
     connection_id: str,
     *,
     last_status: str,
-    last_error: str | None | object = _UNSET,
-    latency_ms: float | None | object = _UNSET,
+    last_error: str | None | object = UNSET,
+    latency_ms: float | None | object = UNSET,
     tested_at: datetime | None = None,
 ) -> bool:
     row = (
@@ -566,9 +564,9 @@ def _record_connection_health_sync(
         return False
     row.last_status = last_status
     row.last_tested_at = _normalize_utc(tested_at or _utcnow())
-    if last_error is not _UNSET:
+    if last_error is not UNSET:
         row.last_error = last_error
-    if latency_ms is not _UNSET:
+    if latency_ms is not UNSET:
         row.latency_ms = latency_ms
     return True
 
@@ -578,8 +576,8 @@ def sync_record_connection_health(
     connection_id: str,
     *,
     last_status: str,
-    last_error: str | None | object = _UNSET,
-    latency_ms: float | None | object = _UNSET,
+    last_error: str | None | object = UNSET,
+    latency_ms: float | None | object = UNSET,
     tested_at: datetime | None = None,
 ) -> bool:
     with session_scope() as session:
@@ -599,8 +597,8 @@ async def record_connection_health(
     connection_id: str,
     *,
     last_status: str,
-    last_error: str | None | object = _UNSET,
-    latency_ms: float | None | object = _UNSET,
+    last_error: str | None | object = UNSET,
+    latency_ms: float | None | object = UNSET,
     tested_at: datetime | None = None,
 ) -> bool:
     def _run() -> bool:
@@ -662,8 +660,8 @@ async def record_health_and_schema_sync(
     connection_id: str,
     *,
     last_status: str,
-    last_error: str | None | object = _UNSET,
-    latency_ms: float | None | object = _UNSET,
+    last_error: str | None | object = UNSET,
+    latency_ms: float | None | object = UNSET,
     tested_at: datetime | None = None,
     synced_at: datetime | None = None,
 ) -> bool:

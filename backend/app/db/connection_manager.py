@@ -33,6 +33,7 @@ from app.db.repositories import (
     connection_repository,
     schema_snapshot_repository,
 )
+from app.db.sentinels import UNSET
 from app.db.session import session_scope
 from app.core.config import settings
 from app.query_engine.results import QueryExecutionResult
@@ -527,7 +528,7 @@ async def record_connection_health(
     *,
     success: bool,
     error: str | None = None,
-    latency_ms: float | None | object = connection_repository._UNSET,
+    latency_ms: float | None | object = UNSET,
 ) -> bool:
     last_status = "healthy" if success else "failed"
     return await connection_repository.record_connection_health(
