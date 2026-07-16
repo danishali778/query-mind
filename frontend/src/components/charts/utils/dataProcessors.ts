@@ -12,11 +12,19 @@ export interface ProcessedChartData {
   categoryCol?: string;
   yColumns: string[];
   uniqueCategories: string[];
+  isPivotedGrouped: boolean;
 }
 
 export interface PivotedGroupedSeries {
   data: Record<string, unknown>[];
   series: string[];
+}
+
+export interface CompactGroupedBars {
+  data: Record<string, unknown>[];
+  ticks: number[];
+  labels: string[];
+  maxVisibleBars: number;
 }
 
 function toFiniteChartNumber(value: unknown): number | null {
@@ -67,6 +75,37 @@ export function pivotGroupedSeries(
   return { data, series };
 }
 
+/**
+ * Convert pivoted categorical rows into one Recharts bar point per present
+ * value. Numeric X positions keep every category group equally spaced while
+ * centering only the bars that actually exist in that group.
+ */
+export function compactGroupedBars(
+  rows: Record<string, unknown>[],
+  xColumn: string,
+  series: string[],
+): CompactGroupedBars {
+  const presentByGroup = rows.map((row) => series.flatMap((seriesName) => {
+    const value = toFiniteChartNumber(row[seriesName]);
+    if (value === null) return [];
+    return [{ seriesName, value, rawValue: row[`_raw_${seriesName}`] }];
+  }));
+  const maxVisibleBars = Math.max(1, ...presentByGroup.map(values => values.length));
+  const slotStep = 0.8 / maxVisibleBars;
+  const ticks = rows.map((_, index) => index);
+  const labels = rows.map(row => String(row[xColumn] ?? ''));
+
+  const data = presentByGroup.flatMap((values, groupIndex) => values.map((item, valueIndex) => ({
+    __xPosition: groupIndex + (valueIndex - (values.length - 1) / 2) * slotStep,
+    __xLabel: labels[groupIndex],
+    __series: item.seriesName,
+    __value: item.value,
+    __rawValue: item.rawValue,
+  })));
+
+  return { data, ticks, labels, maxVisibleBars };
+}
+
 export function processChartData(
   rows: Record<string, unknown>[],
   xColumn: string,
@@ -78,7 +117,7 @@ export function processChartData(
   tooltipColumns?: string[]
 ): ProcessedChartData {
   if (!rows || rows.length === 0) {
-    return { data: [], rawData: [], yColumns: originalYCols, colMaxes: {}, uniqueCategories: [], categoryCol: undefined };
+    return { data: [], rawData: [], yColumns: originalYCols, colMaxes: {}, uniqueCategories: [], categoryCol: undefined, isPivotedGrouped: false };
   }
 
   const isCategorical = (col: string) => {
@@ -128,7 +167,7 @@ export function processChartData(
   // Use explicit is_grouped flag when provided; fall back to heuristic (repeating X + single metric)
   const shouldPivot = colorColumn && isGrouped
     ? true
-    : (categoryCol && yColumns.length === 1 && hasRepeatingX);
+    : Boolean(categoryCol && yColumns.length === 1 && hasRepeatingX);
 
   const pivotCol = colorColumn || categoryCol;
 
@@ -188,7 +227,7 @@ export function processChartData(
 
   const uniqueCategories = categoryCol ? Array.from(new Set(finalRawData.map(d => String(d[categoryCol])))) : [];
 
-  return { data, rawData: finalRawData, colMaxes, categoryCol, yColumns, uniqueCategories };
+  return { data, rawData: finalRawData, colMaxes, categoryCol, yColumns, uniqueCategories, isPivotedGrouped: shouldPivot };
 }
 
 export function getColorForCategory(cat: string, uniqueCategories: string[]) {

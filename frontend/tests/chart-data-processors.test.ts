@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pivotGroupedSeries, processChartData } from '../src/components/charts/utils/dataProcessors';
+import { compactGroupedBars, pivotGroupedSeries, processChartData } from '../src/components/charts/utils/dataProcessors';
 
 describe('pivotGroupedSeries', () => {
   it('creates stable grouped series and fills missing combinations with null', () => {
@@ -71,6 +71,38 @@ describe('processChartData grouped normalization', () => {
     expect(result.data).toEqual([
       { month: 'January', _raw_East: 100, East: 100, _raw_West: 50, West: 100 },
       { month: 'February', _raw_East: 25, East: 25, _raw_West: null, West: null },
+    ]);
+    expect(result.isPivotedGrouped).toBe(true);
+  });
+});
+
+describe('compactGroupedBars', () => {
+  it('centers only present values while keeping X groups equally spaced', () => {
+    const result = compactGroupedBars([
+      { month: 'January', East: 100, West: null },
+      { month: 'February', East: 0, West: -20 },
+      { month: 'March', East: null, West: 170 },
+    ], 'month', ['East', 'West']);
+
+    expect(result.ticks).toEqual([0, 1, 2]);
+    expect(result.labels).toEqual(['January', 'February', 'March']);
+    expect(result.maxVisibleBars).toBe(2);
+    expect(result.data).toEqual([
+      { __xPosition: 0, __xLabel: 'January', __series: 'East', __value: 100, __rawValue: undefined },
+      { __xPosition: 0.8, __xLabel: 'February', __series: 'East', __value: 0, __rawValue: undefined },
+      { __xPosition: 1.2, __xLabel: 'February', __series: 'West', __value: -20, __rawValue: undefined },
+      { __xPosition: 2, __xLabel: 'March', __series: 'West', __value: 170, __rawValue: undefined },
+    ]);
+  });
+
+  it('omits invalid values without treating zero or negatives as missing', () => {
+    const result = compactGroupedBars([
+      { month: 'January', Missing: null, Invalid: 'bad', Zero: 0, Negative: -5 },
+    ], 'month', ['Missing', 'Invalid', 'Zero', 'Negative']);
+
+    expect(result.data.map(point => [point.__series, point.__value])).toEqual([
+      ['Zero', 0],
+      ['Negative', -5],
     ]);
   });
 });

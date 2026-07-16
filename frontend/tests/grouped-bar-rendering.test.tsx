@@ -81,13 +81,14 @@ describe('Recharts-only grouped bars', () => {
     );
 
     const chartData = JSON.parse(screen.getByTestId('recharts-bar-chart').getAttribute('data-chart-data') || '[]');
-    expect(chartData).toEqual([
-      { month: 'January', East: 100, West: 150 },
-      { month: 'February', East: 0, West: null },
-      { month: 'March', East: -20, West: 170 },
+    expect(chartData.map((point: Record<string, unknown>) => [point.__xLabel, point.__series, point.__value, point.__xPosition])).toEqual([
+      ['January', 'East', 100, -0.2],
+      ['January', 'West', 150, 0.2],
+      ['February', 'East', 0, 1],
+      ['March', 'East', -20, 1.8],
+      ['March', 'West', 170, 2.2],
     ]);
-    expect(screen.getByTestId('recharts-bar-East')).toBeInTheDocument();
-    expect(screen.getByTestId('recharts-bar-West')).toBeInTheDocument();
+    expect(screen.getByTestId('recharts-bar-__value')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Grouped' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Single' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Multi-Grid' })).toBeInTheDocument();
@@ -113,6 +114,29 @@ describe('Recharts-only grouped bars', () => {
 
     expect(screen.getByTestId('recharts-bar-chart')).toBeInTheDocument();
     expect(screen.getByTestId('recharts-bar-revenue')).toBeInTheDocument();
+  });
+
+  it('keeps ordinary multi-column Chat groups on the existing series path', () => {
+    render(
+      <BaseChartContainer
+        recommendation={{
+          type: 'bar',
+          title: 'Revenue and profit by month',
+          x_column: 'month',
+          y_columns: ['revenue', 'profit'],
+          is_grouped: true,
+        }}
+        rows={[
+          { month: 'January', revenue: 100, profit: 20 },
+          { month: 'February', revenue: 120, profit: 25 },
+        ]}
+        columns={['month', 'revenue', 'profit']}
+      />,
+    );
+
+    expect(screen.getByTestId('recharts-bar-revenue')).toBeInTheDocument();
+    expect(screen.getByTestId('recharts-bar-profit')).toBeInTheDocument();
+    expect(screen.queryByTestId('recharts-bar-__value')).not.toBeInTheDocument();
   });
 
   it('uses the shared sparse data shape in Dashboard and hides only missing tooltip entries', () => {
@@ -144,10 +168,12 @@ describe('Recharts-only grouped bars', () => {
     const { container } = render(<DashboardBarChart widget={widget} size="half" />);
 
     const chartData = JSON.parse(screen.getByTestId('recharts-bar-chart').getAttribute('data-chart-data') || '[]');
-    expect(chartData).toEqual([
-      { month: 'January', East: 100, West: 150 },
-      { month: 'February', East: 0, West: null },
-      { month: 'March', East: -20, West: 170 },
+    expect(chartData.map((point: Record<string, unknown>) => [point.__xLabel, point.__series, point.__value, point.__xPosition])).toEqual([
+      ['January', 'East', 100, -0.2],
+      ['January', 'West', 150, 0.2],
+      ['February', 'East', 0, 1],
+      ['March', 'East', -20, 1.8],
+      ['March', 'West', 170, 2.2],
     ]);
     expect(screen.queryByText('Missing')).not.toBeInTheDocument();
     expect(screen.getByText('Zero')).toBeInTheDocument();

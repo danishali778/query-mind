@@ -13,4 +13,5 @@ export interface ChartModuleProps {
   colorColumn?: string | null;
   tooltipColumns?: string[];
   isDualAxis?: boolean;
+  isPivotedGrouped?: boolean;
 }

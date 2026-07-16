@@ -1,9 +1,9 @@
 import { useRef, useState, useEffect } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { T } from '../tokens';
 import type { DashboardWidgetItem, WidgetSize } from '../../../types/dashboard';
 import type { ChartTooltipProps } from './chartTooltipTypes';
-import { pivotGroupedSeries } from '../../charts/utils/dataProcessors';
+import { compactGroupedBars, pivotGroupedSeries } from '../../charts/utils/dataProcessors';
 
 const COLORS = [
   '#00e5ff', '#7c3aff', '#22d3a5', '#f59e0b', '#f87171',
@@ -27,14 +27,14 @@ const CustomTooltip = ({ active, payload, label }: ChartTooltipProps) => {
     return (
       <div style={TT_STYLE}>
         <div style={{ fontWeight: 800, marginBottom: 8, color: T.text, fontSize: '0.8rem', fontFamily: T.fontHead, letterSpacing: 0.3 }}>
-          {label}
+          {visiblePayload[0]?.payload?.__xLabel ?? label}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {visiblePayload.map((p, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <div style={{ width: 6, height: 6, borderRadius: '50%', background: p.fill }} />
-                <span style={{ color: T.text2, fontSize: '0.7rem' }}>{p.name}</span>
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: p.payload?.__color ?? p.fill }} />
+                <span style={{ color: T.text2, fontSize: '0.7rem' }}>{p.payload?.__series ?? p.name}</span>
               </div>
               <span style={{ fontWeight: 700, color: T.text, fontFamily: T.fontMono, fontSize: '0.75rem' }}>
                 {formatYValue(Number(p.value) || 0)}
@@ -73,6 +73,13 @@ const XTick = ({ x, y, payload }: any) => {
       </text>
     </g>
   );
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const CompactXTick = ({ labels, ...props }: any) => {
+  const position = Number(props.payload?.value);
+  const label = labels[Math.round(position)] ?? '';
+  return <XTick {...props} payload={{ ...props.payload, value: label }} />;
 };
 
 export function DashboardBarChart({ widget }: { widget: DashboardWidgetItem; size: WidgetSize }) {
@@ -118,9 +125,19 @@ export function DashboardBarChart({ widget }: { widget: DashboardWidgetItem; siz
     });
   }
 
-  // Grouped charts need more space per slot since multiple bars sit side by side
-  const MIN_BAR_WIDTH = yCols.length > 1 ? 24 : 20;
-  const totalBars = data.length * Math.max(1, yCols.length);
+  const compactGroups = isGrouped ? compactGroupedBars(data, xCol, yCols) : null;
+  if (compactGroups) {
+    compactGroups.data = compactGroups.data.map(point => {
+      const seriesIndex = yCols.indexOf(String(point.__series));
+      return { ...point, __color: COLORS[Math.max(0, seriesIndex) % COLORS.length] };
+    });
+  }
+  const chartData = compactGroups?.data ?? data;
+
+  // Sparse categorical groups reserve space only for values that are present.
+  const barsPerGroup = compactGroups?.maxVisibleBars ?? Math.max(1, yCols.length);
+  const MIN_BAR_WIDTH = barsPerGroup > 1 ? 24 : 20;
+  const totalBars = data.length * barsPerGroup;
   const needsScroll = totalBars * MIN_BAR_WIDTH > containerWidth;
   const fixedWidth = Math.max(600, totalBars * (MIN_BAR_WIDTH + 2));
 
@@ -132,7 +149,7 @@ export function DashboardBarChart({ widget }: { widget: DashboardWidgetItem; siz
   const maxVal = colMaxes[sortedBySca[0]] || 1;
   const leftCols = sortedBySca.filter(c => (colMaxes[c] || 0) >= maxVal / 10);
   const rightCols = sortedBySca.filter(c => (colMaxes[c] || 0) < maxVal / 10);
-  const needsDualAxis = rightCols.length > 0;
+  const needsDualAxis = !isGrouped && rightCols.length > 0;
   const getAxisId = (col: string): 'left' | 'right' =>
     needsDualAxis && rightCols.includes(col) ? 'right' : 'left';
 
@@ -155,9 +172,23 @@ export function DashboardBarChart({ widget }: { widget: DashboardWidgetItem; siz
   const singleAxisLabel = formatColLabel(yCols[0] || '').substring(0, 22);
 
   const renderChart = () => (
-    <BarChart data={data} margin={chartMargin} barGap={0} barCategoryGap="12%">
+    <BarChart data={chartData} margin={chartMargin} barGap={0} barCategoryGap="12%">
       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={GS} opacity={0.3} />
-      <XAxis dataKey={xCol} tick={XTick} height={68} axisLine={{ stroke: GS, strokeOpacity: 0.5 }} interval={0} label={xAxisLabel} />
+      {compactGroups ? (
+        <XAxis
+          type="number"
+          dataKey="__xPosition"
+          domain={[-0.5, Math.max(0.5, data.length - 0.5)]}
+          ticks={compactGroups.ticks}
+          tick={<CompactXTick labels={compactGroups.labels} />}
+          height={68}
+          axisLine={{ stroke: GS, strokeOpacity: 0.5 }}
+          interval={0}
+          label={xAxisLabel}
+        />
+      ) : (
+        <XAxis dataKey={xCol} tick={XTick} height={68} axisLine={{ stroke: GS, strokeOpacity: 0.5 }} interval={0} label={xAxisLabel} />
+      )}
       {needsDualAxis ? (
         <>
           <YAxis yAxisId="left" width={AXIS_W} tickCount={6}
@@ -176,7 +207,22 @@ export function DashboardBarChart({ widget }: { widget: DashboardWidgetItem; siz
           label={makeAxisLabel(singleAxisLabel, T.text3, 'left')} />
       )}
       <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(0,229,255,0.03)' }} />
-      {yCols.map((c, i) => (
+      {compactGroups ? (
+        <Bar
+          yAxisId="left"
+          dataKey="__value"
+          fill={COLORS[0]}
+          radius={[4, 4, 0, 0]}
+          barSize={20}
+          isAnimationActive={true}
+          animationDuration={1200}
+          animationEasing="ease-out"
+        >
+          {compactGroups.data.map((point, index) => (
+            <Cell key={`${String(point.__xPosition)}-${String(point.__series)}-${index}`} fill={String(point.__color)} />
+          ))}
+        </Bar>
+      ) : yCols.map((c, i) => (
         <Bar 
           key={c} 
           yAxisId={getAxisId(c)} 

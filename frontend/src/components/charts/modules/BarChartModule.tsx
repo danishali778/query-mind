@@ -3,7 +3,7 @@ import { BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveCo
 import { Info } from 'lucide-react';
 import type { ChartModuleProps } from '../types';
 import { CustomTooltip } from '../shared/CustomTooltip';
-import { formatYAxisValue, formatColLabel, COLORS } from '../utils/dataProcessors';
+import { compactGroupedBars, formatYAxisValue, formatColLabel, COLORS } from '../utils/dataProcessors';
 import { chartStyles } from '../utils/config';
 import { T } from '../../dashboard/tokens';
 
@@ -20,6 +20,13 @@ const TruncatedXTick = ({ x, y, payload }: any) => {
   );
 };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const CompactXTick = ({ labels, ...props }: any) => {
+  const position = Number(props.payload?.value);
+  const label = labels[Math.round(position)] ?? '';
+  return <TruncatedXTick {...props} payload={{ ...props.payload, value: label }} />;
+};
+
 export function BarChartModule({
   data,
   rawData,
@@ -33,12 +40,21 @@ export function BarChartModule({
   yLabel,
   tooltipColumns,
   isDualAxis: isDualAxisProp,
+  isPivotedGrouped = false,
 }: ChartModuleProps) {
   const [viewMode, setViewMode] = useState<'grouped' | 'single' | 'multi'>('grouped');
   const [activeCategory, setActiveCategory] = useState(yColumns[0]);
 
+  const compactGroups = isPivotedGrouped ? compactGroupedBars(data, xColumn, yColumns) : null;
+  if (compactGroups) {
+    compactGroups.data = compactGroups.data.map(point => {
+      const seriesIndex = yColumns.indexOf(String(point.__series));
+      return { ...point, __color: COLORS[Math.max(0, seriesIndex) % COLORS.length] };
+    });
+  }
+  const isCompactGrouped = viewMode === 'grouped' && compactGroups !== null;
   const SCROLL_THRESHOLD = 20;
-  const barsPerGroup = viewMode === 'grouped' ? yColumns.length : 1;
+  const barsPerGroup = viewMode === 'grouped' ? (compactGroups?.maxVisibleBars ?? yColumns.length) : 1;
   const effectiveBarCount = data.length * barsPerGroup;
   const needsScroll = viewMode !== 'multi' && effectiveBarCount > SCROLL_THRESHOLD;
   const fixedWidth = Math.max(600, data.length * Math.max(32, barsPerGroup * 20));
@@ -50,7 +66,7 @@ export function BarChartModule({
   const maxVal = colMaxes[sortedBySca[0]] || 1;
   const leftCols = sortedBySca.filter(c => (colMaxes[c] || 0) >= maxVal / 10);
   const rightCols = sortedBySca.filter(c => (colMaxes[c] || 0) < maxVal / 10);
-  const needsDualAxis = !normalized && viewMode === 'grouped' && (isDualAxisProp || (yColumns.length > 1 && rightCols.length > 0));
+  const needsDualAxis = !isPivotedGrouped && !normalized && viewMode === 'grouped' && (isDualAxisProp || (yColumns.length > 1 && rightCols.length > 0));
   const getAxisId = (col: string): 'left' | 'right' => (needsDualAxis && rightCols.includes(col)) ? 'right' : 'left';
 
   const chartScaleHeight = 360;
@@ -123,12 +139,26 @@ export function BarChartModule({
     const yAxisFmtRight = (val: number) => formatYAxisValue(val, normalized, rightCols.some(isColCurrency));
     const yAxisFmtSingle = (val: number) => formatYAxisValue(val, normalized, yColumns.some(isColCurrency));
 
+    const chartData = isCompactGrouped ? compactGroups.data : data;
+
     return (
       <div key={col} style={{ height: isMulti ? 240 : chartScaleHeight, width: needsScroll ? fixedWidth : '100%' }}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 20, right: needsDualAxis ? 40 : 10, left: 10, bottom: 20 }}>
+          <BarChart data={chartData} margin={{ top: 20, right: needsDualAxis ? 40 : 10, left: 10, bottom: 20 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartStyles.gridStroke} />
-            <XAxis dataKey={xColumn} tick={TruncatedXTick} hide={isMulti} interval={needsScroll ? 0 : (data.length > 20 ? Math.ceil(data.length / 12) - 1 : 0)} />
+            {isCompactGrouped ? (
+              <XAxis
+                type="number"
+                dataKey="__xPosition"
+                domain={[-0.5, Math.max(0.5, data.length - 0.5)]}
+                ticks={compactGroups.ticks}
+                tick={<CompactXTick labels={compactGroups.labels} />}
+                hide={isMulti}
+                interval={needsScroll ? 0 : (data.length > 20 ? Math.ceil(data.length / 12) - 1 : 0)}
+              />
+            ) : (
+              <XAxis dataKey={xColumn} tick={TruncatedXTick} hide={isMulti} interval={needsScroll ? 0 : (data.length > 20 ? Math.ceil(data.length / 12) - 1 : 0)} />
+            )}
             {needsDualAxis ? (
               <>
                 <YAxis yAxisId="left" width={AXIS_W} tickFormatter={yAxisFmtLeft} tick={{ fontSize: 11, fill: leftAxisColor }} label={makeAxisLabel(leftAxisLabel, leftAxisColor, 'left')} />
@@ -138,7 +168,13 @@ export function BarChartModule({
               <YAxis yAxisId="left" width={AXIS_W} tickFormatter={yAxisFmtSingle} tick={{ fontSize: 11, fill: T.text3, fontFamily: T.fontMono }} label={yAxisLabelSingle} />
             )}
             <Tooltip content={<CustomTooltip normalizedColMaxes={normalized ? colMaxes : null} tooltipColumns={tooltipColumns} />} cursor={{ fill: 'rgba(255,255,255,0.05)' }} />
-            {viewMode === 'grouped'
+            {isCompactGrouped
+              ? <Bar dataKey="__value" yAxisId="left" fill={COLORS[0]} radius={[4, 4, 0, 0]} barSize={20}>
+                  {compactGroups.data.map((point, i) => (
+                    <Cell key={`${String(point.__xPosition)}-${String(point.__series)}-${i}`} fill={String(point.__color)} />
+                  ))}
+                </Bar>
+              : viewMode === 'grouped'
               ? yColumns.map((c, i) => <Bar key={c} dataKey={c} yAxisId={getAxisId(c)} fill={COLORS[i % COLORS.length]} radius={[4, 4, 0, 0]} barSize={needsDualAxis ? 12 : 20} />)
               : <Bar dataKey={col} yAxisId="left" fill={useCategoryColors ? "" : color} radius={[4, 4, 0, 0]} barSize={30}>{useCategoryColors && data.map((_, i) => <Cell key={`cell-${i}`} fill={COLORS[i % COLORS.length]} />)}</Bar>
             }
@@ -156,7 +192,7 @@ export function BarChartModule({
           <span>Two independent y-axes — <span style={{ color: leftAxisColor, fontWeight: 600 }}>{leftAxisLabel}</span> scale vs <span style={{ color: rightAxisColor, fontWeight: 600 }}>{rightAxisLabel}</span> scale</span>
         </div>
       )}
-      {viewMode !== 'multi' && rightCols.length > 0 && !needsDualAxis && !normalized && (
+      {viewMode !== 'multi' && rightCols.length > 0 && !needsDualAxis && !normalized && !isPivotedGrouped && (
         <div style={{ padding: '6px 20px', background: 'rgba(245,158,11,0.06)', borderTop: `1px solid rgba(245,158,11,0.15)`, fontSize: '0.7rem', color: 'rgba(245,158,11,0.7)', fontFamily: T.fontMono, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Info width={12} height={12} />
           <span>Scale disparity detected. Consider switching to % or Multi-Grid for better visibility.</span>
