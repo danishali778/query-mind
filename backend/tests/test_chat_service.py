@@ -1,6 +1,7 @@
 ﻿"""Tests for shared analysis execution used by chat and dashboard generation."""
 
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -41,6 +42,41 @@ def _catalog():
             )
         ],
     )
+
+
+def test_run_agent_sync_passes_grounding_through_intent_result():
+    catalog = _catalog()
+    semantic_context = SemanticContext(schema_hash=catalog.schema_hash)
+    intent_result = SimpleNamespace(
+        matched_tables=["products"],
+        broad_discovery=False,
+    )
+    agent_result = MagicMock()
+    agent_result.as_chat_dict.return_value = {"success": True, "tier": "agent"}
+
+    with patch.object(
+        analysis_service,
+        "run_agent",
+        autospec=True,
+        return_value=agent_result,
+    ) as mock_run_agent:
+        result = analysis_service._run_agent_sync(
+            "user-1",
+            "conn-1",
+            "show active products",
+            [],
+            catalog,
+            MagicMock(),
+            semantic_context=semantic_context,
+            intent_result=intent_result,
+        )
+
+    assert result == {"success": True, "tier": "agent"}
+    call_kwargs = mock_run_agent.call_args.kwargs
+    assert call_kwargs["intent_result"] is intent_result
+    assert "grounded_tables" not in call_kwargs
+    assert "enforce_grounding" not in call_kwargs
+    assert "broad_discovery" not in call_kwargs
 
 
 def test_chat_turn_delegates_to_analysis_service():

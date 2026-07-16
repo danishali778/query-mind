@@ -119,9 +119,6 @@ def _run_agent_sync(
         progress=progress,
         semantic_context=semantic_context,
         llm_context=llm_context,
-        grounded_tables=list(getattr(intent_result, "matched_tables", []) or []),
-        enforce_grounding=intent_result is not None,
-        broad_discovery=bool(getattr(intent_result, "broad_discovery", False)),
         intent_result=intent_result,
     )
     return agent_result.as_chat_dict()
