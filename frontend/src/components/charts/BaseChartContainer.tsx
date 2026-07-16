@@ -28,7 +28,7 @@ export function BaseChartContainer({ recommendation, rows, column_metadata }: Ch
   };
 
   // Process data from raw rows to chart-ready data
-  const { data, rawData, colMaxes, categoryCol, yColumns, uniqueCategories } = processChartData(
+  const { data, rawData, colMaxes, categoryCol, yColumns, uniqueCategories, isPivotedGrouped } = processChartData(
     rows,
     x_column,
     recommendation.y_columns,
@@ -65,6 +65,7 @@ export function BaseChartContainer({ recommendation, rows, column_metadata }: Ch
     colorColumn: color_column,
     tooltipColumns: tooltip_columns,
     isDualAxis: is_dual_axis,
+    isPivotedGrouped,
   };
 
   const renderModule = () => {

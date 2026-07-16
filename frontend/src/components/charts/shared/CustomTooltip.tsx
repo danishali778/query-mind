@@ -39,26 +39,29 @@ export function CustomTooltip({ active, payload, label, normalizedColMaxes, cate
     zIndex: 100,
   };
 
-  const primaryColor = payload[0].color;
   const rowData = payload[0].payload;
+  const compactColor = typeof rowData.__color === 'string' ? rowData.__color : null;
+  const primaryColor = compactColor ?? payload[0].color;
+  const compactLabel = rowData.__xLabel;
 
   return (
     <div style={tt}>
-      <div style={{ fontWeight: 600, marginBottom: 6, color: T.text2 }}>{formatLabel(String(label ?? ''))}</div>
+      <div style={{ fontWeight: 600, marginBottom: 6, color: T.text2 }}>{formatLabel(String(compactLabel ?? label ?? ''))}</div>
       {categoryCol && rowData[categoryCol] != null && (
         <div style={{ color: primaryColor, marginBottom: 4, fontWeight: 500 }}>
           {categoryCol} : {String(rowData[categoryCol])}
         </div>
       )}
       {payload.map((entry, i) => {
+        const compactSeries = typeof entry.payload.__series === 'string' ? entry.payload.__series : null;
         const rawKey = `_raw_${entry.dataKey}`;
-        const rawValue = entry.payload[rawKey] as number | undefined;
+        const rawValue = (compactSeries ? entry.payload.__rawValue : entry.payload[rawKey]) as number | undefined;
         const displayValue = normalizedColMaxes
           ? `${typeof rawValue === 'number' ? rawValue.toLocaleString() : rawValue} (${entry.value}%)`
           : (typeof entry.value === 'number' ? entry.value.toLocaleString() : entry.value);
         return (
-          <div key={i} style={{ color: categoryCol && payload.length === 1 ? T.text2 : entry.color, marginBottom: 2, fontWeight: 500 }}>
-            {formatColLabel(entry.dataKey)} : {displayValue}
+          <div key={i} style={{ color: categoryCol && payload.length === 1 ? T.text2 : (compactColor ?? entry.color), marginBottom: 2, fontWeight: 500 }}>
+            {formatColLabel(compactSeries ?? entry.dataKey)} : {displayValue}
           </div>
         );
       })}

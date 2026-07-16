@@ -4,9 +4,12 @@ export interface ChartTooltipEntry {
   color?: string;
   fill?: string;
   name?: string | number;
-  value?: string | number;
+  value?: string | number | null;
   payload?: {
     fill?: string;
+    __xLabel?: string;
+    __series?: string;
+    __color?: string;
   };
 }
 
