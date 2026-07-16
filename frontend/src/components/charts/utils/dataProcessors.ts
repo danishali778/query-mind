@@ -14,6 +14,59 @@ export interface ProcessedChartData {
   uniqueCategories: string[];
 }
 
+export interface PivotedGroupedSeries {
+  data: Record<string, unknown>[];
+  series: string[];
+}
+
+function toFiniteChartNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value !== 'string' || value.trim() === '') return null;
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function pivotGroupedSeries(
+  rows: Record<string, unknown>[],
+  xColumn: string,
+  colorColumn: string,
+  metricColumn: string,
+): PivotedGroupedSeries {
+  const pivotMap = new Map<string, Record<string, unknown>>();
+  const series: string[] = [];
+  const seenSeries = new Set<string>();
+
+  rows.forEach((row) => {
+    const xValue = String(row[xColumn] ?? '');
+    const seriesName = String(row[colorColumn] ?? 'Unknown');
+    if (!seenSeries.has(seriesName)) {
+      seenSeries.add(seriesName);
+      series.push(seriesName);
+    }
+
+    let pivotedRow = pivotMap.get(xValue);
+    if (!pivotedRow) {
+      pivotedRow = { [xColumn]: xValue };
+      pivotMap.set(xValue, pivotedRow);
+    }
+    pivotedRow[seriesName] = toFiniteChartNumber(row[metricColumn]);
+  });
+
+  const data = Array.from(pivotMap.values(), (row) => {
+    const completed = { ...row };
+    series.forEach((seriesName) => {
+      if (!Object.prototype.hasOwnProperty.call(completed, seriesName)) {
+        completed[seriesName] = null;
+      }
+    });
+    return completed;
+  });
+
+  return { data, series };
+}
+
 export function processChartData(
   rows: Record<string, unknown>[],
   xColumn: string,
@@ -81,24 +134,9 @@ export function processChartData(
 
   if (shouldPivot && pivotCol) {
     const metricCol = yColumns[0];
-    const pivotMap: Record<string, Record<string, unknown>> = {};
-    const catSet = new Set<string>();
-
-    rows.forEach(r => {
-      const xVal = String(r[xColumn] || '');
-      const catVal = String(r[pivotCol] || 'Unknown');
-      const val = typeof r[metricCol] === 'number' ? r[metricCol] : parseFloat(String(r[metricCol])) || 0;
-
-      catSet.add(catVal);
-
-      if (!pivotMap[xVal]) {
-        pivotMap[xVal] = { [xColumn]: xVal };
-      }
-      pivotMap[xVal][catVal] = val;
-    });
-
-    finalRawData = Object.values(pivotMap);
-    yColumns = Array.from(catSet);
+    const pivoted = pivotGroupedSeries(rows, xColumn, pivotCol, metricCol);
+    finalRawData = pivoted.data;
+    yColumns = pivoted.series;
     categoryCol = undefined; // Pivot consumed the category column
   } else {
     // Standard data mapping — include tooltipColumns in each row
@@ -132,8 +170,11 @@ export function processChartData(
         item[categoryCol] = row[categoryCol];
       }
       yColumns.forEach(c => {
-        item[`_raw_${c}`] = row[c] || 0;
-        item[c] = Math.round(((Number(row[c]) || 0) / (colMaxes[c] || 1)) * 1000) / 10;
+        const rawValue = row[c];
+        item[`_raw_${c}`] = rawValue;
+        item[c] = rawValue === null || rawValue === undefined
+          ? null
+          : Math.round(((Number(rawValue) || 0) / (colMaxes[c] || 1)) * 1000) / 10;
       });
       tooltipColumns?.forEach(col => {
         const v = row[col];

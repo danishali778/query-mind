@@ -3,6 +3,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { T } from '../tokens';
 import type { DashboardWidgetItem, WidgetSize } from '../../../types/dashboard';
 import type { ChartTooltipProps } from './chartTooltipTypes';
+import { pivotGroupedSeries } from '../../charts/utils/dataProcessors';
 
 const COLORS = [
   '#00e5ff', '#7c3aff', '#22d3a5', '#f59e0b', '#f87171',
@@ -21,14 +22,15 @@ const TT_STYLE = {
 };
 
 const CustomTooltip = ({ active, payload, label }: ChartTooltipProps) => {
-  if (active && payload && payload.length) {
+  const visiblePayload = payload?.filter((entry) => entry.value !== null && entry.value !== undefined);
+  if (active && visiblePayload && visiblePayload.length) {
     return (
       <div style={TT_STYLE}>
         <div style={{ fontWeight: 800, marginBottom: 8, color: T.text, fontSize: '0.8rem', fontFamily: T.fontHead, letterSpacing: 0.3 }}>
           {label}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {payload.map((p, i) => (
+          {visiblePayload.map((p, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <div style={{ width: 6, height: 6, borderRadius: '50%', background: p.fill }} />
@@ -85,21 +87,6 @@ export function DashboardBarChart({ widget }: { widget: DashboardWidgetItem; siz
     return () => obs.disconnect();
   }, []);
 
-  // Sparse grouped SVG state — must be declared before any early return (React rules of hooks)
-  const svgContainerRef = useRef<HTMLDivElement>(null);
-  const [svgContainerWidth, setSvgContainerWidth] = useState(800);
-  const [sparseTooltip, setSparseTooltip] = useState<{
-    clientX: number; clientY: number; xVal: string; row: Record<string, unknown>;
-  } | null>(null);
-
-  useEffect(() => {
-    const el = svgContainerRef.current;
-    if (!el) return;
-    const obs = new ResizeObserver(e => setSvgContainerWidth(e[0].contentRect.width));
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
-
   const xCol = widget.chart_config?.x_column || widget.columns[0];
   const colorCol = widget.chart_config?.color_column;
   const isGrouped = widget.chart_config?.is_grouped && !!colorCol;
@@ -117,24 +104,9 @@ export function DashboardBarChart({ widget }: { widget: DashboardWidgetItem; siz
   let data: Record<string, unknown>[];
   if (isGrouped && colorCol) {
     const metricCol = yCols[0];
-    const pivotMap: Record<string, Record<string, unknown>> = {};
-    const catSet = new Set<string>();
-    widget.rows.forEach(row => {
-      const xVal = String(row[xCol] ?? '');
-      const catVal = String(row[colorCol] ?? 'Unknown');
-      const val = typeof row[metricCol] === 'number' ? row[metricCol] : parseFloat(String(row[metricCol])) || 0;
-      catSet.add(catVal);
-      if (!pivotMap[xVal]) pivotMap[xVal] = { [xCol]: xVal };
-      pivotMap[xVal][catVal] = val;
-    });
-    const allCats = Array.from(catSet);
-    yCols = allCats;
-    // Fill missing combinations with 0 so every category group has the same number of bar slots
-    data = Object.values(pivotMap).map(row => {
-      const filled = { ...row };
-      allCats.forEach(cat => { if (!(cat in filled)) filled[cat] = 0; });
-      return filled;
-    });
+    const pivoted = pivotGroupedSeries(widget.rows, xCol, colorCol, metricCol);
+    yCols = pivoted.series;
+    data = pivoted.data;
   } else {
     data = widget.rows.map(row => {
       const item: Record<string, unknown> = { [xCol]: row[xCol] };
@@ -151,158 +123,6 @@ export function DashboardBarChart({ widget }: { widget: DashboardWidgetItem; siz
   const totalBars = data.length * Math.max(1, yCols.length);
   const needsScroll = totalBars * MIN_BAR_WIDTH > containerWidth;
   const fixedWidth = Math.max(600, totalBars * (MIN_BAR_WIDTH + 2));
-
-  // ── Sparse grouped bar chart (custom SVG) ──────────────────────────
-  // Activates only when: pivoted grouped data + at least one x-category is missing some series.
-  // Recharts allocates empty bar slots for 0-value entries — the custom SVG skips them entirely.
-  const isPivotedGrouped = isGrouped && !!colorCol && yCols.length > 1;
-  const isGroupedSparse = isPivotedGrouped &&
-    data.some(row => yCols.filter(c => (Number(row[c]) || 0) > 0).length < yCols.length);
-
-  if (isGroupedSparse && data.length > 0) {
-    const FBW = 14;   // fixed bar width (px) — same for every bar in every group
-    const BGAP = 2;   // gap between bars within a group
-    const GGAP = 16;  // minimum gap between groups
-    const m = { t: 10, r: 20, l: 60, b: 70 };
-    const svgH = 260; // Slightly more room for the sparse SVG
-    const cH = svgH - m.t - m.b;
-    const cW = svgContainerWidth - m.l - m.r;
-
-    const groups = data.map(row => {
-      const xVal = String(row[xCol] ?? '');
-      const cols = yCols.filter(c => (Number(row[c]) || 0) > 0);
-      const innerW = cols.length > 0 ? cols.length * FBW + (cols.length - 1) * BGAP : FBW;
-      return { xVal, cols, innerW, row };
-    });
-
-    const sumInner = groups.reduce((s, g) => s + g.innerW, 0);
-    const needsSVGScroll = sumInner + (groups.length - 1) * GGAP > cW;
-    const gap = needsSVGScroll || groups.length < 2
-      ? GGAP
-      : (cW - sumInner) / (groups.length - 1);
-    const svgW = needsSVGScroll
-      ? m.l + sumInner + (groups.length - 1) * GGAP + m.r
-      : svgContainerWidth;
-
-    const gxs: number[] = [];
-    let cx = m.l;
-    groups.forEach((g, i) => {
-      gxs.push(cx);
-      cx += g.innerW + (i < groups.length - 1 ? gap : 0);
-    });
-
-    const maxY = Math.max(1, ...yCols.flatMap(c => data.map(r => Number(r[c]) || 0)));
-    const rawStep = maxY / 6;
-    const mag = Math.pow(10, Math.floor(Math.log10(rawStep || 1)));
-    const step = Math.ceil(rawStep / mag) * mag || 1;
-    const yTicks: number[] = [];
-    for (let t = 0; t <= maxY + step; t += step) yTicks.push(t);
-    const yTop = yTicks[yTicks.length - 1];
-    const ab = m.t + cH;
-    const toY = (v: number) => m.t + cH - (v / yTop) * cH;
-
-    return (
-      <>
-        {yCols.length > 1 && (
-          <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: 14, padding: '8px 16px 0' }}>
-            {yCols.map((col, i) => (
-              <div key={col} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: COLORS[i % COLORS.length], flexShrink: 0 }} />
-                <span style={{ fontSize: '0.68rem', color: T.text3, fontFamily: T.fontMono }}>{formatColLabel(col)}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        <div ref={svgContainerRef} style={{ padding: '8px 16px 0', overflowX: needsSVGScroll ? 'auto' : 'visible' }}>
-          <svg width={svgW} height={svgH} style={{ display: 'block', overflow: 'visible' }}>
-            {/* Grid lines */}
-            {yTicks.map(t => (
-              <line key={t} x1={m.l} x2={svgW - m.r} y1={toY(t)} y2={toY(t)}
-                stroke={GS} strokeDasharray="3 3" />
-            ))}
-            {/* Y axis */}
-            <line x1={m.l} x2={m.l} y1={m.t} y2={ab} stroke={T.border} />
-            {/* X axis */}
-            <line x1={m.l} x2={svgW - m.r} y1={ab} y2={ab} stroke={T.border} />
-            {/* Y tick labels */}
-            {yTicks.map(t => (
-              <text key={t} x={m.l - 8} y={toY(t)} textAnchor="end"
-                dominantBaseline="middle" fill={T.text3} fontSize={11}>
-                {formatYValue(t)}
-              </text>
-            ))}
-            {/* Category groups */}
-            {groups.map((g, gi) => {
-              const gx = gxs[gi];
-              const centerX = gx + g.innerW / 2;
-              const short = g.xVal.length > 7 ? g.xVal.slice(0, 7) + '…' : g.xVal;
-              const hx = gi === 0 ? gx : gx - gap / 2;
-              const hw = gi === 0 || gi === groups.length - 1 ? g.innerW + gap / 2 : g.innerW + gap;
-              return (
-                <g key={g.xVal + gi}>
-                  {/* Invisible hover rect triggers tooltip for the whole group */}
-                  <rect x={hx} y={m.t} width={Math.max(1, hw)} height={cH}
-                    fill="transparent" style={{ cursor: 'pointer' }}
-                    onMouseEnter={e => setSparseTooltip({ clientX: e.clientX, clientY: e.clientY, xVal: g.xVal, row: g.row })}
-                    onMouseMove={e => setSparseTooltip(p => p ? { ...p, clientX: e.clientX, clientY: e.clientY } : null)}
-                    onMouseLeave={() => setSparseTooltip(null)}
-                  />
-                  {/* Only render bars for series that have data — no empty slots */}
-                  {g.cols.map((col, ci) => {
-                    const val = Number(g.row[col]) || 0;
-                    const bh = Math.max(1, (val / yTop) * cH);
-                    return (
-                      <rect key={col}
-                        x={gx + ci * (FBW + BGAP)} y={ab - bh}
-                        width={FBW} height={bh}
-                        fill={COLORS[yCols.indexOf(col) % COLORS.length]}
-                        rx={3} opacity={0.85}
-                      />
-                    );
-                  })}
-                  {/* X tick label — rotated, truncated, full label on hover */}
-                  <g transform={`translate(${centerX},${ab + 4})`}>
-                    <title>{g.xVal}</title>
-                    <text textAnchor="end" fill={T.text3} fontSize={11}
-                      transform="rotate(-45)" dy={4}>{short}</text>
-                  </g>
-                </g>
-              );
-            })}
-          </svg>
-        </div>
-
-        {/* Tooltip — shows all non-zero series for the hovered x-category */}
-        {sparseTooltip && (() => {
-          const nz = yCols.filter(c => (Number(sparseTooltip.row[c]) || 0) > 0);
-          return (
-            <div style={{
-              position: 'fixed', left: sparseTooltip.clientX + 12, top: sparseTooltip.clientY - 40,
-              background: T.s1, border: `1px solid ${T.border}`,
-              borderRadius: 8, padding: '10px 14px', pointerEvents: 'none', zIndex: 9999,
-              minWidth: 160, boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
-            }}>
-              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: T.text, marginBottom: 8 }}>
-                {sparseTooltip.xVal}
-              </div>
-              {nz.map(c => (
-                <div key={c} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginBottom: 3 }}>
-                  <span style={{ fontSize: '0.75rem', color: COLORS[yCols.indexOf(c) % COLORS.length] }}>
-                    {formatColLabel(c)}
-                  </span>
-                  <span style={{ fontSize: '0.75rem', color: T.text2, fontFamily: 'monospace' }}>
-                    {formatYValue(Number(sparseTooltip.row[c]) || 0)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          );
-        })()}
-
-      </>
-    );
-  }
-  // ── End sparse SVG — Recharts path for complete (non-sparse) data below ──
 
   const colMaxes: Record<string, number> = Object.fromEntries(
     yCols.map(c => [c, Math.max(...data.map(d => Math.abs(Number(d[c]) || 0))) || 1])

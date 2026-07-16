@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import { BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Info } from 'lucide-react';
 import type { ChartModuleProps } from '../types';
@@ -31,26 +31,11 @@ export function BarChartModule({
   column_metadata,
   xLabel,
   yLabel,
-  colorColumn,
   tooltipColumns,
   isDualAxis: isDualAxisProp,
 }: ChartModuleProps) {
   const [viewMode, setViewMode] = useState<'grouped' | 'single' | 'multi'>('grouped');
   const [activeCategory, setActiveCategory] = useState(yColumns[0]);
-
-  const svgContainerRef = useRef<HTMLDivElement>(null);
-  const [svgContainerWidth, setSvgContainerWidth] = useState(800);
-  const [sparseTooltip, setSparseTooltip] = useState<{
-    clientX: number; clientY: number; xVal: string; row: Record<string, unknown>;
-  } | null>(null);
-
-  useEffect(() => {
-    const el = svgContainerRef.current;
-    if (!el) return;
-    const obs = new ResizeObserver(e => setSvgContainerWidth(e[0].contentRect.width));
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
 
   const SCROLL_THRESHOLD = 20;
   const barsPerGroup = viewMode === 'grouped' ? yColumns.length : 1;
@@ -59,120 +44,6 @@ export function BarChartModule({
   const fixedWidth = Math.max(600, data.length * Math.max(32, barsPerGroup * 20));
 
   const isColCurrency = (colName: string) => column_metadata?.[colName] === 'currency';
-
-  // ── Sparse grouped bar chart (custom SVG) ──────────────────────────
-  const isPivotedGrouped = !!colorColumn && !categoryCol && yColumns.length > 1;
-  const isGroupedSparse = isPivotedGrouped && viewMode === 'grouped' &&
-    data.some(row => yColumns.filter(c => (Number(row[c]) || 0) > 0).length < yColumns.length);
-
-  if (isGroupedSparse && data.length > 0) {
-    const FBW = 14;
-    const BGAP = 2;
-    const GGAP = 16;
-    const m = { t: 10, r: 20, l: 65, b: 70 };
-    const svgH = 360;
-    const cH = svgH - m.t - m.b;
-    const cW = svgContainerWidth - m.l - m.r;
-
-    const groups = data.map(row => {
-      const xVal = String(row[xColumn] ?? '');
-      const cols = yColumns.filter(c => (Number(row[c]) || 0) > 0);
-      const innerW = cols.length > 0 ? cols.length * FBW + (cols.length - 1) * BGAP : FBW;
-      return { xVal, cols, innerW, row };
-    });
-
-    const sumInner = groups.reduce((s, g) => s + g.innerW, 0);
-    const needsSVGScroll = sumInner + (groups.length - 1) * GGAP > cW;
-    const gap = needsSVGScroll || groups.length < 2 ? GGAP : (cW - sumInner) / (groups.length - 1);
-    const svgW = needsSVGScroll ? m.l + sumInner + (groups.length - 1) * GGAP + m.r : svgContainerWidth;
-
-    const gxs: number[] = [];
-    let curX = m.l;
-    groups.forEach((g, i) => {
-      gxs.push(curX);
-      curX += g.innerW + (i < groups.length - 1 ? gap : 0);
-    });
-
-    const maxY = Math.max(1, ...yColumns.flatMap(c => data.map(r => Number(r[c]) || 0)));
-    const rawStep = maxY / 6;
-    const mag = Math.pow(10, Math.floor(Math.log10(rawStep || 1)));
-    const step = Math.ceil(rawStep / mag) * mag || 1;
-    const yTicks: number[] = [];
-    for (let t = 0; t <= maxY + step; t += step) yTicks.push(t);
-    const yTop = yTicks[yTicks.length - 1];
-    const ab = m.t + cH;
-    const toY = (v: number) => m.t + cH - (v / yTop) * cH;
-
-    const isAnyCurrency = yColumns.some(c => isColCurrency(c));
-    const fmtV = (v: number) => formatYAxisValue(v, normalized, isAnyCurrency);
-
-    return (
-      <>
-        <div ref={svgContainerRef} style={{ padding: '16px 20px 0', overflowX: needsSVGScroll ? 'auto' : 'visible' }}>
-          <svg width={svgW} height={svgH} style={{ display: 'block', overflow: 'visible' }}>
-            {yTicks.map(t => (
-              <line key={t} x1={m.l} x2={svgW - m.r} y1={toY(t)} y2={toY(t)} stroke={T.border} strokeDasharray="3 3" />
-            ))}
-            <line x1={m.l} x2={m.l} y1={m.t} y2={ab} stroke={T.border} />
-            <line x1={m.l} x2={svgW - m.r} y1={ab} y2={ab} stroke={T.border} />
-            {yTicks.map(t => (
-              <text key={t} x={m.l - 8} y={toY(t)} textAnchor="end" dominantBaseline="middle" fill={T.text3} fontSize={11} fontFamily={T.fontMono}>{fmtV(t)}</text>
-            ))}
-            {yLabel && <text transform={`translate(${m.l - 52},${m.t + cH / 2}) rotate(-90)`} textAnchor="middle" fill={T.text3} fontSize={11} fontFamily={T.fontMono}>{yLabel}</text>}
-            {groups.map((g, gi) => {
-              const gx = gxs[gi];
-              const centerX = gx + g.innerW / 2;
-              const short = g.xVal.length > 8 ? g.xVal.slice(0, 8) + '…' : g.xVal;
-              const hx = gi === 0 ? gx : gx - gap / 2;
-              const hw = gi === 0 || gi === groups.length - 1 ? g.innerW + gap / 2 : g.innerW + gap;
-              return (
-                <g key={g.xVal + gi}>
-                  <rect x={hx} y={m.t} width={Math.max(1, hw)} height={cH} fill="transparent" style={{ cursor: 'pointer' }}
-                    onMouseEnter={e => setSparseTooltip({ clientX: e.clientX, clientY: e.clientY, xVal: g.xVal, row: g.row })}
-                    onMouseMove={e => setSparseTooltip(p => p ? { ...p, clientX: e.clientX, clientY: e.clientY } : null)}
-                    onMouseLeave={() => setSparseTooltip(null)} />
-                  {g.cols.map((col, ci) => {
-                    const val = Number(g.row[col]) || 0;
-                    const bh = Math.max(1, (val / yTop) * cH);
-                    return <rect key={col} x={gx + ci * (FBW + BGAP)} y={ab - bh} width={FBW} height={bh} fill={COLORS[yColumns.indexOf(col) % COLORS.length]} rx={3} opacity={0.85} />;
-                  })}
-                  <g transform={`translate(${centerX},${ab + 4})`}><title>{g.xVal}</title><text textAnchor="end" fill={T.text3} fontSize={11} transform="rotate(-45)" dy={4} fontFamily={T.fontMono}>{short}</text></g>
-                </g>
-              );
-            })}
-            {xLabel && <text x={m.l + (svgW - m.l - m.r) / 2} y={svgH - 6} textAnchor="middle" fill={T.text3} fontSize={11} fontFamily={T.fontMono}>{xLabel}</text>}
-          </svg>
-        </div>
-        {sparseTooltip && (
-          <div style={{ position: 'fixed', left: sparseTooltip.clientX + 12, top: sparseTooltip.clientY - 40, background: 'rgba(255,255,255,0.96)', backdropFilter: 'blur(10px)', border: `1px solid ${T.border}`, borderRadius: 8, padding: '10px 14px', pointerEvents: 'none', zIndex: 9999, minWidth: 160, boxShadow: '0 8px 32px rgba(0,0,0,0.08)' }}>
-            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: T.text, marginBottom: 8 }}>{sparseTooltip.xVal}</div>
-            {yColumns.filter(c => (Number(sparseTooltip.row[c]) || 0) > 0).map(c => (
-              <div key={c} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginBottom: 3 }}>
-                <span style={{ fontSize: '0.75rem', color: COLORS[yColumns.indexOf(c) % COLORS.length], fontWeight: 500 }}>{formatColLabel(c)}</span>
-                <span style={{ fontSize: '0.75rem', color: T.text2, fontFamily: T.fontMono }}>{fmtV(Number(sparseTooltip.row[c]) || 0)}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: 16, padding: '4px 20px 10px' }}>
-          {yColumns.map((col, i) => (
-            <div key={col} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: COLORS[i % COLORS.length], flexShrink: 0 }} />
-              <span style={{ fontSize: '0.72rem', color: T.text2, fontFamily: T.fontMono, fontWeight: 500 }}>{formatColLabel(col)}</span>
-            </div>
-          ))}
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 20px 10px', borderTop: `1px solid ${T.border}` }}>
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 4 }}>
-            <span style={{ fontSize: '0.62rem', color: T.text3, fontFamily: T.fontMono, alignSelf: 'center', marginRight: 4, opacity: 0.6 }}>Bar view:</span>
-            {(['grouped', 'single', 'multi'] as const).map(mode => (
-              <button key={mode} onClick={() => setViewMode(mode)} style={{ padding: '3px 10px', borderRadius: 4, border: `1px solid ${viewMode === mode ? 'rgba(124,58,255,0.35)' : T.border}`, background: viewMode === mode ? T.purpleDim : 'transparent', color: viewMode === mode ? T.purple : T.text3, fontSize: '0.68rem', cursor: 'pointer', fontFamily: T.fontMono }}>{mode === 'multi' ? 'Multi-Grid' : mode.charAt(0).toUpperCase() + mode.slice(1)}</button>
-            ))}
-          </div>
-        </div>
-      </>
-    );
-  }
 
   // ── Dual-axis logic ───────────────────────────────────────
   const sortedBySca = [...yColumns].sort((a, b) => (colMaxes[b] || 0) - (colMaxes[a] || 0));
