@@ -55,19 +55,11 @@ async def prepare_chat_intent(
         semantic_context=semantic_context,
         history=intent_history,
     )
-    history = bounded_follow_up_history(
-        intent_history,
-        include=intent.history_mode == "explicit_follow_up",
-    )
+    history = bounded_follow_up_history(intent_history, include=True)
     if history:
         chat_guard_metrics.increment("explicit_history_inclusions")
-    if intent.decision == "clarify":
-        chat_guard_metrics.increment("clarifications_returned")
-        chat_guard_metrics.increment("prevented_llm_calls")
-        chat_guard_metrics.increment("prevented_sql_executions")
-    if intent.decision == "analyze":
-        if intent.reason_code != "schema_command":
-            llm_credential_service.preflight(user_id, "chat", interaction_type="explicit")
+    if intent.reason_code != "schema_command":
+        llm_credential_service.preflight(user_id, "chat", interaction_type="explicit")
     return PreparedChatIntent(intent=intent, history=history)
 
 

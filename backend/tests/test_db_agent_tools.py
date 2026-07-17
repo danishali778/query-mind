@@ -46,9 +46,9 @@ def _ctx(catalog: SchemaCatalog | None = None) -> ToolContext:
     )
 
 
-def test_tool_list_excludes_execute_sql():
+def test_tool_list_registers_guarded_execute_sql():
     tools = {tool.name: tool for tool in build_tools(_ctx())}
-    assert "execute_sql" not in tools
+    assert "execute_sql" in tools
     assert "validate_sql" in tools
 
 

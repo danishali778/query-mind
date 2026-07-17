@@ -30,6 +30,8 @@ class ChatMessage(BaseModel):
     semantic_lineage: list[dict] = Field(default_factory=list)
     response_kind: str = "answer"
     clarification_context: Optional[dict] = None
+    presentation_kind: Optional[str] = None
+    answer_metadata: Optional[dict] = None
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
 
     def __init__(self, **data):

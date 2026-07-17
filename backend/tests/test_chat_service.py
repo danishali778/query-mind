@@ -152,7 +152,7 @@ def test_tools_mode_schema_command_skips_agent_and_engine(monkeypatch):
             result = await analysis_service.run_analysis(
                 user_id="user-1",
                 connection_id="conn-1",
-                question="show me all tables",
+                question="/tables",
                 session_id="session-1",
                 schema_context=None,
                 history=[],
@@ -169,14 +169,26 @@ def test_tools_mode_schema_command_skips_agent_and_engine(monkeypatch):
     asyncio.run(run())
 
 
-def test_tools_mode_write_intent_skips_catalog_and_agent(monkeypatch):
+def test_tools_mode_natural_write_intent_is_decided_by_agent(monkeypatch):
     monkeypatch.setattr(settings, "agent_mode", "tools")
 
     async def run():
         with (
-            patch.object(analysis_service.connection_service, "get_catalog", AsyncMock()) as mock_catalog,
-            patch.object(analysis_service.connection_service, "get_engine", AsyncMock()) as mock_engine,
-            patch.object(analysis_service, "_run_agent_sync") as mock_agent,
+            patch.object(analysis_service.connection_service, "get_catalog", AsyncMock(return_value=_catalog())) as mock_catalog,
+            patch.object(analysis_service.connection_service, "get_engine", AsyncMock(return_value=MagicMock())) as mock_engine,
+            patch.object(
+                analysis_service,
+                "_run_agent_sync",
+                return_value={
+                    "success": True,
+                    "tier": "agent",
+                    "explanation": "QueryMind is read-only; I can help inspect the affected rows safely.",
+                    "response_kind": "refusal",
+                    "presentation_kind": "none",
+                    "rows": [],
+                    "columns": [],
+                },
+            ) as mock_agent,
         ):
             result = await analysis_service.run_analysis(
                 user_id="user-1",
@@ -187,11 +199,12 @@ def test_tools_mode_write_intent_skips_catalog_and_agent(monkeypatch):
                 history=[],
             )
 
-        assert result["tier"] == "controlled_refusal"
+        assert result["tier"] == "agent"
+        assert result["response_kind"] == "refusal"
         assert result["sql"] is None
-        mock_catalog.assert_not_called()
-        mock_engine.assert_not_called()
-        mock_agent.assert_not_called()
+        mock_catalog.assert_awaited_once()
+        mock_engine.assert_awaited_once()
+        mock_agent.assert_called_once()
 
     asyncio.run(run())
 

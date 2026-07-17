@@ -11,7 +11,6 @@ import anyio
 from app.agents.db_agent.agent import run_agent
 from app.agents.db_agent.trace import combine_failed_agent_trace
 from app.agents.nl_to_sql.graph import run_chat
-from app.agents.visualization.generator import generate_visualization_blueprint
 from app.core.config import settings
 from app.core.errors import AppError
 from app.core import chat_guard_metrics
@@ -32,6 +31,12 @@ _NON_FALLBACK_LLM_ERRORS = {
     "deployment_llm_unavailable",
     "deployment_llm_trial_exhausted",
 }
+_EMERGENCY_FALLBACK_REASONS = {
+    "agent_exception",
+    "agent_outcome_invalid",
+    "no_valid_proposal",
+    "tool_use_failed",
+}
 
 
 def _raise_if_llm_access_error(exc: Exception) -> None:
@@ -49,6 +54,7 @@ def _run_pipeline_sync(
     progress=None,
     llm_context: LlmExecutionContext | None = None,
     intent_result=None,
+    decision_agent: bool = False,
 ) -> dict:
     result = run_chat(
         user_id=user_id,
@@ -64,6 +70,7 @@ def _run_pipeline_sync(
         grounded_tables=list(getattr(intent_result, "matched_tables", []) or []),
         enforce_grounding=intent_result is not None,
         broad_discovery=bool(getattr(intent_result, "broad_discovery", False)),
+        select_visualization=not decision_agent,
     )
     result["tier"] = "pipeline"
     result["trace"] = []
@@ -173,6 +180,7 @@ async def run_analysis(
     semantic_context=None,
     llm_context: LlmExecutionContext | None = None,
     intent_result=None,
+    decision_agent: bool = False,
 ) -> dict[str, Any]:
     """Execute a business question through the shared agent/pipeline path.
 
@@ -199,11 +207,12 @@ async def run_analysis(
         interaction_type="explicit",
     )
 
-    if settings.agent_mode == "tools":
+    use_tools = decision_agent or settings.agent_mode == "tools"
+    if use_tools:
         try:
             if progress:
                 progress.stage_started("schema_search", "Searching the database schema")
-            if allow_schema_shortcuts:
+            if allow_schema_shortcuts and message.lstrip().startswith("/"):
                 control_result = handle_schema_or_control_command(message, None)
                 if control_result:
                     return _normalize_requested_visualization(
@@ -214,7 +223,7 @@ async def run_analysis(
             catalog = await connection_service.get_catalog(user_id, connection_id)
             if progress:
                 progress.stage_completed("schema_search", "Schema context ready")
-            if allow_schema_shortcuts:
+            if allow_schema_shortcuts and message.lstrip().startswith("/"):
                 schema_result = handle_schema_or_control_command(message, catalog)
                 if schema_result:
                     return _normalize_requested_visualization(
@@ -250,25 +259,6 @@ async def run_analysis(
                     agent_error = "agent_exception"
                 else:
                     if agent_out.get("success"):
-                        try:
-                            if agent_out.get("columns") and agent_out.get("rows"):
-                                if progress:
-                                    progress.stage_started("visualization", "Selecting the best visualization")
-                                chart = await anyio.to_thread.run_sync(
-                                    functools.partial(
-                                        generate_visualization_blueprint,
-                                        user_message=message,
-                                        sql=agent_out.get("sql") or "",
-                                        preview_rows=agent_out.get("rows", [])[:5],
-                                        column_metadata=agent_out.get("column_metadata", {}),
-                                        llm_context=llm_context,
-                                    )
-                                )
-                                agent_out["chart_recommendation"] = chart
-                                if progress:
-                                    progress.stage_completed("visualization", "Visualization ready")
-                        except Exception:
-                            logger.warning("Visualization generation failed after agent success", exc_info=True)
                         return _normalize_requested_visualization(
                             {
                                 "explanation": agent_out.get("explanation", ""),
@@ -289,16 +279,18 @@ async def run_analysis(
                                 "semantic_lineage": agent_out.get("semantic_lineage", []),
                                 "response_kind": agent_out.get("response_kind", "answer"),
                                 "clarification_context": agent_out.get("clarification_context"),
+                                "presentation_kind": agent_out.get("presentation_kind"),
+                                "answer_metadata": agent_out.get("answer_metadata"),
                             },
                             requested_visualization=requested_visualization,
                         )
                     failed_agent_trace = agent_out.get("trace", []) or []
                     fallback_reason = agent_out.get("fallback_reason") or "agent_failed"
-                    if fallback_reason == "schema_relevance_rejected":
+                    if fallback_reason not in _EMERGENCY_FALLBACK_REASONS:
                         chat_guard_metrics.increment("schema_relevance_rejections")
                         chat_guard_metrics.increment("prevented_sql_executions")
                         return {
-                            "explanation": "I couldn't verify that the proposed analysis matched your request. Tell me which metric, table, or business outcome you want to analyze.",
+                            "explanation": "I couldn't safely complete that analysis. Please clarify the metric, table, or business outcome you want to examine.",
                             "sql": None,
                             "columns": [],
                             "rows": [],
@@ -311,9 +303,11 @@ async def run_analysis(
                             "tier": "agent",
                             "response_kind": "clarification",
                             "clarification_context": {
-                                "reason_code": "schema_relevance_rejected",
+                                "reason_code": fallback_reason,
                                 "expected_input": "metric_table_or_outcome",
                             },
+                            "presentation_kind": "none",
+                            "answer_metadata": None,
                             "semantic_lineage": [],
                         }
                     if progress and hasattr(progress, "fallback"):
@@ -344,6 +338,7 @@ async def run_analysis(
             progress,
             llm_context,
             intent_result,
+            decision_agent,
         )
     )
     if pipeline_result.get("relevance_rejected") and pipeline_result.get("error"):
@@ -369,10 +364,24 @@ async def run_analysis(
             "semantic_lineage": [],
             "assumptions": [],
         }
-    tier = "fallback" if settings.agent_mode == "tools" else "pipeline"
+    tier = "fallback" if use_tools else "pipeline"
     pipeline_result["tier"] = tier
     pipeline_result["assumptions"] = []
-    if settings.agent_mode == "tools" and (failed_agent_trace or agent_error or fallback_reason):
+    if decision_agent:
+        pipeline_result["chart_recommendation"] = None
+        pipeline_result["presentation_kind"] = "table" if pipeline_result.get("rows") else "none"
+        pipeline_result["answer_metadata"] = {
+            "method": None,
+            "limitations": ["The decision agent was unavailable, so detailed result interpretation was not completed."],
+            "evidence": [],
+        }
+        pipeline_result["response_kind"] = "data_analysis" if pipeline_result.get("rows") else "answer"
+        if pipeline_result.get("rows"):
+            pipeline_result["explanation"] = (
+                "The fallback read-only query completed. Review the verified result table; detailed "
+                "agent interpretation was unavailable for this response."
+            )
+    if use_tools and (failed_agent_trace or agent_error or fallback_reason):
         pipeline_result["trace"] = combine_failed_agent_trace(
             failed_agent_trace,
             fallback_reason,

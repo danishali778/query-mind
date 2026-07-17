@@ -1,4 +1,4 @@
-"""Deterministic, catalog-aware analytical intent classification."""
+"""Deterministic grounding facts and bounded history for the decision agent."""
 
 from __future__ import annotations
 
@@ -89,18 +89,39 @@ def explicit_follow_up(question: str, history: list[dict]) -> bool:
     return any(pattern.search(question.strip()) for pattern in _FOLLOW_UP_PATTERNS)
 
 
-def bounded_follow_up_history(history: list[dict], *, include: bool) -> list[dict]:
+def bounded_follow_up_history(history: list[dict], *, include: bool = True) -> list[dict]:
     if not include:
         return []
     result: list[dict] = []
     for user, assistant in _completed_pairs(history)[-3:]:
         if detect_secret(str(user.get("content") or "")) or detect_secret(str(assistant.get("content") or "")):
             continue
-        result.append({"role": "user", "content": str(user.get("content") or "")})
         assistant_content = str(assistant.get("content") or "")
+        metadata = assistant.get("answer_metadata")
+        if isinstance(metadata, dict):
+            method = metadata.get("method")
+            evidence = metadata.get("evidence") or []
+            limitations = metadata.get("limitations") or []
+            if method:
+                assistant_content += f"\nMethod: {method}"
+            if evidence:
+                safe_claims = [str(item.get("claim")) for item in evidence[:5] if isinstance(item, dict) and item.get("claim")]
+                if safe_claims:
+                    assistant_content += "\nEvidence: " + "; ".join(safe_claims)
+            if limitations:
+                assistant_content += "\nLimitations: " + "; ".join(str(item) for item in limitations[:5])
         if assistant.get("sql"):
             assistant_content = f"{assistant_content}\n```sql\n{assistant['sql']}\n```"
-        result.append({"role": "assistant", "content": assistant_content})
+        if detect_secret(assistant_content):
+            continue
+        result.append({"role": "user", "content": str(user.get("content") or "")})
+        result.append(
+            {
+                "role": "assistant",
+                "content": assistant_content,
+                "response_kind": assistant.get("response_kind") or "answer",
+            }
+        )
     return result
 
 
@@ -199,15 +220,7 @@ def analyze_question_intent(
     elif follows_up:
         reason = "explicit_follow_up"
     else:
-        return QuestionIntentResult(
-            decision="clarify",
-            reason_code="insufficient_analytical_intent",
-            clarification_message=CLARIFICATION_MESSAGE,
-            clarification_context={
-                "reason_code": "insufficient_analytical_intent",
-                "expected_input": "metric_table_or_outcome",
-            },
-        )
+        reason = "agent_decision_required"
 
     return QuestionIntentResult(
         decision="analyze",

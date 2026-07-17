@@ -212,10 +212,13 @@ def _read_only_refusal() -> dict:
 
 def handle_schema_or_control_command(message: str, catalog: SchemaCatalog | None) -> dict | None:
     text = message.strip()
+    slash_command = text.casefold().split(maxsplit=1)[0]
     if _WRITE_RE.search(text):
         return _read_only_refusal()
     if not catalog:
         return None
+    if slash_command in {"/tables", "/schema"}:
+        return _list_tables_response(catalog)
     if _LIST_TABLES_RE.search(text):
         return _list_tables_response(catalog)
 

@@ -17,15 +17,26 @@ from app.agents.db_agent.trace import TraceRecorder, summarize_args
 from app.agents.schema_context.catalog import catalog_table_by_name
 from app.agents.schema_context.scoring import expand_terms, score_tables, tokenize
 from app.agents.schema_context.types import CatalogColumn, CatalogTable, SchemaCatalog
+from app.agents.schema_context.user_semantics import SemanticContext
 from app.core.config import settings
+from app.query_engine.connection_scope import referenced_tables
 from app.query_engine.executor import execute_query as guarded_execute_query
 from app.query_engine.results import QueryExecutionResult
 from app.query_engine.safety import validate_query
+from app.query_engine.semantic_policy import validate_ai_semantic_policy
 from app.query_engine.cancellation import QueryCancellationToken
 from app.services.query_execution_service import execute_query
 
 SAMPLE_MAX_VALUES = 15
 SAMPLE_QUERY_LIMIT = SAMPLE_MAX_VALUES + 1
+
+
+@dataclass(frozen=True)
+class AnalysisExecution:
+    result_ref: str
+    sql: str
+    result: QueryExecutionResult
+    semantic_policy_refs: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -48,6 +59,9 @@ class ToolContext:
     inspected_tables: set[str] = field(default_factory=set)
     allow_broad_discovery: bool = False
     enforce_grounding: bool = False
+    semantic_context: SemanticContext | None = None
+    analysis_query_count: int = 0
+    analysis_results: dict[str, AnalysisExecution] = field(default_factory=dict)
 
 
 class SearchSchemaInput(BaseModel):
@@ -602,6 +616,21 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
 
     def execute_sql_tool(sql: str) -> str:
         started = time.monotonic()
+        if ctx.analysis_query_count >= settings.agent_max_analysis_queries:
+            message = (
+                f"Analysis-query cap reached ({settings.agent_max_analysis_queries} per run). "
+                "Finish with a successful result already available or explain the limitation."
+            )
+            ctx.trace.record(
+                "execute_sql",
+                summarize_args("execute_sql", {"sql": sql}),
+                (time.monotonic() - started) * 1000,
+                "refused",
+                output_summary=message,
+                error_class="query_budget_exhausted",
+            )
+            return json.dumps({"success": False, "error": message, "error_class": "query_budget_exhausted"})
+        ctx.analysis_query_count += 1
         cap_msg = _check_live_query_cap(ctx)
         if cap_msg:
             ctx.trace.record(
@@ -609,6 +638,7 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
                 summarize_args("execute_sql", {"sql": sql}),
                 (time.monotonic() - started) * 1000,
                 "error",
+                error_class="live_query_cap_reached",
             )
             return json.dumps({"success": False, "error": cap_msg})
         is_safe, reason = validate_query(sql)
@@ -617,9 +647,53 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
                 "execute_sql",
                 summarize_args("execute_sql", {"sql": sql}),
                 (time.monotonic() - started) * 1000,
-                "error",
+                "refused",
+                output_summary=reason or "SQL did not pass read-only validation.",
+                error_class="unsafe_query",
             )
             return json.dumps({"success": False, "error": reason})
+        semantic_policy_refs: list[str] = []
+        if ctx.semantic_context is not None:
+            semantic_policy = validate_ai_semantic_policy(sql, ctx.semantic_context)
+            if not semantic_policy.allowed:
+                message = semantic_policy.reason or "SQL violated the semantic data policy."
+                ctx.trace.record(
+                    "execute_sql",
+                    summarize_args("execute_sql", {"sql": sql}),
+                    (time.monotonic() - started) * 1000,
+                    "refused",
+                    output_summary=message,
+                    error_class="semantic_policy_rejected",
+                )
+                return json.dumps({"success": False, "error": message, "error_class": "semantic_policy_rejected"})
+            semantic_policy_refs = list(semantic_policy.enforced_references)
+        if ctx.enforce_grounding and not ctx.allow_broad_discovery:
+            try:
+                sql_tables = referenced_tables(sql)
+            except Exception:
+                message = "SQL relevance could not be verified."
+                ctx.trace.record(
+                    "execute_sql",
+                    summarize_args("execute_sql", {"sql": sql}),
+                    (time.monotonic() - started) * 1000,
+                    "refused",
+                    output_summary=message,
+                    error_class="schema_relevance_rejected",
+                )
+                return json.dumps({"success": False, "error": message, "error_class": "schema_relevance_rejected"})
+            allowed = {item.casefold() for item in ctx.matched_tables | ctx.inspected_tables}
+            allowed |= {f"public.{item}" for item in allowed if "." not in item}
+            if any(table.casefold() not in allowed for table in sql_tables):
+                message = "SQL references a table unsupported by the current request."
+                ctx.trace.record(
+                    "execute_sql",
+                    summarize_args("execute_sql", {"sql": sql}),
+                    (time.monotonic() - started) * 1000,
+                    "refused",
+                    output_summary=message,
+                    error_class="schema_relevance_rejected",
+                )
+                return json.dumps({"success": False, "error": message, "error_class": "schema_relevance_rejected"})
         ctx.live_query_count += 1
         result = execute_query(
             ctx.user_id,
@@ -633,13 +707,14 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
         )
         if not result.success:
             drift_note = _maybe_refresh_on_drift(ctx, result.error or "", sql)
+            error_class = _classify_execution_error(result.error or "")
             ctx.trace.record(
                 "execute_sql",
                 summarize_args("execute_sql", {"sql": sql}),
                 (time.monotonic() - started) * 1000,
                 "error",
+                error_class=error_class,
             )
-            error_class = _classify_execution_error(result.error or "")
             payload = {
                 "success": False,
                 "error": result.error,
@@ -662,7 +737,14 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
             return json.dumps(payload)
         ctx.last_execution = result
         ctx.last_executed_sql = sql
-        preview = _compact_rows(result.rows[:preview_rows], max_cell_chars)
+        result_ref = f"result_{len(ctx.analysis_results) + 1}"
+        ctx.analysis_results[result_ref] = AnalysisExecution(
+            result_ref=result_ref,
+            sql=sql,
+            result=result,
+            semantic_policy_refs=semantic_policy_refs,
+        )
+        preview = _compact_rows(result.rows[: settings.agent_result_preview_rows], max_cell_chars)
         truncated_flag = (
             result.truncated
             or result.row_count > len(preview)
@@ -670,6 +752,7 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
         )
         payload = {
             "success": True,
+            "result_ref": result_ref,
             "columns": result.columns,
             "preview_rows": preview,
             "row_count": result.row_count,
@@ -684,6 +767,8 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
             summarize_args("execute_sql", {"sql": sql}),
             (time.monotonic() - started) * 1000,
             "truncated" if truncated_flag else "ok",
+            output_summary=f"Stored bounded result as {result_ref}.",
+            output_row_count=result.row_count,
         )
         return output
 
@@ -910,6 +995,15 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
             args_schema=SqlInput,
         ),
         StructuredTool.from_function(
+            execute_sql_tool,
+            name="execute_sql",
+            description=(
+                "Execute one grounded, validated, read-only analytical SQL query and return a bounded result preview. "
+                "Use the returned result_ref in the final data_analysis outcome."
+            ),
+            args_schema=SqlInput,
+        ),
+        StructuredTool.from_function(
             get_relationships,
             name="get_relationships",
             description="Show foreign-key relationships for up to N tables.",
@@ -949,6 +1043,7 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
 
 
 __all__ = [
+    "AnalysisExecution",
     "ToolContext",
     "SAMPLE_MAX_VALUES",
     "SAMPLE_QUERY_LIMIT",

@@ -48,6 +48,8 @@ def _map_message(row: ChatMessageORM, run: ChatAgentRunORM | None = None) -> Cha
         semantic_lineage=row.semantic_lineage or [],
         response_kind=row.response_kind or "answer",
         clarification_context=row.clarification_context,
+        presentation_kind=row.presentation_kind,
+        answer_metadata=row.answer_metadata,
         created_at=_iso(row.created_at),
     )
 
@@ -292,6 +294,8 @@ def _add_message_sync(session: Session, user_id: str, session_id: str, message: 
         semantic_lineage=message.semantic_lineage or [],
         response_kind=message.response_kind,
         clarification_context=message.clarification_context,
+        presentation_kind=message.presentation_kind,
+        answer_metadata=message.answer_metadata,
     )
     session.add(row)
     _record_semantic_message_usages(session, user_id, message)
@@ -375,6 +379,7 @@ async def get_intent_history(user_id: str, session_id: str) -> list[dict]:
                     "parent_id": row.parent_id,
                     "response_kind": row.response_kind or "answer",
                     "clarification_context": row.clarification_context,
+                    "answer_metadata": row.answer_metadata,
                     "run_status": statuses.get(row.agent_run_id),
                 }
                 for row in rows

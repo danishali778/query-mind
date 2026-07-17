@@ -427,7 +427,7 @@ def finalize_run(
 
 
 def get_history_for_run(run_id: str) -> list[dict]:
-    from app.services.question_intent_service import bounded_follow_up_history, explicit_follow_up
+    from app.services.question_intent_service import bounded_follow_up_history
 
     with read_session_scope() as session:
         run = session.query(ChatAgentRunORM).filter(ChatAgentRunORM.id == run_id).one()
@@ -447,6 +447,7 @@ def get_history_for_run(run_id: str) -> list[dict]:
                 "parent_id": row.parent_id,
                 "response_kind": row.response_kind or "answer",
                 "clarification_context": row.clarification_context,
+                "answer_metadata": row.answer_metadata,
                 "run_status": (
                     session.query(ChatAgentRunORM.status).filter(ChatAgentRunORM.id == row.agent_run_id).scalar()
                     if row.agent_run_id else None
@@ -454,11 +455,7 @@ def get_history_for_run(run_id: str) -> list[dict]:
             }
             for row in previous_rows
         ]
-        question_row = next(row for row in rows if row.id == run.user_message_id)
-        return bounded_follow_up_history(
-            history,
-            include=explicit_follow_up(question_row.content, history),
-        )
+        return bounded_follow_up_history(history, include=True)
 
 
 def get_assistant_message(run_id: str) -> ChatMessage | None:

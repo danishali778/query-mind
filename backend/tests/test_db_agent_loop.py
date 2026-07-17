@@ -61,21 +61,18 @@ def test_budget_guard_forces_finish_on_cap():
     assert decision == BudgetDecision.FORCE_FINISH
 
 
-def test_parse_agent_proposal_accepts_json():
+def test_parse_agent_outcome_accepts_json():
     proposal = parse_agent_proposal(
         json.dumps(
             {
-                "analysis_summary": "ok",
-                "relevant_tables": ["customers"],
-                "relevant_columns": ["customers.id"],
-                "sql": "SELECT 1",
-                "column_metadata": {"x": "numeric"},
-                "assumptions": [],
+                "response_type": "direct_answer",
+                "answer": "I can explain database concepts without running SQL.",
+                "presentation": {"kind": "none", "chart": None},
             }
         )
     )
-    assert proposal.sql == "SELECT 1"
-    assert proposal.analysis_summary == "ok"
+    assert proposal.response_type == "direct_answer"
+    assert proposal.result_ref is None
 
 
 def test_parse_agent_proposal_rejects_invalid_json():
@@ -83,16 +80,15 @@ def test_parse_agent_proposal_rejects_invalid_json():
         parse_agent_proposal("not json")
 
 
-def test_parse_agent_proposal_rejects_missing_sql_for_answerable_shape():
+def test_parse_agent_outcome_rejects_analysis_without_result_reference():
     with pytest.raises(AgentFinishError):
         parse_agent_proposal(
             json.dumps(
                 {
-                    "analysis_summary": "ok",
-                    "relevant_tables": ["customers"],
-                    "relevant_columns": ["customers.id"],
-                    "column_metadata": {},
-                    "assumptions": [],
+                    "response_type": "data_analysis",
+                    "answer": "Analysis complete.",
+                    "presentation": {"kind": "table", "chart": None},
+                    "evidence": [],
                 }
             )
         )
@@ -123,12 +119,15 @@ class FakeTool:
 
 PROPOSAL_JSON = json.dumps(
     {
-        "analysis_summary": "done",
-        "relevant_tables": ["customers"],
-        "relevant_columns": ["customers.id"],
-        "sql": "SELECT 1",
+        "response_type": "direct_answer",
+        "answer": "Done without querying data.",
+        "presentation": {"kind": "none", "chart": None},
+        "evidence": [],
+        "limitations": [],
+        "relevant_tables": [],
+        "relevant_columns": [],
         "column_metadata": {},
-        "assumptions": [],
+        "semantic_refs": [],
     }
 )
 
@@ -162,7 +161,7 @@ def test_graph_happy_path_tool_then_finish():
     final = graph.invoke(_initial_state())
 
     assert final["proposal"] is not None
-    assert final["proposal"].sql == "SELECT 1"
+    assert final["proposal"].response_type == "direct_answer"
     assert tool.invocations == [{"query": "customers"}]
     assert budget.call_count == 1
     assert any(isinstance(m, ToolMessage) for m in final["messages"])
@@ -242,7 +241,7 @@ def test_graph_budget_cap_forces_finish():
     assert budget.call_count == 1
     assert final["force_finish"] is True
     assert final["proposal"] is not None
-    assert final["proposal"].sql == "SELECT 1"
+    assert final["proposal"].response_type == "direct_answer"
 
 
 def test_graph_wall_clock_forces_finish():
@@ -270,8 +269,8 @@ def test_graph_mechanical_salvage_when_force_finish_llm_fails():
     final = graph.invoke(state)
 
     assert final["proposal"] is not None
-    assert final["proposal"].sql is None
-    assert "list_tables" in final["proposal"].analysis_summary
+    assert final["proposal"].result_ref is None
+    assert final["proposal"].response_type == "clarification"
 
 
 def test_graph_skip_repeat_returns_tool_message_without_executing():
