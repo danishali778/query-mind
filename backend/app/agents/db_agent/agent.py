@@ -406,22 +406,48 @@ def _is_numeric_result_column(
     return True
 
 
-def _validated_chart(outcome: ChatAgentOutcome, columns: list[str], rows: list[dict]) -> tuple[str, dict | None]:
-    """Validate model-selected presentation and safely downgrade invalid charts."""
-    kind = outcome.presentation.kind
-    chart = outcome.presentation.chart
-    if kind == "kpi":
-        if len(rows) != 1:
-            return "table", None
-        numeric_columns = [
-            column
-            for column in columns
-            if outcome.column_metadata.get(column, "").casefold() in {"numeric", "currency"}
-            or isinstance(rows[0].get(column), (int, float))
-        ]
-        if not numeric_columns:
-            return "table", None
-        return "kpi", {
+def _is_identifier_result_column(column: str, metadata: dict[str, str]) -> bool:
+    semantic_type = metadata.get(column, "").casefold()
+    normalized = column.casefold()
+    return semantic_type == "identifier" or normalized == "id" or normalized.endswith("_id")
+
+
+def _is_temporal_result_column(column: str, metadata: dict[str, str]) -> bool:
+    semantic_type = metadata.get(column, "").casefold()
+    if semantic_type in {"date", "datetime", "temporal"}:
+        return True
+    normalized = column.casefold()
+    return any(
+        token in normalized
+        for token in ("date", "time", "month", "year", "week", "quarter", "day")
+    )
+
+
+def _display_column_name(column: str) -> str:
+    return " ".join(part.capitalize() for part in column.replace("-", "_").split("_") if part)
+
+
+def infer_chart_from_result(
+    columns: list[str],
+    rows: list[dict],
+    metadata: dict[str, str] | None = None,
+) -> dict | None:
+    """Create a conservative chart for an obviously chartable executed result."""
+    if not rows or not columns:
+        return None
+
+    metadata = metadata or {}
+    numeric_columns = [
+        column
+        for column in columns
+        if not _is_identifier_result_column(column, metadata)
+        and _is_numeric_result_column(column, metadata=metadata, rows=rows)
+    ]
+    if not numeric_columns:
+        return None
+
+    if len(rows) == 1:
+        return {
             "type": "kpi",
             "title": "Key result",
             "x_column": None,
@@ -433,28 +459,74 @@ def _validated_chart(outcome: ChatAgentOutcome, columns: list[str], rows: list[d
             "x_label": None,
             "y_label": None,
         }
-    if kind != "chart" or chart is None:
-        return kind, None
 
-    referenced = [*(chart.y_columns or []), *(chart.tooltip_columns or [])]
-    if chart.x_column:
-        referenced.append(chart.x_column)
-    if chart.color_column:
-        referenced.append(chart.color_column)
-    if not chart.y_columns or any(column not in columns for column in referenced):
-        return "table", None
-    if any(
-        not _is_numeric_result_column(column, metadata=outcome.column_metadata, rows=rows)
-        for column in chart.y_columns
-    ):
-        return "table", None
-    if chart.type == "pie" and len(rows) > 7:
-        return "table", None
-    if chart.type in {"line", "area"}:
-        x_type = outcome.column_metadata.get(chart.x_column or "", "").casefold()
-        if x_type not in {"date", "datetime", "temporal", "numeric"}:
-            return "table", None
-    return "chart", chart.model_dump()
+    dimension_columns = [
+        column
+        for column in columns
+        if column not in numeric_columns and not _is_identifier_result_column(column, metadata)
+    ]
+    if not dimension_columns:
+        return None
+
+    x_column = next(
+        (column for column in dimension_columns if _is_temporal_result_column(column, metadata)),
+        dimension_columns[0],
+    )
+    y_columns = numeric_columns[:4]
+    chart_type = "line" if _is_temporal_result_column(x_column, metadata) else "bar"
+    tooltip_columns = [
+        column for column in columns if column != x_column and column not in y_columns
+    ][:8]
+    return {
+        "type": chart_type,
+        "title": f"{_display_column_name(y_columns[0])} by {_display_column_name(x_column)}",
+        "x_column": x_column,
+        "y_columns": y_columns,
+        "color_column": None,
+        "tooltip_columns": tooltip_columns,
+        "is_grouped": len(y_columns) > 1,
+        "is_dual_axis": False,
+        "x_label": _display_column_name(x_column),
+        "y_label": _display_column_name(y_columns[0]),
+    }
+
+
+def _validated_chart(outcome: ChatAgentOutcome, columns: list[str], rows: list[dict]) -> tuple[str, dict | None]:
+    """Validate a model chart and fill obvious chartable result shapes deterministically."""
+    kind = outcome.presentation.kind
+    chart = outcome.presentation.chart
+    if kind == "kpi":
+        inferred = infer_chart_from_result(columns, rows, outcome.column_metadata)
+        if inferred and inferred["type"] == "kpi":
+            return "kpi", inferred
+    elif kind == "chart" and chart is not None:
+        referenced = [*(chart.y_columns or []), *(chart.tooltip_columns or [])]
+        if chart.x_column:
+            referenced.append(chart.x_column)
+        if chart.color_column:
+            referenced.append(chart.color_column)
+        is_valid = bool(chart.x_column and chart.y_columns) and not any(
+            column not in columns for column in referenced
+        )
+        is_valid = is_valid and not any(
+            not _is_numeric_result_column(column, metadata=outcome.column_metadata, rows=rows)
+            for column in chart.y_columns
+        )
+        if chart.type == "pie" and len(rows) > 7:
+            is_valid = False
+        if chart.type in {"line", "area"}:
+            x_type = outcome.column_metadata.get(chart.x_column or "", "").casefold()
+            if x_type != "numeric" and not _is_temporal_result_column(
+                chart.x_column or "", outcome.column_metadata
+            ):
+                is_valid = False
+        if is_valid:
+            return "chart", chart.model_dump()
+
+    inferred = infer_chart_from_result(columns, rows, outcome.column_metadata)
+    if inferred:
+        return ("kpi" if inferred["type"] == "kpi" else "chart"), inferred
+    return "table", None
 
 
 def _outcome_to_result(

@@ -31,14 +31,12 @@ const assistantMessage: ChatMessageView = {
 };
 
 describe('chat result controls', () => {
-  it('keeps technical actions behind progressive query details', async () => {
-    const user = userEvent.setup();
+  it('renders the established SQL, table, chart, and actions layout without a details toggle', () => {
     render(<MessageBubble message={assistantMessage} connectionId="conn_1" onTogglePin={vi.fn()} />);
 
-    expect(screen.queryByText('COPY SQL')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /view query details/i }));
     expect(screen.getByText('COPY SQL')).toBeInTheDocument();
     expect(screen.getAllByText('RESULTS')).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: /query details/i })).not.toBeInTheDocument();
     expect(screen.queryByText('COPY LINK')).not.toBeInTheDocument();
     expect(screen.getByText('SAVE TO LIBRARY')).toBeInTheDocument();
     expect(screen.getByText('ADD TO DASHBOARD')).toBeInTheDocument();
@@ -81,6 +79,11 @@ describe('chat result controls', () => {
         message={{
           ...assistantMessage,
           presentation_kind: 'chart',
+          answer_metadata: {
+            method: 'Counted active employees by company.',
+            limitations: ['Only active employees were included.'],
+            evidence: [],
+          },
           columns: ['company_name', 'active_employee_count'],
           rows: [{ company_name: 'CreativeHub', active_employee_count: 50 }],
           chart_recommendation: {
@@ -97,6 +100,8 @@ describe('chat result controls', () => {
     expect(screen.getByText('RESULTS')).toBeInTheDocument();
     expect(screen.getByText('CreativeHub')).toBeInTheDocument();
     expect(screen.getByTestId('supplemental-chart')).toBeInTheDocument();
+    expect(screen.queryByText(/Method:/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Limitations:/i)).not.toBeInTheDocument();
   });
 
   it('renders a direct answer without an empty technical result panel', () => {
@@ -108,8 +113,9 @@ describe('chat result controls', () => {
           content: 'I can inspect schemas and perform safe read-only analysis.',
           response_kind: 'direct_answer',
           presentation_kind: 'none',
-          rows: [],
-          columns: [],
+          sql: 'SELECT 1',
+          rows: [{ value: 1 }],
+          columns: ['value'],
         }}
         connectionId="conn_1"
       />,
@@ -117,6 +123,8 @@ describe('chat result controls', () => {
 
     expect(screen.getByText(/inspect schemas/i)).toBeInTheDocument();
     expect(screen.queryByText('DATA OBSERVATIONS')).not.toBeInTheDocument();
+    expect(screen.queryByText('COPY SQL')).not.toBeInTheDocument();
+    expect(screen.queryByText('RESULTS')).not.toBeInTheDocument();
     expect(screen.queryByText('PIN RESULT')).not.toBeInTheDocument();
   });
 

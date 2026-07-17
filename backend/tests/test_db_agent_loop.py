@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from app.agents.db_agent.agent import build_agent_graph
+from app.agents.db_agent.agent import _validated_chart, build_agent_graph, infer_chart_from_result
 from app.agents.db_agent.budget import BudgetDecision, BudgetGuard
 from app.agents.db_agent.output import AgentFinishError, parse_agent_proposal
 from app.agents.db_agent.tools import ToolContext
@@ -92,6 +92,93 @@ def test_parse_agent_outcome_rejects_analysis_without_result_reference():
                 }
             )
         )
+
+
+def test_chartable_categorical_result_gets_deterministic_bar_fallback():
+    outcome = parse_agent_proposal(
+        json.dumps(
+            {
+                "response_type": "data_analysis",
+                "answer": "CreativeHub has 50 active employees.",
+                "result_ref": "result_1",
+                "presentation": {"kind": "table", "chart": None},
+                "evidence": [
+                    {
+                        "claim": "CreativeHub has 50 active employees.",
+                        "result_ref": "result_1",
+                        "columns": ["company_name", "active_employee_count"],
+                        "row_indexes": [0],
+                    }
+                ],
+                "column_metadata": {
+                    "company_name": "categorical",
+                    "active_employee_count": "numeric",
+                },
+            }
+        )
+    )
+
+    kind, chart = _validated_chart(
+        outcome,
+        ["company_name", "active_employee_count"],
+        [
+            {"company_name": "CreativeHub", "active_employee_count": 50},
+            {"company_name": "SkyBuild Group", "active_employee_count": 50},
+        ],
+    )
+
+    assert kind == "chart"
+    assert chart is not None
+    assert chart["type"] == "bar"
+    assert chart["x_column"] == "company_name"
+    assert chart["y_columns"] == ["active_employee_count"]
+
+
+def test_identifier_only_result_remains_table_only():
+    outcome = parse_agent_proposal(
+        json.dumps(
+            {
+                "response_type": "data_analysis",
+                "answer": "The matching identifiers are listed.",
+                "result_ref": "result_1",
+                "presentation": {"kind": "none", "chart": None},
+                "evidence": [
+                    {
+                        "claim": "A matching identifier was returned.",
+                        "result_ref": "result_1",
+                        "columns": ["id", "company_id"],
+                        "row_indexes": [0],
+                    }
+                ],
+                "column_metadata": {"id": "identifier", "company_id": "identifier"},
+            }
+        )
+    )
+
+    kind, chart = _validated_chart(
+        outcome,
+        ["id", "company_id"],
+        [{"id": 1, "company_id": 10}, {"id": 2, "company_id": 10}],
+    )
+
+    assert kind == "table"
+    assert chart is None
+
+
+def test_pipeline_compatible_chart_inference_uses_metadata_without_an_agent_outcome():
+    chart = infer_chart_from_result(
+        ["payment_month", "average_payment"],
+        [
+            {"payment_month": "2026-01-01", "average_payment": 1000},
+            {"payment_month": "2026-02-01", "average_payment": 1200},
+        ],
+        {"payment_month": "date", "average_payment": "currency"},
+    )
+
+    assert chart is not None
+    assert chart["type"] == "line"
+    assert chart["x_column"] == "payment_month"
+    assert chart["y_columns"] == ["average_payment"]
 
 
 class ScriptedLLM:

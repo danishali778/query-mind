@@ -8,7 +8,7 @@ from typing import Any
 
 import anyio
 
-from app.agents.db_agent.agent import run_agent
+from app.agents.db_agent.agent import infer_chart_from_result, run_agent
 from app.agents.db_agent.trace import combine_failed_agent_trace
 from app.agents.nl_to_sql.graph import run_chat
 from app.core.config import settings
@@ -368,8 +368,18 @@ async def run_analysis(
     pipeline_result["tier"] = tier
     pipeline_result["assumptions"] = []
     if decision_agent:
-        pipeline_result["chart_recommendation"] = None
-        pipeline_result["presentation_kind"] = "table" if pipeline_result.get("rows") else "none"
+        fallback_chart = infer_chart_from_result(
+            list(pipeline_result.get("columns") or []),
+            list(pipeline_result.get("rows") or []),
+            dict(pipeline_result.get("column_metadata") or {}),
+        )
+        pipeline_result["chart_recommendation"] = fallback_chart
+        pipeline_result["presentation_kind"] = (
+            "kpi" if fallback_chart and fallback_chart.get("type") == "kpi"
+            else "chart" if fallback_chart
+            else "table" if pipeline_result.get("rows")
+            else "none"
+        )
         pipeline_result["answer_metadata"] = {
             "method": None,
             "limitations": ["The decision agent was unavailable, so detailed result interpretation was not completed."],
