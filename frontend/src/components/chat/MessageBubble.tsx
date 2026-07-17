@@ -30,6 +30,7 @@ export function MessageBubble({
   const [isPinning, setIsPinning] = useState(false);
   const [traceOpen, setTraceOpen] = useState(false);
   const [definitionsOpen, setDefinitionsOpen] = useState(false);
+  const [queryDetailsOpen, setQueryDetailsOpen] = useState(false);
 
   const { smartAddToDashboard, smartSaveToLibrary, isSaving: isSmartSaving } = useSmartSave();
 
@@ -84,6 +85,12 @@ export function MessageBubble({
   }
   // Assistant
   const isClarification = message.response_kind === 'clarification';
+  const isRefusal = message.response_kind === 'refusal';
+  const isSchemaAnswer = message.response_kind === 'schema_answer';
+  const hasRows = Boolean(message.rows && message.rows.length > 0);
+  const hasTechnicalResult = Boolean(message.sql || hasRows);
+  const presentationKind = message.presentation_kind
+    || (message.chart_recommendation ? (message.chart_recommendation.type === 'kpi' ? 'kpi' : 'chart') : hasRows ? 'table' : 'none');
   const hasRunActivity = Boolean(message.agent_run_id && message.agent_run_status && !isClarification);
   return (
     <div id={message.id ? `msg-${message.id}` : undefined} style={{ padding: '24px 0', display: 'flex', flexDirection: 'column', alignItems: 'stretch', width: '100%', minWidth: 0, maxWidth: '100%' }}>
@@ -117,13 +124,35 @@ export function MessageBubble({
               Clarification needed
             </div>
           )}
+          {isRefusal && !message.error && (
+            <div style={{ marginBottom: 8, fontFamily: T.fontMono, fontSize: '0.62rem', fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.red }}>
+              Request not supported
+            </div>
+          )}
+          {isSchemaAnswer && !message.error && (
+            <div style={{ marginBottom: 8, fontFamily: T.fontMono, fontSize: '0.62rem', fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.purple }}>
+              Schema answer
+            </div>
+          )}
           {message.error ? (
             <div style={{ color: T.red, background: 'rgba(239, 68, 68, 0.05)', padding: '12px 16px', borderRadius: 12, border: `1px solid ${T.red}20` }}>
               <span style={{ fontWeight: 700, marginRight: 8 }}>Error</span>
               {message.error}
             </div>
           ) : (
-            message.content
+            <>
+              <div>{message.content}</div>
+              {message.answer_metadata?.method && (
+                <div style={{ marginTop: 12, fontSize: '0.78rem', color: T.text2 }}>
+                  <strong>Method:</strong> {message.answer_metadata.method}
+                </div>
+              )}
+              {message.answer_metadata?.limitations && message.answer_metadata.limitations.length > 0 && (
+                <div style={{ marginTop: 8, fontSize: '0.75rem', color: T.text3 }}>
+                  <strong>Limitations:</strong> {message.answer_metadata.limitations.join(' ')}
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -199,8 +228,42 @@ export function MessageBubble({
         </div>
       )}
 
-      {/* Technical Result Box (SQL, Table, Charts) */}
-      {(message.sql || message.rows) && !message.error && (
+      {!message.error && hasRows && presentationKind === 'table' && (
+        <div style={{ width: '100%', minWidth: 0, overflowX: 'auto', border: `1px solid ${T.border}`, background: '#fff', marginBottom: 12 }}>
+          <ResultsTable
+            columns={message.columns || []}
+            rows={message.rows || []}
+            rowCount={message.row_count}
+            executionTime={message.execution_time_ms}
+            truncated={message.truncated}
+          />
+        </div>
+      )}
+
+      {!message.error && hasRows && (presentationKind === 'chart' || presentationKind === 'kpi') && message.chart_recommendation && message.columns && (
+        <div style={{ marginBottom: 12 }}>
+          <BaseChartContainer
+            recommendation={message.chart_recommendation}
+            rows={message.rows || []}
+            columns={message.columns}
+            column_metadata={message.column_metadata}
+          />
+        </div>
+      )}
+
+      {hasTechnicalResult && !message.error && (
+        <button
+          type="button"
+          aria-expanded={queryDetailsOpen}
+          onClick={() => setQueryDetailsOpen((open) => !open)}
+          style={{ alignSelf: 'flex-start', marginBottom: 12, background: '#fff', border: `1px solid ${T.border}`, color: T.text2, fontFamily: T.fontMono, fontSize: '0.65rem', fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '9px 12px', cursor: 'pointer' }}
+        >
+          {queryDetailsOpen ? 'Hide' : 'View'} query details
+        </button>
+      )}
+
+      {/* Auditable SQL and raw results, intentionally collapsed by default. */}
+      {hasTechnicalResult && queryDetailsOpen && !message.error && (
         <div style={{
           width: '100%', minWidth: 0, marginLeft: 0,
           background: '#fff',
@@ -256,16 +319,6 @@ export function MessageBubble({
                 truncated={message.truncated}
               />
             </div>
-          )}
-
-          {/* Chart Section */}
-          {message.chart_recommendation && message.chart_recommendation.type !== 'table' && message.rows && message.columns && (
-            <BaseChartContainer
-              recommendation={message.chart_recommendation}
-              rows={message.rows}
-              columns={message.columns}
-              column_metadata={message.column_metadata}
-            />
           )}
 
           {/* Assistant Action Bar (Inside Box) */}

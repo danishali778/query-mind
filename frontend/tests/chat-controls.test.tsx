@@ -27,9 +27,12 @@ const assistantMessage: ChatMessageView = {
 };
 
 describe('chat result controls', () => {
-  it('keeps real message actions and removes inactive controls', () => {
+  it('keeps technical actions behind progressive query details', async () => {
+    const user = userEvent.setup();
     render(<MessageBubble message={assistantMessage} connectionId="conn_1" onTogglePin={vi.fn()} />);
 
+    expect(screen.queryByText('COPY SQL')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /view query details/i }));
     expect(screen.getByText('COPY SQL')).toBeInTheDocument();
     expect(screen.queryByText('COPY LINK')).not.toBeInTheDocument();
     expect(screen.getByText('SAVE TO LIBRARY')).toBeInTheDocument();
@@ -64,6 +67,28 @@ describe('chat result controls', () => {
     expect(screen.getByText('Clarification needed')).toBeInTheDocument();
     expect(screen.queryByText('Answer ready')).not.toBeInTheDocument();
     expect(screen.queryByText('COPY SQL')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /query details/i })).not.toBeInTheDocument();
+  });
+
+  it('renders a direct answer without an empty technical result panel', () => {
+    render(
+      <MessageBubble
+        message={{
+          id: 'direct-1',
+          role: 'assistant',
+          content: 'I can inspect schemas and perform safe read-only analysis.',
+          response_kind: 'direct_answer',
+          presentation_kind: 'none',
+          rows: [],
+          columns: [],
+        }}
+        connectionId="conn_1"
+      />,
+    );
+
+    expect(screen.getByText(/inspect schemas/i)).toBeInTheDocument();
+    expect(screen.queryByText('DATA OBSERVATIONS')).not.toBeInTheDocument();
+    expect(screen.queryByText('PIN RESULT')).not.toBeInTheDocument();
   });
 
   it('does not clear the controlled draft before the parent accepts the request', async () => {
