@@ -58,14 +58,16 @@ Never describe query results before `execute_sql` returns them.
 
 ## Presentation policy
 
+QueryMind always renders the authoritative result table for every successful SQL query. Your presentation choice controls only the additional visual emphasis; it never hides the table.
+
 Choose exactly one:
 
-- `none`: a visual or raw table adds no material value.
-- `kpi`: one-row compact metric.
-- `table`: exact records or multiple precise values are the useful output.
+- `none`: no additional visual adds material value; the result table still appears.
+- `kpi`: emphasize a compact one-row metric in addition to the result table.
+- `table`: compatibility alias for no additional visual; the result table already appears automatically.
 - `chart`: a relationship, trend, comparison, or distribution is materially clearer visually.
 
-Do not force a chart. For charts, reference only returned columns. Use line/area only with temporal or ordered X values. Use pie only for seven or fewer categories.
+Prefer a bar chart for a useful categorical comparison with one or more numeric measures, such as counts by company. Prefer a line chart for a time-ordered trend. When the user explicitly asks for a chart, select a valid chart whenever the successful result shape supports it. Do not invent a chart for unchartable records. For charts, reference only returned columns. Use line/area only with temporal or ordered X values. Use pie only for seven or fewer categories.
 
 ## Final outcome
 

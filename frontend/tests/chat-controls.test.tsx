@@ -14,6 +14,10 @@ vi.mock('../src/hooks/useSmartSave', () => ({
   }),
 }));
 
+vi.mock('../src/components/charts/BaseChartContainer', () => ({
+  BaseChartContainer: () => <div data-testid="supplemental-chart">Chart</div>,
+}));
+
 const assistantMessage: ChatMessageView = {
   id: 'message_1',
   role: 'assistant',
@@ -34,6 +38,7 @@ describe('chat result controls', () => {
     expect(screen.queryByText('COPY SQL')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /view query details/i }));
     expect(screen.getByText('COPY SQL')).toBeInTheDocument();
+    expect(screen.getAllByText('RESULTS')).toHaveLength(1);
     expect(screen.queryByText('COPY LINK')).not.toBeInTheDocument();
     expect(screen.getByText('SAVE TO LIBRARY')).toBeInTheDocument();
     expect(screen.getByText('ADD TO DASHBOARD')).toBeInTheDocument();
@@ -68,6 +73,30 @@ describe('chat result controls', () => {
     expect(screen.queryByText('Answer ready')).not.toBeInTheDocument();
     expect(screen.queryByText('COPY SQL')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /query details/i })).not.toBeInTheDocument();
+  });
+
+  it('always shows the query result table and adds a selected chart without replacing it', () => {
+    render(
+      <MessageBubble
+        message={{
+          ...assistantMessage,
+          presentation_kind: 'chart',
+          columns: ['company_name', 'active_employee_count'],
+          rows: [{ company_name: 'CreativeHub', active_employee_count: 50 }],
+          chart_recommendation: {
+            type: 'bar',
+            title: 'Active employees by company',
+            x_column: 'company_name',
+            y_columns: ['active_employee_count'],
+          },
+        }}
+        connectionId="conn_1"
+      />,
+    );
+
+    expect(screen.getByText('RESULTS')).toBeInTheDocument();
+    expect(screen.getByText('CreativeHub')).toBeInTheDocument();
+    expect(screen.getByTestId('supplemental-chart')).toBeInTheDocument();
   });
 
   it('renders a direct answer without an empty technical result panel', () => {

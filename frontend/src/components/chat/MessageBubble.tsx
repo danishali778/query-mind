@@ -88,6 +88,7 @@ export function MessageBubble({
   const isRefusal = message.response_kind === 'refusal';
   const isSchemaAnswer = message.response_kind === 'schema_answer';
   const hasRows = Boolean(message.rows && message.rows.length > 0);
+  const hasQueryResult = Boolean(message.sql && message.columns && message.rows);
   const hasTechnicalResult = Boolean(message.sql || hasRows);
   const presentationKind = message.presentation_kind
     || (message.chart_recommendation ? (message.chart_recommendation.type === 'kpi' ? 'kpi' : 'chart') : hasRows ? 'table' : 'none');
@@ -228,7 +229,8 @@ export function MessageBubble({
         </div>
       )}
 
-      {!message.error && hasRows && presentationKind === 'table' && (
+      {/* Every successful SQL-backed response keeps its authoritative result table visible. */}
+      {!message.error && hasQueryResult && (
         <div style={{ width: '100%', minWidth: 0, overflowX: 'auto', border: `1px solid ${T.border}`, background: '#fff', marginBottom: 12 }}>
           <ResultsTable
             columns={message.columns || []}
@@ -262,7 +264,7 @@ export function MessageBubble({
         </button>
       )}
 
-      {/* Auditable SQL and raw results, intentionally collapsed by default. */}
+      {/* Auditable SQL and actions, intentionally collapsed by default. Results stay above. */}
       {hasTechnicalResult && queryDetailsOpen && !message.error && (
         <div style={{
           width: '100%', minWidth: 0, marginLeft: 0,
@@ -306,19 +308,6 @@ export function MessageBubble({
               } : undefined}
               isSaving={isSavingSql}
             />
-          )}
-
-          {/* Results Table */}
-          {message.columns && message.rows && message.rows.length > 0 && (
-            <div style={{ width: '100%', minWidth: 0, overflowX: 'auto' }}>
-              <ResultsTable
-                columns={message.columns}
-                rows={message.rows}
-                rowCount={message.row_count}
-                executionTime={message.execution_time_ms}
-                truncated={message.truncated}
-              />
-            </div>
           )}
 
           {/* Assistant Action Bar (Inside Box) */}
