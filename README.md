@@ -195,7 +195,31 @@ These are the parts I'm most proud of as an engineer:
 
 ## 🚀 Local Setup
 
-### Prerequisites
+### 🐳 Quick start with Docker (recommended)
+
+The whole stack — API, Celery worker, beat scheduler, Redis, and the frontend — runs with one command. You only need Docker installed, plus two free accounts you bring yourself:
+
+- A **Supabase project** (auth + app data) — [supabase.com](https://supabase.com), free tier
+- A **Google Gemini API key** (or Groq) — [aistudio.google.com](https://aistudio.google.com), free tier
+
+```bash
+git clone https://github.com/danishali778/query-mind.git
+cd query-mind
+
+# Fill in your Supabase + LLM keys in both files:
+copy backend\.env.example backend\.env      # cp on macOS/Linux
+copy frontend\.env.example frontend\.env
+
+docker compose up --build
+```
+
+The backend applies database migrations automatically on startup. Open **http://localhost:5173** — the API is at http://localhost:8000.
+
+> Redis URLs are handled for you inside compose; the values in `.env.example` only matter for the manual setup below.
+
+### Manual setup
+
+#### Prerequisites
 
 - Node.js 18+
 - Python 3.11+
