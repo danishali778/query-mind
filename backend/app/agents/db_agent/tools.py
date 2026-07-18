@@ -15,10 +15,11 @@ from sqlalchemy.engine import Engine
 
 from app.agents.db_agent.trace import TraceRecorder, summarize_args
 from app.agents.schema_context.catalog import catalog_table_by_name
-from app.agents.schema_context.scoring import expand_terms, score_tables, tokenize
+from app.agents.schema_context.scoring import score_tables
 from app.agents.schema_context.types import CatalogColumn, CatalogTable, SchemaCatalog
 from app.agents.schema_context.user_semantics import SemanticContext
 from app.core.config import settings
+from app.core.secret_detection import detect_secret
 from app.query_engine.connection_scope import referenced_tables
 from app.query_engine.executor import execute_query as guarded_execute_query
 from app.query_engine.results import QueryExecutionResult
@@ -39,6 +40,24 @@ class AnalysisExecution:
     semantic_policy_refs: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class PriorAnalysisExecution:
+    result_ref: str
+    source_message_id: str
+    question: str
+    answer: str
+    sql: str
+    result: QueryExecutionResult
+    captured_at: str
+    presentation_kind: str | None = None
+    chart_recommendation: dict | None = None
+    column_metadata: dict[str, str] = field(default_factory=dict)
+    evidence: list[dict] = field(default_factory=list)
+    method: str | None = None
+    limitations: list[str] = field(default_factory=list)
+    relevant_tables: list[str] = field(default_factory=list)
+
+
 @dataclass
 class ToolContext:
     user_id: str
@@ -56,12 +75,16 @@ class ToolContext:
     cancellation_token: QueryCancellationToken | None = None
     grounded_terms: set[str] = field(default_factory=set)
     matched_tables: set[str] = field(default_factory=set)
+    discovered_tables: set[str] = field(default_factory=set)
     inspected_tables: set[str] = field(default_factory=set)
     allow_broad_discovery: bool = False
     enforce_grounding: bool = False
     semantic_context: SemanticContext | None = None
     analysis_query_count: int = 0
     analysis_results: dict[str, AnalysisExecution] = field(default_factory=dict)
+    prior_results: dict[str, PriorAnalysisExecution] = field(default_factory=dict)
+    prior_result_inspection_count: int = 0
+    tool_output_cache: dict[str, str] = field(default_factory=dict)
 
 
 class SearchSchemaInput(BaseModel):
@@ -101,6 +124,13 @@ class RunCountInput(BaseModel):
     conjunction: str = Field(default="AND", description="AND or OR")
 
 
+class InspectPreviousResultInput(BaseModel):
+    result_ref: str = Field(pattern=r"^prior_result_[1-9][0-9]*$")
+    offset: int = Field(default=0, ge=0)
+    limit: int = Field(default=20, ge=1, le=50)
+    include_sql: bool = False
+
+
 def _suggest_similar(name: str, candidates: list[str], limit: int = 5) -> list[str]:
     if not candidates:
         return []
@@ -132,20 +162,28 @@ def _canonical_table_name(catalog: SchemaCatalog, name: str) -> str | None:
     return f"{table.schema_name or 'public'}.{table.name}"
 
 
-def _table_is_grounded(ctx: ToolContext, name: str) -> bool:
-    if not ctx.enforce_grounding or ctx.allow_broad_discovery:
+def _table_is_grounded(
+    ctx: ToolContext,
+    name: str,
+    *,
+    allow_discovered: bool = False,
+) -> bool:
+    if not ctx.enforce_grounding:
         return True
     canonical = _canonical_table_name(ctx.catalog, name)
     if not canonical:
         return False
     candidates = {canonical.casefold(), canonical.split(".")[-1].casefold()}
-    allowed = {item.casefold() for item in ctx.matched_tables | ctx.inspected_tables}
+    allowed_tables = ctx.matched_tables | ctx.inspected_tables
+    if allow_discovered:
+        allowed_tables |= ctx.discovered_tables
+    allowed = {item.casefold() for item in allowed_tables}
     allowed |= {item.split(".")[-1] for item in allowed}
     return bool(candidates & allowed)
 
 
 def _grounding_refusal(ctx: ToolContext, tool: str, table: str) -> str | None:
-    if _table_is_grounded(ctx, table):
+    if _table_is_grounded(ctx, table, allow_discovered=tool == "get_table_schema"):
         return None
     message = "Tool request refused because the table was not grounded in the current user request."
     ctx.trace.record(tool, "table=[REDACTED]", 0, "refused", output_summary=message)
@@ -377,15 +415,24 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
     max_columns = settings.agent_max_columns_per_table
     max_cell_chars = settings.agent_max_cell_chars
 
+    def cached(name: str, args: dict) -> str | None:
+        key = json.dumps({"tool": name, "args": args}, sort_keys=True, default=str)
+        return ctx.tool_output_cache.get(key)
+
+    def remember(name: str, args: dict, output: str) -> str:
+        key = json.dumps({"tool": name, "args": args}, sort_keys=True, default=str)
+        ctx.tool_output_cache[key] = output
+        return output
+
     def list_tables() -> str:
         started = time.monotonic()
-        if ctx.enforce_grounding and not ctx.allow_broad_discovery:
-            message = "Table listing is allowed only for explicit schema or broad analytical discovery."
-            ctx.trace.record("list_tables", "{}", (time.monotonic() - started) * 1000, "refused", output_summary=message)
-            return message
+        cached_output = cached("list_tables", {})
+        if cached_output is not None:
+            return cached_output
         sorted_tables = _sort_tables_for_listing(ctx.catalog.tables)
         total = len(sorted_tables)
         shown = sorted_tables[:max_tables_listed]
+        ctx.discovered_tables.update(table.name for table in shown)
         lines = []
         for table in shown:
             flag = " [internal]" if table.is_internal else ""
@@ -400,17 +447,14 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
         output, truncated = _cap_tool_output(body, max_output_chars)
         outcome = "truncated" if truncated or total > len(shown) else "ok"
         ctx.trace.record("list_tables", "{}", (time.monotonic() - started) * 1000, outcome)
-        return output
+        return remember("list_tables", {}, output)
 
     def search_schema(query: str) -> str:
         started = time.monotonic()
-        if ctx.enforce_grounding:
-            allowed_terms = expand_terms(list(ctx.grounded_terms))
-            query_terms = set(tokenize(query))
-            if not query_terms or not (query_terms & allowed_terms):
-                message = "Schema search terms must be grounded in the current user request."
-                ctx.trace.record("search_schema", "query=[REDACTED]", (time.monotonic() - started) * 1000, "refused", output_summary=message)
-                return message
+        cache_args = {"query": query}
+        cached_output = cached("search_schema", cache_args)
+        if cached_output is not None:
+            return cached_output
         scored = score_tables(query, ctx.catalog, top_k=8)
         if not scored:
             ctx.trace.record(
@@ -419,10 +463,10 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
                 (time.monotonic() - started) * 1000,
                 "ok",
             )
-            return "No matching tables found."
+            return remember("search_schema", cache_args, "No matching tables found.")
         lines = []
         for item in scored:
-            ctx.matched_tables.add(item.name)
+            ctx.discovered_tables.add(item.name)
             cols = f" columns={item.matched_columns}" if item.matched_columns else ""
             lines.append(f"- {item.name} (score={item.score}): {item.reason}{cols}")
         body = "\n".join(lines)
@@ -433,10 +477,14 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
             (time.monotonic() - started) * 1000,
             "truncated" if truncated else "ok",
         )
-        return output
+        return remember("search_schema", cache_args, output)
 
     def get_table_schema(table_names: list[str]) -> str:
         started = time.monotonic()
+        cache_args = {"table_names": table_names}
+        cached_output = cached("get_table_schema", cache_args)
+        if cached_output is not None:
+            return cached_output
         parts: list[str] = []
         unknown: list[str] = []
         ignored: list[str] = []
@@ -496,6 +544,8 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
             (time.monotonic() - started) * 1000,
             outcome,
         )
+        if outcome in {"ok", "truncated"}:
+            return remember("get_table_schema", cache_args, output)
         return output
 
     def get_sample_values(table: str, column: str) -> str:
@@ -614,6 +664,119 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
         )
         return json.dumps({"valid": is_safe, "reason": reason or "OK"})
 
+    def inspect_previous_result(
+        result_ref: str,
+        offset: int = 0,
+        limit: int = 20,
+        include_sql: bool = False,
+    ) -> str:
+        started = time.monotonic()
+        args_summary = (
+            f"result_ref={result_ref} offset={offset} limit={limit} "
+            f"include_sql={include_sql}"
+        )
+        if ctx.prior_result_inspection_count >= settings.agent_max_prior_result_inspections:
+            message = (
+                "Previous-result inspection limit reached. Use the evidence already available "
+                "or run a new analysis when the historical result is insufficient."
+            )
+            ctx.trace.record(
+                "inspect_previous_result",
+                args_summary,
+                (time.monotonic() - started) * 1000,
+                "refused",
+                output_summary=message,
+                error_class="prior_result_inspection_limit",
+            )
+            return json.dumps({"success": False, "error": message})
+
+        prior = ctx.prior_results.get(result_ref)
+        if prior is None:
+            message = "The previous-result reference is unavailable in this conversation."
+            ctx.trace.record(
+                "inspect_previous_result",
+                args_summary,
+                (time.monotonic() - started) * 1000,
+                "refused",
+                output_summary=message,
+                error_class="prior_result_not_found",
+            )
+            return json.dumps({"success": False, "error": message})
+
+        try:
+            prior_tables = referenced_tables(prior.sql)
+        except Exception:
+            message = "The previous result could not be safely revalidated."
+            ctx.trace.record(
+                "inspect_previous_result",
+                args_summary,
+                (time.monotonic() - started) * 1000,
+                "refused",
+                output_summary=message,
+                error_class="prior_result_stale",
+            )
+            return json.dumps({"success": False, "error": message})
+
+        available_tables: set[str] = set()
+        for table in ctx.catalog.tables:
+            canonical = table.name if "." in table.name else f"{table.schema_name or 'public'}.{table.name}"
+            available_tables.add(canonical.casefold())
+        if any(table.casefold() not in available_tables for table in prior_tables):
+            message = "The previous result is no longer available under the current connection scope."
+            ctx.trace.record(
+                "inspect_previous_result",
+                args_summary,
+                (time.monotonic() - started) * 1000,
+                "refused",
+                output_summary=message,
+                error_class="prior_result_scope_changed",
+            )
+            return json.dumps({"success": False, "error": message})
+
+        if ctx.semantic_context is not None:
+            semantic_policy = validate_ai_semantic_policy(prior.sql, ctx.semantic_context)
+            if not semantic_policy.allowed:
+                message = "The previous result is no longer available under the current data policy."
+                ctx.trace.record(
+                    "inspect_previous_result",
+                    args_summary,
+                    (time.monotonic() - started) * 1000,
+                    "refused",
+                    output_summary=message,
+                    error_class="prior_result_policy_changed",
+                )
+                return json.dumps({"success": False, "error": message})
+
+        ctx.prior_result_inspection_count += 1
+        ctx.inspected_tables.update(prior_tables)
+        bounded_rows = prior.result.rows[offset : offset + min(limit, 50)]
+        preview = _compact_rows(bounded_rows, max_cell_chars)
+        for row in preview:
+            for column, value in list(row.items()):
+                if value is not None and detect_secret(str(value)):
+                    row[column] = "[REDACTED]"
+        payload = {
+            "success": True,
+            "result_ref": result_ref,
+            "columns": prior.result.columns,
+            "preview_rows": preview,
+            "row_count": prior.result.row_count,
+            "truncated": prior.result.truncated or offset + len(preview) < prior.result.row_count,
+            "captured_at": prior.captured_at,
+        }
+        if include_sql:
+            payload["sql"] = prior.sql
+        output, truncated = _json_tool_response(payload, max_output_chars)
+        ctx.trace.record(
+            "inspect_previous_result",
+            args_summary,
+            (time.monotonic() - started) * 1000,
+            "truncated" if truncated else "ok",
+            output_summary=f"Inspected bounded historical evidence from {result_ref}.",
+            output_row_count=len(preview),
+        )
+        return output
+
     def execute_sql_tool(sql: str) -> str:
         started = time.monotonic()
         if ctx.analysis_query_count >= settings.agent_max_analysis_queries:
@@ -667,7 +830,7 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
                 )
                 return json.dumps({"success": False, "error": message, "error_class": "semantic_policy_rejected"})
             semantic_policy_refs = list(semantic_policy.enforced_references)
-        if ctx.enforce_grounding and not ctx.allow_broad_discovery:
+        if ctx.enforce_grounding:
             try:
                 sql_tables = referenced_tables(sql)
             except Exception:
@@ -1004,6 +1167,16 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
             args_schema=SqlInput,
         ),
         StructuredTool.from_function(
+            inspect_previous_result,
+            name="inspect_previous_result",
+            description=(
+                "Inspect a bounded verified result from this conversation. Use it for natural "
+                "follow-ups before deciding whether fresh SQL is required. Request SQL only "
+                "when it is necessary to continue the analysis."
+            ),
+            args_schema=InspectPreviousResultInput,
+        ),
+        StructuredTool.from_function(
             get_relationships,
             name="get_relationships",
             description="Show foreign-key relationships for up to N tables.",
@@ -1044,6 +1217,7 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
 
 __all__ = [
     "AnalysisExecution",
+    "PriorAnalysisExecution",
     "ToolContext",
     "SAMPLE_MAX_VALUES",
     "SAMPLE_QUERY_LIMIT",

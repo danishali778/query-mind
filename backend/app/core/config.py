@@ -150,6 +150,8 @@ class Settings(BaseSettings):
     agent_max_live_queries: int = 10
     agent_max_analysis_queries: int = 3
     agent_result_preview_rows: int = 50
+    agent_max_repeated_tool_calls: int = 2
+    agent_max_prior_result_inspections: int = 3
     agent_max_notes: int = 20
     agent_query_timeout_seconds: int = 10
     agent_profile_max_columns: int = 15
@@ -412,6 +414,8 @@ class Settings(BaseSettings):
             "agent_max_live_queries": self.agent_max_live_queries,
             "agent_max_analysis_queries": self.agent_max_analysis_queries,
             "agent_result_preview_rows": self.agent_result_preview_rows,
+            "agent_max_repeated_tool_calls": self.agent_max_repeated_tool_calls,
+            "agent_max_prior_result_inspections": self.agent_max_prior_result_inspections,
             "agent_max_notes": self.agent_max_notes,
             "agent_query_timeout_seconds": self.agent_query_timeout_seconds,
             "has_lemon_squeezy_webhook_secret": bool(self.lemon_squeezy_webhook_secret),

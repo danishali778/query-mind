@@ -4,8 +4,8 @@ from datetime import datetime
 from typing import Optional
 
 import anyio
-from sqlalchemy import and_, func
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, func, or_
+from sqlalchemy.orm import Session, aliased
 
 from app.db.models.chat import ChatMessage, ChatSession, SessionSummary
 from app.db.orm_models import ChatAgentRunORM, ChatMessageORM, ChatSessionORM
@@ -353,37 +353,70 @@ def _get_history_for_llm_sync(session: Session, user_id: str, session_id: str) -
 
 
 async def get_intent_history(user_id: str, session_id: str) -> list[dict]:
-    """Return safe lifecycle metadata used to decide whether history is relevant."""
+    """Return the latest five completed parent/assistant pairs for agent context."""
     def _run() -> list[dict]:
         with read_session_scope() as session:
-            rows = (
-                session.query(ChatMessageORM)
-                .filter(ChatMessageORM.session_id == session_id, ChatMessageORM.owner_id == user_id)
-                .order_by(ChatMessageORM.created_at.asc())
+            user_message = aliased(ChatMessageORM)
+            pairs = (
+                session.query(ChatMessageORM, user_message, ChatAgentRunORM.status)
+                .join(
+                    user_message,
+                    and_(
+                        ChatMessageORM.parent_id == user_message.id,
+                        user_message.owner_id == user_id,
+                        user_message.session_id == session_id,
+                        user_message.role == "user",
+                    ),
+                )
+                .outerjoin(ChatAgentRunORM, ChatAgentRunORM.id == ChatMessageORM.agent_run_id)
+                .filter(
+                    ChatMessageORM.session_id == session_id,
+                    ChatMessageORM.owner_id == user_id,
+                    ChatMessageORM.role == "assistant",
+                    ChatMessageORM.content != "",
+                    or_(ChatMessageORM.error.is_(None), ChatMessageORM.error == ""),
+                    or_(
+                        ChatAgentRunORM.id.is_(None),
+                        ChatAgentRunORM.status == "completed",
+                    ),
+                )
+                .order_by(ChatMessageORM.created_at.desc())
+                .limit(5)
                 .all()
             )
-            run_ids = [row.agent_run_id for row in rows if row.agent_run_id]
-            statuses = {}
-            if run_ids:
-                statuses = {
-                    row.id: row.status
-                    for row in session.query(ChatAgentRunORM).filter(ChatAgentRunORM.id.in_(run_ids)).all()
-                }
-            return [
-                {
-                    "id": row.id,
-                    "role": row.role,
-                    "content": row.content,
-                    "sql": row.sql,
-                    "error": row.error,
-                    "parent_id": row.parent_id,
-                    "response_kind": row.response_kind or "answer",
-                    "clarification_context": row.clarification_context,
-                    "answer_metadata": row.answer_metadata,
-                    "run_status": statuses.get(row.agent_run_id),
-                }
-                for row in rows
-            ]
+            history: list[dict] = []
+            for assistant, parent, run_status in reversed(pairs):
+                history.append(
+                    {
+                        "id": parent.id,
+                        "role": parent.role,
+                        "content": parent.content,
+                        "connection_id": parent.connection_id,
+                        "created_at": _iso(parent.created_at),
+                    }
+                )
+                history.append(
+                    {
+                        "id": assistant.id,
+                        "role": assistant.role,
+                        "content": assistant.content,
+                        "sql": assistant.sql,
+                        "results": assistant.results,
+                        "columns": assistant.columns or [],
+                        "error": assistant.error,
+                        "connection_id": assistant.connection_id,
+                        "parent_id": assistant.parent_id,
+                        "response_kind": assistant.response_kind or "answer",
+                        "clarification_context": assistant.clarification_context,
+                        "presentation_kind": assistant.presentation_kind,
+                        "chart_recommendation": assistant.chart_recommendation,
+                        "answer_metadata": assistant.answer_metadata,
+                        "agent_tier": assistant.agent_tier,
+                        "created_at": _iso(assistant.created_at),
+                        "run_status": run_status,
+                    }
+                )
+            return history
     return await anyio.to_thread.run_sync(_run)
 
 

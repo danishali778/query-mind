@@ -15,6 +15,7 @@ ResponseType = Literal[
     "clarification",
     "schema_answer",
     "data_analysis",
+    "result_follow_up",
     "refusal",
 ]
 PresentationKind = Literal["none", "table", "kpi", "chart"]
@@ -70,7 +71,7 @@ class AgentEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     claim: str = Field(min_length=1, max_length=500)
-    result_ref: str = Field(pattern=r"^result_[1-9][0-9]*$")
+    result_ref: str = Field(pattern=r"^(?:result|prior_result)_[1-9][0-9]*$")
     columns: list[str] = Field(default_factory=list, max_length=12)
     row_indexes: list[int] = Field(default_factory=list, max_length=20)
 
@@ -90,7 +91,10 @@ class ChatAgentOutcome(BaseModel):
     response_type: ResponseType
     answer: str = Field(min_length=1, max_length=8000)
     clarification_context: ClarificationContext | None = None
-    result_ref: str | None = Field(default=None, pattern=r"^result_[1-9][0-9]*$")
+    result_ref: str | None = Field(
+        default=None,
+        pattern=r"^(?:result|prior_result)_[1-9][0-9]*$",
+    )
     presentation: AgentPresentation = Field(default_factory=AgentPresentation)
     evidence: list[AgentEvidence] = Field(default_factory=list, max_length=20)
     method: str | None = Field(default=None, max_length=2000)
@@ -148,10 +152,15 @@ class ChatAgentOutcome(BaseModel):
         elif self.clarification_context is not None:
             raise ValueError("only clarification may include clarification_context")
         if self.response_type == "data_analysis":
-            if self.result_ref is None:
-                raise ValueError("data_analysis requires result_ref")
+            if self.result_ref is None or not self.result_ref.startswith("result_"):
+                raise ValueError("data_analysis requires a current-run result_ref")
             if not self.evidence:
                 raise ValueError("data_analysis requires at least one evidence item")
+        if self.response_type == "result_follow_up":
+            if self.result_ref is None or not self.result_ref.startswith("prior_result_"):
+                raise ValueError("result_follow_up requires a prior_result_ref")
+            if not self.evidence:
+                raise ValueError("result_follow_up requires at least one evidence item")
         return self
 
 

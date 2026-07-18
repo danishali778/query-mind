@@ -41,7 +41,6 @@ def run_chat_agent_task(self, run_id: str) -> None:
     watcher.start()
     publish_event(run_id, "run.started", "Analyzing your question", stage="preparing")
     try:
-        history = chat_run_repository.get_history_for_run(run_id)
         triggering_message = chat_run_repository.get_triggering_user_message(run_id)
         question = triggering_message.content if triggering_message else ""
         result = asyncio.run(
@@ -50,7 +49,7 @@ def run_chat_agent_task(self, run_id: str) -> None:
                 connection_id=run.connection_id,
                 session_id=run.session_id,
                 message=question,
-                history=history,
+                history=None,
                 progress=progress,
                 run_id=run_id,
             )

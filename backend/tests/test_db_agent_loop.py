@@ -377,5 +377,5 @@ def test_graph_skip_repeat_returns_tool_message_without_executing():
 
     assert tool.invocations == [{"query": "customers"}, {"query": "customers"}]
     assert any(
-        isinstance(m, ToolMessage) and "identical arguments" in m.content for m in final["messages"]
+        isinstance(m, ToolMessage) and "identical call" in m.content for m in final["messages"]
     )

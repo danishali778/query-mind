@@ -163,7 +163,7 @@ def test_semantic_description_overlap_does_not_create_analytical_intent():
     assert explicit.matched_tables == ["payments"]
 
 
-def test_bounded_history_keeps_latest_three_completed_pairs_with_metadata():
+def test_bounded_history_keeps_latest_five_completed_pairs_with_metadata():
     history = []
     for index in range(5):
         user_id = f"u-{index}"
@@ -193,10 +193,10 @@ def test_bounded_history_keeps_latest_three_completed_pairs_with_metadata():
     assert bounded_follow_up_history(history, include=False) == []
     assert explicit_follow_up("What about last month?", history) is True
     bounded = bounded_follow_up_history(history, include=True)
-    assert len(bounded) == 6
-    assert bounded[0]["content"] == "question 2"
+    assert len(bounded) == 10
+    assert bounded[0]["content"] == "question 0"
     assert "Method: bounded method" in bounded[1]["content"]
-    assert "Evidence: evidence 2" in bounded[1]["content"]
+    assert "Evidence: evidence 0" in bounded[1]["content"]
 
 
 def test_zero_overlap_schema_search_ignores_table_importance():

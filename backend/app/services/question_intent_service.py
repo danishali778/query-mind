@@ -93,7 +93,7 @@ def bounded_follow_up_history(history: list[dict], *, include: bool = True) -> l
     if not include:
         return []
     result: list[dict] = []
-    for user, assistant in _completed_pairs(history)[-3:]:
+    for user, assistant in _completed_pairs(history)[-5:]:
         if detect_secret(str(user.get("content") or "")) or detect_secret(str(assistant.get("content") or "")):
             continue
         assistant_content = str(assistant.get("content") or "")
@@ -110,8 +110,6 @@ def bounded_follow_up_history(history: list[dict], *, include: bool = True) -> l
                     assistant_content += "\nEvidence: " + "; ".join(safe_claims)
             if limitations:
                 assistant_content += "\nLimitations: " + "; ".join(str(item) for item in limitations[:5])
-        if assistant.get("sql"):
-            assistant_content = f"{assistant_content}\n```sql\n{assistant['sql']}\n```"
         if detect_secret(assistant_content):
             continue
         result.append({"role": "user", "content": str(user.get("content") or "")})
@@ -173,14 +171,13 @@ def _physical_matches(question: str, catalog: SchemaCatalog | None) -> tuple[lis
     return list(dict.fromkeys(tables)), list(dict.fromkeys(columns))
 
 
-def analyze_question_intent(
+def build_grounding_context(
     question: str,
     *,
     catalog: SchemaCatalog | None,
     semantic_context: SemanticContext | None,
     history: list[dict],
 ) -> QuestionIntentResult:
-    terms = set(tokenize(question))
     tables, columns = _physical_matches(question, catalog)
     semantic_definitions = _matched_semantic_definitions(question, semantic_context)
     semantic_refs = [item.reference for item in semantic_definitions]
@@ -196,36 +193,17 @@ def analyze_question_intent(
             columns.append(f"{table_name}.{column_name}")
     tables = list(dict.fromkeys(tables))
     columns = list(dict.fromkeys(columns))
-    schema_command = any(pattern.search(question) for pattern in _SCHEMA_PATTERNS)
-    broad = bool(terms & _BROAD_TERMS)
-    analytical = bool(terms & _ANALYTICAL_TERMS)
-    follows_up = explicit_follow_up(question, history)
-    clarification = latest_clarification_context(history)
-    identifier_response = bool(
-        clarification and clarification.get("expected_input") == "identifier"
-    )
-
-    if schema_command:
-        reason = "schema_command"
-    elif semantic_refs:
+    if semantic_refs:
         reason = "verified_semantic_match"
     elif tables or columns:
         reason = "physical_schema_match"
-    elif broad:
-        reason = "broad_analytical_discovery"
-    elif analytical:
-        reason = "analytical_operation"
-    elif identifier_response:
-        reason = "clarification_response"
-    elif follows_up:
-        reason = "explicit_follow_up"
     else:
         reason = "agent_decision_required"
 
     return QuestionIntentResult(
         decision="analyze",
-        history_mode="explicit_follow_up" if follows_up else "none",
-        broad_discovery=broad or schema_command,
+        history_mode="none",
+        broad_discovery=False,
         matched_tables=tables,
         matched_columns=columns,
         matched_semantic_refs=semantic_refs,
@@ -233,10 +211,27 @@ def analyze_question_intent(
     )
 
 
+def analyze_question_intent(
+    question: str,
+    *,
+    catalog: SchemaCatalog | None,
+    semantic_context: SemanticContext | None,
+    history: list[dict],
+) -> QuestionIntentResult:
+    """Backward-compatible alias for the non-decision-making grounding builder."""
+    return build_grounding_context(
+        question,
+        catalog=catalog,
+        semantic_context=semantic_context,
+        history=history,
+    )
+
+
 __all__ = [
     "CLARIFICATION_MESSAGE",
     "QuestionIntentResult",
     "analyze_question_intent",
+    "build_grounding_context",
     "bounded_follow_up_history",
     "explicit_follow_up",
     "latest_clarification_context",

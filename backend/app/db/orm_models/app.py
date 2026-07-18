@@ -530,7 +530,8 @@ class ChatMessageORM(Base):
     __table_args__ = (
         CheckConstraint(
             "response_kind IS NULL OR response_kind IN "
-            "('answer', 'direct_answer', 'clarification', 'schema_answer', 'data_analysis', 'refusal')",
+            "('answer', 'direct_answer', 'clarification', 'schema_answer', 'data_analysis', "
+            "'result_follow_up', 'refusal')",
             name="chat_messages_response_kind_valid",
         ),
         CheckConstraint(
