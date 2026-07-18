@@ -86,6 +86,7 @@ export function MessageBubble({
   const isClarification = message.response_kind === 'clarification';
   const isRefusal = message.response_kind === 'refusal';
   const isSchemaAnswer = message.response_kind === 'schema_answer';
+  const isResultFollowUp = message.response_kind === 'result_follow_up';
   const isNonQueryResponse = isClarification || isRefusal || message.response_kind === 'direct_answer';
   const hasQueryResult = !isNonQueryResponse && Boolean(message.sql && message.columns && message.rows);
   const hasRunActivity = Boolean(message.agent_run_id && message.agent_run_status && !isClarification);
@@ -129,6 +130,11 @@ export function MessageBubble({
           {isSchemaAnswer && !message.error && (
             <div style={{ marginBottom: 8, fontFamily: T.fontMono, fontSize: '0.62rem', fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.purple }}>
               Schema answer
+            </div>
+          )}
+          {isResultFollowUp && !message.error && (
+            <div style={{ marginBottom: 8, fontFamily: T.fontMono, fontSize: '0.62rem', fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.green }}>
+              Based on previous result
             </div>
           )}
           {message.error ? (

@@ -402,7 +402,7 @@ export interface ChatResponse {
   answer_metadata?: ChatAnswerMetadata | null;
 }
 
-export type ChatResponseKind = 'answer' | 'direct_answer' | 'clarification' | 'schema_answer' | 'data_analysis' | 'refusal';
+export type ChatResponseKind = 'answer' | 'direct_answer' | 'clarification' | 'schema_answer' | 'data_analysis' | 'result_follow_up' | 'refusal';
 export type ChatPresentationKind = 'none' | 'table' | 'kpi' | 'chart';
 export interface ChatAnswerMetadata {
   method?: string | null;
@@ -413,6 +413,12 @@ export interface ChatAnswerMetadata {
     columns: string[];
     row_indexes: number[];
   }>;
+  provenance?: {
+    kind: 'prior_result';
+    source_message_id: string;
+    captured_at: string;
+    reused_without_execution: boolean;
+  } | null;
 }
 
 export interface ChatUiMessage {

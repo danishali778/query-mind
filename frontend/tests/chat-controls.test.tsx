@@ -128,6 +128,59 @@ describe('chat result controls', () => {
     expect(screen.queryByText('PIN RESULT')).not.toBeInTheDocument();
   });
 
+  it('renders a narrative prior-result follow-up without repeating technical panels', () => {
+    render(
+      <MessageBubble
+        message={{
+          id: 'follow-up-1',
+          role: 'assistant',
+          content: 'The two anomalies were December 2022 and December 2023.',
+          response_kind: 'result_follow_up',
+          presentation_kind: 'none',
+          answer_metadata: {
+            evidence: [],
+            provenance: {
+              kind: 'prior_result',
+              source_message_id: 'source-1',
+              captured_at: '2026-07-17T12:00:00Z',
+              reused_without_execution: true,
+            },
+          },
+        }}
+        connectionId="conn_1"
+      />,
+    );
+
+    expect(screen.getByText('Based on previous result')).toBeInTheDocument();
+    expect(screen.queryByText('COPY SQL')).not.toBeInTheDocument();
+    expect(screen.queryByText('RESULTS')).not.toBeInTheDocument();
+  });
+
+  it('renders a reused result panel when a prior-result follow-up requests a chart', () => {
+    render(
+      <MessageBubble
+        message={{
+          ...assistantMessage,
+          id: 'follow-up-chart-1',
+          response_kind: 'result_follow_up',
+          presentation_kind: 'chart',
+          chart_recommendation: {
+            type: 'bar',
+            title: 'Employees by company',
+            x_column: 'id',
+            y_columns: ['id'],
+          },
+        }}
+        connectionId="conn_1"
+      />,
+    );
+
+    expect(screen.getByText('Based on previous result')).toBeInTheDocument();
+    expect(screen.getByText('COPY SQL')).toBeInTheDocument();
+    expect(screen.getByText('RESULTS')).toBeInTheDocument();
+    expect(screen.getByTestId('supplemental-chart')).toBeInTheDocument();
+  });
+
   it('does not clear the controlled draft before the parent accepts the request', async () => {
     const user = userEvent.setup();
     const onSend = vi.fn();
