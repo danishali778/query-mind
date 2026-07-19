@@ -10,6 +10,7 @@ from app.agents.schema_context.scoring import tokenize
 from app.agents.schema_context.types import SchemaCatalog
 from app.agents.schema_context.user_semantics import SemanticContext
 from app.core.secret_detection import detect_secret
+from app.core.config import settings
 
 
 CLARIFICATION_MESSAGE = (
@@ -17,36 +18,10 @@ CLARIFICATION_MESSAGE = (
     "or business outcome you want to analyze."
 )
 
-_ANALYTICAL_TERMS = {
-    "average", "avg", "count", "compare", "comparison", "distribution",
-    "group", "highest", "kpi", "lowest", "max", "median", "metric", "min",
-    "mrr", "arr", "percent", "percentage", "rank", "ranking", "rate",
-    "segment", "segmentation", "sum", "top", "total", "trend", "variance",
-}
-_BROAD_TERMS = {
-    "anomaly", "anomalies", "insight", "insights", "outlier", "outliers",
-    "overview", "explore", "discover", "unusual", "interesting",
-}
-_SCHEMA_PATTERNS = (
-    re.compile(r"\b(?:list|show|describe|inspect)\s+(?:all\s+)?(?:tables|columns|schema)\b", re.I),
-    re.compile(r"\bwhat\s+(?:tables|columns)\b", re.I),
-    re.compile(r"^/(?:tables|schema|help)\b", re.I),
-)
-_FOLLOW_UP_PATTERNS = (
-    re.compile(r"^what about\b", re.I),
-    re.compile(r"^(?:and|also)\b", re.I),
-    re.compile(r"\b(?:break|group) (?:that|it) down\b", re.I),
-    re.compile(r"\bcompare (?:that|it|this)\b", re.I),
-    re.compile(r"\b(?:show|keep|include|exclude|filter) only\b", re.I),
-    re.compile(r"\b(?:previous|last|next) (?:period|month|week|year|quarter)\b", re.I),
-    re.compile(r"\b(?:same|those|that|it|them)\b", re.I),
-)
-
-
 @dataclass(frozen=True)
 class QuestionIntentResult:
     decision: Literal["analyze", "clarify"]
-    history_mode: Literal["none", "explicit_follow_up"] = "none"
+    history_mode: Literal["none"] = "none"
     broad_discovery: bool = False
     matched_tables: list[str] = field(default_factory=list)
     matched_columns: list[str] = field(default_factory=list)
@@ -82,18 +57,27 @@ def latest_clarification_context(history: list[dict]) -> dict | None:
     return context if isinstance(context, dict) else None
 
 
-def explicit_follow_up(question: str, history: list[dict]) -> bool:
-    pairs = _completed_pairs(history)
-    if not pairs:
-        return False
-    return any(pattern.search(question.strip()) for pattern in _FOLLOW_UP_PATTERNS)
-
-
 def bounded_follow_up_history(history: list[dict], *, include: bool = True) -> list[dict]:
     if not include:
         return []
     result: list[dict] = []
-    for user, assistant in _completed_pairs(history)[-5:]:
+    selected: list[tuple[dict, dict]] = []
+    used_tokens = 0
+    for user, assistant in reversed(_completed_pairs(history)):
+        pair_tokens = max(
+            1,
+            (
+                len(str(user.get("content") or ""))
+                + len(str(assistant.get("content") or ""))
+                + 3
+            )
+            // 4,
+        ) + 32
+        if selected and used_tokens + pair_tokens > settings.agent_recent_history_token_budget:
+            break
+        selected.append((user, assistant))
+        used_tokens += pair_tokens
+    for user, assistant in reversed(selected):
         if detect_secret(str(user.get("content") or "")) or detect_secret(str(assistant.get("content") or "")):
             continue
         assistant_content = str(assistant.get("content") or "")
@@ -233,6 +217,5 @@ __all__ = [
     "analyze_question_intent",
     "build_grounding_context",
     "bounded_follow_up_history",
-    "explicit_follow_up",
     "latest_clarification_context",
 ]

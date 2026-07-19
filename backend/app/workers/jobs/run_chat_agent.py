@@ -76,6 +76,7 @@ def run_chat_agent_task(self, run_id: str) -> None:
             "clarification_context": result.get("clarification_context"),
             "presentation_kind": result.get("presentation_kind"),
             "answer_metadata": result.get("answer_metadata"),
+            "_conversation_memory": result.get("memory_update"),
         }
         if not chat_run_repository.finalize_run(run_id, status="completed", message_updates=updates):
             raise AgentRunCancelled("Cancellation won before final persistence.")

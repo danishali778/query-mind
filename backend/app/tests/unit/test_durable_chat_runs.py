@@ -10,7 +10,7 @@ from sqlalchemy.pool import StaticPool
 import app.db.session as db_session
 from app.db.base import Base
 from app.db.repositories import chat_run_repository
-from app.db.orm_models import ChatMessageORM
+from app.db.orm_models import ChatMessageORM, ChatSessionORM
 from app.query_engine.cancellation import QueryCancellationToken
 
 
@@ -120,6 +120,34 @@ def test_cancellation_wins_before_completion():
         failure_message="Response stopped by user.",
     ) is True
     assert chat_run_repository.get_run_unscoped_sync(run.id).status == "cancelled"
+
+
+def test_successful_finalization_persists_memory_atomically():
+    run, *_ = _create("44444444-4444-4444-4444-444444444444")
+    assert chat_run_repository.claim_run(run.id)
+
+    assert chat_run_repository.finalize_run(
+        run.id,
+        status="completed",
+        message_updates={
+            "content": "I found two support tables.",
+            "_conversation_memory": {
+                "summary": "The user is exploring support data.",
+                "active_topic": "support tickets",
+                "entities": ["support_tickets", "ticket_messages"],
+                "unresolved_choice": {
+                    "kind": "table",
+                    "prompt": "Which table should be inspected?",
+                    "options": ["support_tickets", "ticket_messages"],
+                },
+            },
+        },
+    )
+
+    with db_session.read_session_scope() as session:
+        row = session.query(ChatSessionORM).filter(ChatSessionORM.id == run.session_id).one()
+        assert row.memory_revision == 2
+        assert row.memory_state["active_topic"] == "support tickets"
 
 
 def test_run_lookup_is_owner_scoped():

@@ -17,6 +17,7 @@ from app.query_engine.cancellation import AgentRunCancelled, QueryCancellationTo
 
 PUBLIC_TOOL_LABELS = {
     "list_tables": ("schema_search", "Searching available tables"),
+    "search_schema": ("schema_search", "Searching relevant schema"),
     "get_table_schema": ("schema_inspection", "Inspecting table structure"),
     "get_relationships": ("schema_inspection", "Finding relationships between tables"),
     "get_sample_values": ("schema_inspection", "Checking safe category values"),
@@ -26,6 +27,9 @@ PUBLIC_TOOL_LABELS = {
     "profile_table": ("reasoning", "Analyzing result patterns"),
     "run_count": ("reasoning", "Checking a data assumption"),
     "explain_sql": ("sql_validation", "Checking query cost"),
+    "inspect_previous_result": ("result_analysis", "Reviewing the previous result"),
+    "preview_table": ("schema_inspection", "Previewing safe table data"),
+    "note": ("reasoning", "Recording an analytical finding"),
     "agent_repair": ("repair", "Correcting the query"),
     "backend_validation": ("sql_validation", "Validating generated SQL"),
     "backend_execution": ("query_execution", "Running a read-only query"),
@@ -172,7 +176,7 @@ class ProgressReporter:
         publish_event(self.run_id, "tool.started", label, stage=stage)
 
     def tool_completed(self, step) -> None:
-        stage, label = PUBLIC_TOOL_LABELS.get(step.tool, ("reasoning", "Analysis step completed"))
+        stage, label = PUBLIC_TOOL_LABELS.get(step.tool, ("reasoning", "Analysis tool completed"))
         publish_event(
             self.run_id,
             "tool.completed",

@@ -405,6 +405,14 @@ def finalize_run(
                 if hasattr(message_row, key):
                     setattr(message_row, key, value)
             semantic_lineage = message_updates.get("semantic_lineage") or []
+            from app.db.repositories.chat_repository import apply_conversation_memory_sync
+
+            apply_conversation_memory_sync(
+                session,
+                user_id=row.owner_id,
+                session_id=row.session_id,
+                update=message_updates.get("_conversation_memory"),
+            )
             if semantic_lineage:
                 from app.db.repositories import semantic_repository
 

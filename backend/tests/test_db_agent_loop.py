@@ -6,13 +6,19 @@ from unittest.mock import MagicMock
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from app.agents.db_agent.agent import _validated_chart, build_agent_graph, infer_chart_from_result
+from app.agents.db_agent.agent import (
+    _validate_outcome_context,
+    _validated_chart,
+    build_agent_graph,
+    infer_chart_from_result,
+)
 from app.agents.db_agent.budget import BudgetDecision, BudgetGuard
 from app.agents.db_agent.output import AgentFinishError, parse_agent_proposal
-from app.agents.db_agent.tools import ToolContext
+from app.agents.db_agent.tools import AnalysisExecution, PriorAnalysisExecution, ToolContext
 from app.agents.db_agent.trace import TraceRecorder
 from app.agents.schema_context.catalog import build_catalog
 from app.db.models.connection import ColumnInfo, TableInfo
+from app.query_engine.results import QueryExecutionResult
 
 
 def _catalog():
@@ -165,7 +171,7 @@ def test_identifier_only_result_remains_table_only():
     assert chart is None
 
 
-def test_pipeline_compatible_chart_inference_uses_metadata_without_an_agent_outcome():
+def test_two_temporal_points_use_bar_instead_of_implying_a_trend():
     chart = infer_chart_from_result(
         ["payment_month", "average_payment"],
         [
@@ -176,9 +182,97 @@ def test_pipeline_compatible_chart_inference_uses_metadata_without_an_agent_outc
     )
 
     assert chart is not None
-    assert chart["type"] == "line"
+    assert chart["type"] == "bar"
     assert chart["x_column"] == "payment_month"
     assert chart["y_columns"] == ["average_payment"]
+
+
+def _analysis_outcome(result_ref: str, columns: list[str], *, response_type: str = "data_analysis"):
+    return parse_agent_proposal(
+        json.dumps(
+            {
+                "response_type": response_type,
+                "answer": "The requested evidence is available.",
+                "result_ref": result_ref,
+                "presentation": {"kind": "none", "chart": None},
+                "evidence": [
+                    {
+                        "claim": "Evidence checked.",
+                        "result_ref": result_ref,
+                        "columns": columns,
+                        "row_indexes": [0],
+                    }
+                ],
+                "method": "Compared the returned analytical score.",
+            }
+        )
+    )
+
+
+def _prior_execution(columns=None, rows=None):
+    columns = columns or ["month", "z_score"]
+    rows = rows or [{"month": "2025-01-01", "z_score": 3.2}]
+    return PriorAnalysisExecution(
+        result_ref="prior_result_1",
+        source_message_id="message-1",
+        question="Which payment months were anomalies?",
+        answer="One month was unusual.",
+        sql="SELECT month, z_score FROM payments",
+        result=QueryExecutionResult(success=True, columns=columns, rows=rows, row_count=len(rows)),
+        captured_at="2026-07-18T00:00:00Z",
+        relevant_tables=["payments"],
+    )
+
+
+def test_result_follow_up_requires_inspection_but_not_rule_based_pronoun_matching():
+    ctx = _ctx()
+    ctx.prior_results["prior_result_1"] = _prior_execution()
+    outcome = _analysis_outcome(
+        "prior_result_1", ["month", "z_score"], response_type="result_follow_up"
+    )
+
+    with pytest.raises(AgentFinishError, match="Inspect"):
+        _validate_outcome_context(outcome, "What were those anomalies?", ctx)
+
+    ctx.inspected_prior_results.add("prior_result_1")
+    ctx.inspected_prior_row_indexes["prior_result_1"] = {0}
+    _validate_outcome_context(outcome, "What were those anomalies?", ctx)
+    # Linguistic relevance is selected by the decision agent. This validator
+    # enforces only reference existence, inspection, and evidence integrity.
+    _validate_outcome_context(outcome, "Explain the selected historical result", ctx)
+
+
+def test_anomaly_analysis_requires_method_evidence_column():
+    ctx = _ctx()
+    ctx.analysis_results["result_1"] = AnalysisExecution(
+        result_ref="result_1",
+        sql="SELECT month, payment_count FROM payments",
+        result=QueryExecutionResult(
+            success=True,
+            columns=["month", "payment_count"],
+            rows=[{"month": "2025-01-01", "payment_count": 42}],
+            row_count=1,
+        ),
+    )
+    outcome = _analysis_outcome("result_1", ["month", "payment_count"])
+    with pytest.raises(AgentFinishError, match="score, change, flag"):
+        _validate_outcome_context(outcome, "Identify payment anomalies", ctx)
+
+
+def test_past_twelve_months_rejects_thirteen_month_buckets():
+    rows = [{"month": f"2025-{month:02d}-01", "revenue": month} for month in range(1, 13)]
+    rows.append({"month": "2026-01-01", "revenue": 13})
+    ctx = _ctx()
+    ctx.analysis_results["result_1"] = AnalysisExecution(
+        result_ref="result_1",
+        sql="SELECT month, revenue FROM payments",
+        result=QueryExecutionResult(
+            success=True, columns=["month", "revenue"], rows=rows, row_count=len(rows)
+        ),
+    )
+    outcome = _analysis_outcome("result_1", ["month", "revenue"])
+    with pytest.raises(AgentFinishError, match="13 monthly buckets"):
+        _validate_outcome_context(outcome, "Show revenue for the past 12 months", ctx)
 
 
 class ScriptedLLM:

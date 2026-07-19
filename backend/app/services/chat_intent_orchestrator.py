@@ -13,7 +13,7 @@ from app.services.question_intent_service import (
     build_grounding_context,
     latest_clarification_context,
 )
-from app.db.repositories.chat_repository import get_intent_history
+from app.db.repositories.chat_repository import get_conversation_memory, get_intent_history
 from app.core import chat_guard_metrics
 
 
@@ -22,6 +22,7 @@ class PreparedChatIntent:
     intent: QuestionIntentResult
     history: list[dict]
     prior_results: dict[str, PriorAnalysisExecution]
+    conversation_memory: dict
 
 
 async def prepare_chat_intent(
@@ -36,6 +37,7 @@ async def prepare_chat_intent(
     ChatInputGuard.enforce_sensitive(message)
 
     intent_history = await get_intent_history(user_id, session_id) if session_id else []
+    memory_record = await get_conversation_memory(user_id, session_id) if session_id else {}
     clarification_context = latest_clarification_context(intent_history)
     expects_identifier = bool(
         clarification_context and clarification_context.get("expected_input") == "identifier"
@@ -77,6 +79,7 @@ async def prepare_chat_intent(
         intent=intent,
         history=history,
         prior_results=prior_results,
+        conversation_memory=dict(memory_record.get("state") or {}),
     )
 
 

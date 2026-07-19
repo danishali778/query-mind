@@ -11,6 +11,8 @@ from app.db.models.chat import ChatMessage, ChatSession, SessionSummary
 from app.db.orm_models import ChatAgentRunORM, ChatMessageORM, ChatSessionORM
 from app.db.session import read_session_scope, session_scope
 from app.db.repositories import semantic_repository
+from app.core.config import settings
+from app.core.secret_detection import detect_secret
 
 
 logger = logging.getLogger(__name__)
@@ -61,6 +63,9 @@ def _map_session(row: ChatSessionORM, messages: list[ChatMessage] | None = None)
         connection_ids=row.connection_ids or [],
         last_connection_id=row.last_connection_id,
         title=row.title,
+        memory_state=row.memory_state or {},
+        memory_revision=row.memory_revision or 1,
+        memory_updated_at=_iso(row.memory_updated_at) if row.memory_updated_at else None,
         messages=messages or [],
         created_at=_iso(row.created_at),
     )
@@ -265,10 +270,109 @@ def _rename_session_sync(session: Session, user_id: str, session_id: str, title:
     return True
 
 
-async def add_message(user_id: str, session_id: str, message: ChatMessage) -> None:
+def _sanitize_memory_update(update: dict | None) -> dict | None:
+    if not isinstance(update, dict):
+        return None
+    summary = str(update.get("summary") or "").strip()[
+        : settings.agent_memory_summary_max_characters
+    ]
+    active_topic = str(update.get("active_topic") or "").strip()[:240] or None
+    entities = [
+        str(value).strip()[:160]
+        for value in (update.get("entities") or [])[:30]
+        if str(value).strip()
+    ]
+    unresolved = update.get("unresolved_choice")
+    clean_unresolved = None
+    if isinstance(unresolved, dict):
+        prompt = str(unresolved.get("prompt") or "").strip()[:500]
+        options = [
+            str(value).strip()[:200]
+            for value in (unresolved.get("options") or [])[:12]
+            if str(value).strip()
+        ]
+        if prompt and options:
+            clean_unresolved = {
+                "kind": str(unresolved.get("kind") or "other")[:32],
+                "prompt": prompt,
+                "options": options,
+            }
+    sensitive_values = [summary, active_topic or "", *entities]
+    if clean_unresolved:
+        sensitive_values.extend(
+            [clean_unresolved["prompt"], *clean_unresolved["options"]]
+        )
+    if any(detect_secret(value) for value in sensitive_values):
+        return None
+    return {
+        "version": 1,
+        "summary": summary,
+        "active_topic": active_topic,
+        "entities": list(dict.fromkeys(entities)),
+        "unresolved_choice": clean_unresolved,
+    }
+
+
+def apply_conversation_memory_sync(
+    session: Session,
+    *,
+    user_id: str,
+    session_id: str,
+    update: dict | None,
+) -> bool:
+    clean = _sanitize_memory_update(update)
+    if clean is None:
+        return False
+    row = (
+        session.query(ChatSessionORM)
+        .filter(ChatSessionORM.id == session_id, ChatSessionORM.owner_id == user_id)
+        .one_or_none()
+    )
+    if row is None:
+        return False
+    row.memory_state = clean
+    row.memory_revision = int(row.memory_revision or 1) + 1
+    row.memory_updated_at = datetime.now().astimezone()
+    return True
+
+
+async def get_conversation_memory(user_id: str, session_id: str) -> dict:
+    def _run() -> dict:
+        with read_session_scope() as session:
+            row = (
+                session.query(ChatSessionORM)
+                .filter(
+                    ChatSessionORM.id == session_id,
+                    ChatSessionORM.owner_id == user_id,
+                )
+                .one_or_none()
+            )
+            if row is None:
+                return {}
+            return {
+                "state": row.memory_state or {},
+                "revision": int(row.memory_revision or 1),
+                "updated_at": _iso(row.memory_updated_at) if row.memory_updated_at else None,
+            }
+    return await anyio.to_thread.run_sync(_run)
+
+
+async def add_message(
+    user_id: str,
+    session_id: str,
+    message: ChatMessage,
+    *,
+    memory_update: dict | None = None,
+) -> None:
     def _run() -> None:
         with session_scope() as session:
             _add_message_sync(session, user_id, session_id, message)
+            apply_conversation_memory_sync(
+                session,
+                user_id=user_id,
+                session_id=session_id,
+                update=memory_update,
+            )
     await anyio.to_thread.run_sync(_run)
 
 
@@ -353,7 +457,7 @@ def _get_history_for_llm_sync(session: Session, user_id: str, session_id: str) -
 
 
 async def get_intent_history(user_id: str, session_id: str) -> list[dict]:
-    """Return the latest five completed parent/assistant pairs for agent context."""
+    """Return a bounded lookback; token selection happens in the context builder."""
     def _run() -> list[dict]:
         with read_session_scope() as session:
             user_message = aliased(ChatMessageORM)
@@ -381,7 +485,7 @@ async def get_intent_history(user_id: str, session_id: str) -> list[dict]:
                     ),
                 )
                 .order_by(ChatMessageORM.created_at.desc())
-                .limit(5)
+                .limit(settings.agent_history_lookback_pairs)
                 .all()
             )
             history: list[dict] = []

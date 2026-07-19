@@ -17,7 +17,6 @@ from app.services.chat_input_guard import ChatInputDecision, ChatInputGuard, Cha
 from app.services.question_intent_service import (
     analyze_question_intent,
     bounded_follow_up_history,
-    explicit_follow_up,
 )
 
 
@@ -163,7 +162,7 @@ def test_semantic_description_overlap_does_not_create_analytical_intent():
     assert explicit.matched_tables == ["payments"]
 
 
-def test_bounded_history_keeps_latest_five_completed_pairs_with_metadata():
+def test_bounded_history_uses_token_budget_and_keeps_completed_pair_metadata(monkeypatch):
     history = []
     for index in range(5):
         user_id = f"u-{index}"
@@ -189,14 +188,35 @@ def test_bounded_history_keeps_latest_five_completed_pairs_with_metadata():
         )
     history.append({"id": "placeholder", "role": "assistant", "content": "", "run_status": "running"})
 
-    assert explicit_follow_up("Show orders", history) is False
     assert bounded_follow_up_history(history, include=False) == []
-    assert explicit_follow_up("What about last month?", history) is True
     bounded = bounded_follow_up_history(history, include=True)
     assert len(bounded) == 10
     assert bounded[0]["content"] == "question 0"
     assert "Method: bounded method" in bounded[1]["content"]
     assert "Evidence: evidence 0" in bounded[1]["content"]
+
+    monkeypatch.setattr(
+        "app.services.question_intent_service.settings.agent_recent_history_token_budget",
+        1000,
+    )
+    long_history = []
+    for index in range(8):
+        user_id = f"long-u-{index}"
+        long_history.extend(
+            [
+                {"id": user_id, "role": "user", "content": f"question {index} " + "x" * 700},
+                {
+                    "id": f"long-a-{index}",
+                    "role": "assistant",
+                    "parent_id": user_id,
+                    "content": f"answer {index} " + "y" * 700,
+                    "run_status": "completed",
+                },
+            ]
+        )
+    compacted = bounded_follow_up_history(long_history)
+    assert len(compacted) < len(long_history)
+    assert compacted[-2]["content"].startswith("question 7")
 
 
 def test_zero_overlap_schema_search_ignores_table_importance():

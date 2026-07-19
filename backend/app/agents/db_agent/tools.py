@@ -84,6 +84,8 @@ class ToolContext:
     analysis_results: dict[str, AnalysisExecution] = field(default_factory=dict)
     prior_results: dict[str, PriorAnalysisExecution] = field(default_factory=dict)
     prior_result_inspection_count: int = 0
+    inspected_prior_results: set[str] = field(default_factory=set)
+    inspected_prior_row_indexes: dict[str, set[int]] = field(default_factory=dict)
     tool_output_cache: dict[str, str] = field(default_factory=dict)
 
 
@@ -747,14 +749,18 @@ def build_tools(ctx: ToolContext) -> list[StructuredTool]:
                 )
                 return json.dumps({"success": False, "error": message})
 
-        ctx.prior_result_inspection_count += 1
-        ctx.inspected_tables.update(prior_tables)
         bounded_rows = prior.result.rows[offset : offset + min(limit, 50)]
         preview = _compact_rows(bounded_rows, max_cell_chars)
         for row in preview:
             for column, value in list(row.items()):
                 if value is not None and detect_secret(str(value)):
                     row[column] = "[REDACTED]"
+        ctx.prior_result_inspection_count += 1
+        ctx.inspected_prior_results.add(result_ref)
+        ctx.inspected_prior_row_indexes.setdefault(result_ref, set()).update(
+            range(offset, offset + len(preview))
+        )
+        ctx.inspected_tables.update(prior_tables)
         payload = {
             "success": True,
             "result_ref": result_ref,

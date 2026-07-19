@@ -467,6 +467,11 @@ class ChatSessionORM(Base):
     title: Mapped[str | None] = mapped_column(Text)
     last_connection_id: Mapped[str | None] = mapped_column(GUID(), ForeignKey("database_connections.id", ondelete="SET NULL"))
     connection_ids: Mapped[list[str] | None] = mapped_column(UuidArray, default=list, nullable=True)
+    memory_state: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
+    memory_revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default=text("1")
+    )
+    memory_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_utcnow, server_default=func.now(), nullable=True)
 
     messages: Mapped[list["ChatMessageORM"]] = relationship(
@@ -476,6 +481,7 @@ class ChatSessionORM(Base):
     )
 
     __table_args__ = (
+        CheckConstraint("memory_revision >= 1", name="chat_sessions_memory_revision_positive"),
         Index("idx_chat_sessions_owner_id_created_at", "owner_id", desc("created_at")),
         Index("idx_chat_sessions_last_connection_id", "last_connection_id"),
     )

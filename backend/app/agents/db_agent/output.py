@@ -21,6 +21,38 @@ ResponseType = Literal[
 PresentationKind = Literal["none", "table", "kpi", "chart"]
 
 
+class MemoryChoice(BaseModel):
+    """An unresolved choice the next turn may answer naturally."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["table", "metric", "dimension", "time_range", "result", "other"]
+    prompt: str = Field(min_length=1, max_length=500)
+    options: list[str] = Field(default_factory=list, min_length=1, max_length=12)
+
+
+class ConversationMemoryUpdate(BaseModel):
+    """Compact semantic state proposed by the same decision-agent call."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str = Field(default="", max_length=12000)
+    active_topic: str | None = Field(default=None, max_length=240)
+    entities: list[str] = Field(default_factory=list, max_length=30)
+    unresolved_choice: MemoryChoice | None = None
+
+    @model_validator(mode="after")
+    def memory_text_must_be_safe(self):
+        values = [self.summary, self.active_topic or "", *self.entities]
+        if self.unresolved_choice:
+            values.extend(
+                [self.unresolved_choice.prompt, *self.unresolved_choice.options]
+            )
+        if any(detect_secret(value) for value in values):
+            raise ValueError("conversation memory contains credential-shaped content")
+        return self
+
+
 class ClarificationContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -103,6 +135,7 @@ class ChatAgentOutcome(BaseModel):
     relevant_columns: list[str] = Field(default_factory=list, max_length=50)
     column_metadata: dict[str, str] = Field(default_factory=dict)
     semantic_refs: list[str] = Field(default_factory=list, max_length=30)
+    memory_update: ConversationMemoryUpdate | None = None
 
     @field_validator("answer")
     @classmethod
@@ -130,6 +163,14 @@ class ChatAgentOutcome(BaseModel):
             *self.limitations,
             *(item.claim for item in self.evidence),
         ]
+        if self.memory_update:
+            text_values.extend(
+                [
+                    self.memory_update.summary,
+                    self.memory_update.active_topic or "",
+                    *self.memory_update.entities,
+                ]
+            )
         if self.presentation.chart:
             text_values.extend(
                 [
@@ -197,7 +238,9 @@ __all__ = [
     "AnalystProposal",
     "ChatAgentOutcome",
     "ClarificationContext",
+    "ConversationMemoryUpdate",
     "FinalAnswer",
+    "MemoryChoice",
     "parse_agent_outcome",
     "parse_agent_proposal",
     "parse_final_answer",

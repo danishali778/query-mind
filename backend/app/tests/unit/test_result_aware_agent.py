@@ -285,7 +285,7 @@ def test_result_follow_up_chart_attaches_the_verified_prior_result():
     assert result.answer_metadata["provenance"]["reused_without_execution"] is True
 
 
-def test_conversation_context_keeps_five_pairs_and_exposes_only_a_manifest():
+def test_conversation_context_uses_token_budget_and_exposes_only_a_manifest():
     history = []
     for index in range(6):
         user_id = f"user-{index}"
@@ -325,9 +325,34 @@ def test_conversation_context_keeps_five_pairs_and_exposes_only_a_manifest():
         semantic_context=SemanticContext(schema_hash="schema-1"),
     )
 
-    assert len(context.messages) == 10
-    assert context.messages[0]["content"] == "question 1"
+    assert len(context.messages) == 12
+    assert context.messages[0]["content"] == "question 0"
     assert context.prior_results["prior_result_1"].answer == "answer 5"
     manifest = json.dumps(context.manifest())
     assert '"rows"' not in manifest
     assert "SELECT amount" not in manifest
+
+
+def test_agent_memory_update_is_strict_and_secret_safe():
+    outcome = ChatAgentOutcome.model_validate(
+        {
+            "response_type": "schema_answer",
+            "answer": "I found support_tickets and ticket_messages.",
+            "presentation": {"kind": "none", "chart": None},
+            "memory_update": {
+                "summary": "The user is exploring support data.",
+                "active_topic": "support tickets",
+                "entities": ["support_tickets", "ticket_messages"],
+                "unresolved_choice": {
+                    "kind": "table",
+                    "prompt": "Which support table should be explored?",
+                    "options": ["support_tickets", "ticket_messages"],
+                },
+            },
+        }
+    )
+
+    assert outcome.memory_update.unresolved_choice.options == [
+        "support_tickets",
+        "ticket_messages",
+    ]

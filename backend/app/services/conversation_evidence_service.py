@@ -12,18 +12,20 @@ from app.agents.schema_context.user_semantics import (
     apply_semantic_catalog_overlay,
 )
 from app.core.secret_detection import detect_secret
+from app.core.config import settings
 from app.query_engine.connection_scope import referenced_tables
 from app.query_engine.results import QueryExecutionResult
 from app.query_engine.semantic_policy import validate_ai_semantic_policy
 
 
-MAX_CONVERSATION_PAIRS = 5
+MAX_PRIOR_RESULTS = 10
 
 
 @dataclass(frozen=True)
 class ConversationEvidenceContext:
     messages: list[dict] = field(default_factory=list)
     prior_results: dict[str, PriorAnalysisExecution] = field(default_factory=dict)
+    compacted_pair_count: int = 0
 
     def manifest(self) -> list[dict]:
         return [
@@ -57,6 +59,28 @@ def _completed_pairs(history: list[dict]) -> list[tuple[dict, dict]]:
             continue
         pairs.append((parent, assistant))
     return pairs
+
+
+def _estimated_tokens(value: str) -> int:
+    # Conservative tokenizer-independent estimate suitable for context budgeting.
+    return max(1, (len(value) + 3) // 4)
+
+
+def _select_recent_pairs(pairs: list[tuple[dict, dict]]) -> tuple[list[tuple[dict, dict]], int]:
+    selected: list[tuple[dict, dict]] = []
+    used = 0
+    for user, assistant in reversed(pairs):
+        user_content = str(user.get("content") or "")
+        assistant_content = str(assistant.get("content") or "")
+        if detect_secret(user_content) or detect_secret(assistant_content):
+            continue
+        pair_cost = _estimated_tokens(user_content) + _estimated_tokens(assistant_content) + 32
+        if selected and used + pair_cost > settings.agent_recent_history_token_budget:
+            break
+        selected.append((user, assistant))
+        used += pair_cost
+    selected.reverse()
+    return selected, max(0, len(pairs) - len(selected))
 
 
 def _canonical_catalog_tables(catalog: SchemaCatalog) -> set[str]:
@@ -156,7 +180,8 @@ def build_conversation_evidence_context(
     catalog: SchemaCatalog,
     semantic_context: SemanticContext,
 ) -> ConversationEvidenceContext:
-    pairs = _completed_pairs(history)[-MAX_CONVERSATION_PAIRS:]
+    all_pairs = _completed_pairs(history)
+    pairs, compacted_pair_count = _select_recent_pairs(all_pairs)
     messages: list[dict] = []
     for user, assistant in pairs:
         user_content = str(user.get("content") or "")
@@ -176,7 +201,9 @@ def build_conversation_evidence_context(
 
     safe_catalog = apply_semantic_catalog_overlay(catalog, semantic_context)
     prior_results: dict[str, PriorAnalysisExecution] = {}
-    for user, assistant in reversed(pairs):
+    for user, assistant in reversed(all_pairs):
+        if len(prior_results) >= MAX_PRIOR_RESULTS:
+            break
         reference = f"prior_result_{len(prior_results) + 1}"
         prior = _safe_prior_result(
             reference=reference,
@@ -189,7 +216,11 @@ def build_conversation_evidence_context(
         if prior is not None:
             prior_results[reference] = prior
 
-    return ConversationEvidenceContext(messages=messages, prior_results=prior_results)
+    return ConversationEvidenceContext(
+        messages=messages,
+        prior_results=prior_results,
+        compacted_pair_count=compacted_pair_count,
+    )
 
 
 def render_prior_result_manifest(context: ConversationEvidenceContext) -> str:
@@ -200,7 +231,7 @@ def render_prior_result_manifest(context: ConversationEvidenceContext) -> str:
 
 __all__ = [
     "ConversationEvidenceContext",
-    "MAX_CONVERSATION_PAIRS",
+    "MAX_PRIOR_RESULTS",
     "build_conversation_evidence_context",
     "render_prior_result_manifest",
 ]

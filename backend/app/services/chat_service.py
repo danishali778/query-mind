@@ -59,6 +59,7 @@ async def _execute_chat_turn(
     schema_context: str | None,
     history: list[dict],
     prior_results: dict | None = None,
+    conversation_memory: dict | None = None,
     progress=None,
     llm_workflow_id: str | None = None,
     intent_result=None,
@@ -69,6 +70,7 @@ async def _execute_chat_turn(
         question=message,
         history=history,
         prior_results=prior_results,
+        conversation_memory=conversation_memory,
         progress=progress,
         session_id=session_id,
         schema_context=schema_context,
@@ -142,6 +144,7 @@ async def send_message(
         schema_context=schema_context,
         history=prepared.history,
         prior_results=getattr(prepared, "prior_results", {}),
+        conversation_memory=getattr(prepared, "conversation_memory", {}),
         progress=None,
         intent_result=prepared.intent,
     )
@@ -174,7 +177,16 @@ async def send_message(
     )
     assistant_msg_id = assistant_msg.id
     try:
-        await add_message(user_id, session_id, assistant_msg)
+        memory_update = result.get("memory_update")
+        if memory_update is None:
+            await add_message(user_id, session_id, assistant_msg)
+        else:
+            await add_message(
+                user_id,
+                session_id,
+                assistant_msg,
+                memory_update=memory_update,
+            )
     except Exception as exc:
         logger.exception("Failed to persist assistant chat message %s", assistant_msg.id)
         raise ChatPersistenceError("Unable to persist chat state for this request.") from exc
@@ -237,6 +249,7 @@ async def execute_prepared_turn(
         schema_context=schema_context,
         history=prepared.history,
         prior_results=getattr(prepared, "prior_results", {}),
+        conversation_memory=getattr(prepared, "conversation_memory", {}),
         progress=progress,
         llm_workflow_id=run_id,
         intent_result=prepared.intent,

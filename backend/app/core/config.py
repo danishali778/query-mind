@@ -152,6 +152,9 @@ class Settings(BaseSettings):
     agent_result_preview_rows: int = 50
     agent_max_repeated_tool_calls: int = 2
     agent_max_prior_result_inspections: int = 3
+    agent_recent_history_token_budget: int = Field(default=6000, ge=1000, le=24000)
+    agent_history_lookback_pairs: int = Field(default=50, ge=5, le=200)
+    agent_memory_summary_max_characters: int = Field(default=4000, ge=500, le=12000)
     agent_max_notes: int = 20
     agent_query_timeout_seconds: int = 10
     agent_profile_max_columns: int = 15
