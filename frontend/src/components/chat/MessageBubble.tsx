@@ -9,6 +9,7 @@ import { useSmartSave } from '../../hooks/useSmartSave';
 import { Pin, Plus } from 'lucide-react';
 import type { ChatMessageView } from '../../types/chat';
 import { AgentActivity } from './AgentActivity';
+import { SafeMarkdownText } from './SafeMarkdownText';
 
 export function MessageBubble({
   message,
@@ -142,7 +143,7 @@ export function MessageBubble({
               <span style={{ fontWeight: 700, marginRight: 8 }}>Error</span>
               {message.error}
             </div>
-          ) : message.content}
+          ) : <SafeMarkdownText text={message.content || ''} />}
         </div>
       </div>
       )}
