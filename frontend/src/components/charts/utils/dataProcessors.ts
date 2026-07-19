@@ -230,6 +230,26 @@ export function processChartData(
   return { data, rawData: finalRawData, colMaxes, categoryCol, yColumns, uniqueCategories, isPivotedGrouped: shouldPivot };
 }
 
+/** Sort date-like chart rows chronologically without changing authoritative table order. */
+export function sortTemporalRows(
+  rows: Record<string, unknown>[],
+  xColumn: string,
+  columnMetadata?: Record<string, string>,
+): Record<string, unknown>[] {
+  const semanticType = columnMetadata?.[xColumn]?.toLowerCase();
+  const normalizedName = xColumn.toLowerCase();
+  const isTemporal = ['date', 'datetime', 'temporal'].includes(semanticType || '')
+    || ['date', 'time', 'month', 'year', 'week', 'quarter', 'day'].some(token => normalizedName.includes(token));
+  if (!isTemporal || rows.length < 2) return rows;
+
+  const timestamps = rows.map(row => Date.parse(String(row[xColumn] ?? '')));
+  if (timestamps.some(value => Number.isNaN(value))) return rows;
+  return rows
+    .map((row, index) => ({ row, timestamp: timestamps[index], index }))
+    .sort((a, b) => a.timestamp - b.timestamp || a.index - b.index)
+    .map(item => item.row);
+}
+
 export function getColorForCategory(cat: string, uniqueCategories: string[]) {
   return COLORS[uniqueCategories.indexOf(cat) % COLORS.length];
 }
