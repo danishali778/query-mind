@@ -32,6 +32,8 @@ class ChatInputRejected(AppError):
 
 _OPAQUE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_+./=-]{24,}$")
 _LANGUAGE_WORD_RE = re.compile(r"[A-Za-z]{2,}")
+_ALPHA_TOKEN_RE = re.compile(r"^[A-Za-z]+$")
+_VOWELS = frozenset("aeiouy")
 
 
 def _entropy(value: str) -> float:
@@ -53,6 +55,17 @@ def _looks_like_noise(value: str, *, expects_identifier: bool) -> bool:
         return True
     if expects_identifier:
         return False
+    # Long, single-case alphabetic keyboard-smash values previously escaped the
+    # entropy rule because they contain only one character class. Preserve real
+    # database words while rejecting tokens with implausibly few vowels or long
+    # consonant runs.
+    if len(compact) >= 16 and _ALPHA_TOKEN_RE.fullmatch(compact):
+        lowered = compact.casefold()
+        vowel_ratio = sum(ch in _VOWELS for ch in lowered) / len(lowered)
+        consonant_runs = re.findall(r"[^aeiouy]+", lowered)
+        longest_consonant_run = max((len(run) for run in consonant_runs), default=0)
+        if vowel_ratio < 0.28 or longest_consonant_run >= 6:
+            return True
     if _OPAQUE_TOKEN_RE.fullmatch(compact):
         words = _LANGUAGE_WORD_RE.findall(printable)
         has_language_structure = bool(re.search(r"\s", printable)) and len(words) >= 2

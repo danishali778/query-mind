@@ -7,6 +7,7 @@ from app.api.v1.schemas.chat import (
     ChatRequest,
     EditSqlRequest,
 )
+from app.services.chat_input_guard import ChatInputDecision, ChatInputGuard
 
 
 def test_chat_request_strips_valid_message_and_connection_id():
@@ -66,3 +67,19 @@ def test_edit_sql_request_rejects_empty_required_fields(payload):
 def test_edit_sql_request_rejects_over_limit_sql():
     with pytest.raises(ValidationError):
         EditSqlRequest(connection_id="conn_1", sql="x" * (EDIT_SQL_MAX_LENGTH + 1))
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "sjsajijjklkammklalkjsldsasan",
+        "sjakiuejlajlkjsldlsjslk",
+    ],
+)
+def test_chat_input_guard_rejects_long_alphabetic_keyboard_smash(message):
+    assert ChatInputGuard.inspect(message).decision == ChatInputDecision.REJECT_NOISE
+
+
+@pytest.mark.parametrize("message", ["profitability", "customertransactionhistory", "top customers"])
+def test_chat_input_guard_preserves_real_database_language(message):
+    assert ChatInputGuard.inspect(message).decision == ChatInputDecision.ACCEPT

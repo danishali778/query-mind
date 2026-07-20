@@ -1,5 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { compactGroupedBars, pivotGroupedSeries, processChartData } from '../src/components/charts/utils/dataProcessors';
+import { compactGroupedBars, pivotGroupedSeries, processChartData, sortTemporalRows } from '../src/components/charts/utils/dataProcessors';
+
+describe('sortTemporalRows', () => {
+  it('sorts date-like chart rows ascending without mutating table rows', () => {
+    const rows = [
+      { month: '2025-02-01', revenue: 2 },
+      { month: '2025-01-01', revenue: 1 },
+    ];
+    expect(sortTemporalRows(rows, 'month')).toEqual([
+      { month: '2025-01-01', revenue: 1 },
+      { month: '2025-02-01', revenue: 2 },
+    ]);
+    expect(rows[0].month).toBe('2025-02-01');
+  });
+
+  it('preserves non-temporal category ordering', () => {
+    const rows = [{ company: 'Zed' }, { company: 'Alpha' }];
+    expect(sortTemporalRows(rows, 'company')).toBe(rows);
+  });
+});
 
 describe('pivotGroupedSeries', () => {
   it('creates stable grouped series and fills missing combinations with null', () => {

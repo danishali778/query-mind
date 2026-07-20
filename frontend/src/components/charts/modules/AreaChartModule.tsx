@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import type { ChartModuleProps } from '../types';
 import { CustomTooltip } from '../shared/CustomTooltip';
-import { formatYAxisValue, formatColLabel, COLORS } from '../utils/dataProcessors';
+import { formatYAxisValue, formatColLabel, COLORS, sortTemporalRows } from '../utils/dataProcessors';
 import { chartStyles } from '../utils/config';
 import { T } from '../../dashboard/tokens';
 
@@ -31,12 +31,16 @@ export function AreaChartModule({
   tooltipColumns,
   isDualAxis: isDualAxisProp,
 }: ChartModuleProps) {
+  const orderedData = useMemo(
+    () => sortTemporalRows(data, xColumn, column_metadata),
+    [data, xColumn, column_metadata],
+  );
   const SCROLL_THRESHOLD = 20;
-  const effectivePointCount = data.length * Math.max(1, yColumns.length);
+  const effectivePointCount = orderedData.length * Math.max(1, yColumns.length);
   const needsScroll = effectivePointCount > SCROLL_THRESHOLD;
-  const fixedWidth = Math.max(600, data.length * Math.max(32, yColumns.length * 20));
+  const fixedWidth = Math.max(600, orderedData.length * Math.max(32, yColumns.length * 20));
 
-  const xLabelInterval = needsScroll ? 0 : (data.length > 20 ? Math.ceil(data.length / 12) - 1 : 0);
+  const xLabelInterval = needsScroll ? 0 : (orderedData.length > 20 ? Math.ceil(orderedData.length / 12) - 1 : 0);
   const chartMargin = { top: 10, right: 20, left: 50, bottom: 45 };
 
   const xAxisProps = {
@@ -113,7 +117,7 @@ export function AreaChartModule({
 
   const renderSingleChart = () => {
     const margin = needsDualAxis ? { ...chartMargin, left: 40, right: 40 } : chartMargin;
-    const cp = { data, margin };
+    const cp = { data: orderedData, margin };
     const dims = needsScroll ? { width: fixedWidth, height: chartHeight } : {};
     const yAxisFmtLeft = (v: number) => formatYAxisValue(v, normalized, leftCols.some(isColCurrency));
     const yAxisFmtRight = (v: number) => formatYAxisValue(v, normalized, rightCols.some(isColCurrency));

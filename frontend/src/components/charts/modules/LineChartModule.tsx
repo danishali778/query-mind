@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import type { ChartModuleProps } from '../types';
 import { CustomTooltip } from '../shared/CustomTooltip';
-import { formatYAxisValue, formatColLabel, COLORS } from '../utils/dataProcessors';
+import { formatYAxisValue, formatColLabel, COLORS, sortTemporalRows } from '../utils/dataProcessors';
 import { chartStyles } from '../utils/config';
 import { T } from '../../dashboard/tokens';
 
@@ -33,13 +33,21 @@ export function LineChartModule({
   isDualAxis: isDualAxisProp,
 }: ChartModuleProps) {
   const [isMulti, setIsMulti] = useState(false);
+  const orderedData = useMemo(
+    () => sortTemporalRows(data, xColumn, column_metadata),
+    [data, xColumn, column_metadata],
+  );
+  const orderedRawData = useMemo(
+    () => sortTemporalRows(rawData, xColumn, column_metadata),
+    [rawData, xColumn, column_metadata],
+  );
 
   const SCROLL_THRESHOLD = 20;
-  const effectivePointCount = data.length * Math.max(1, yColumns.length);
+  const effectivePointCount = orderedData.length * Math.max(1, yColumns.length);
   const needsScroll = !isMulti && effectivePointCount > SCROLL_THRESHOLD;
-  const fixedWidth = Math.max(600, data.length * Math.max(32, yColumns.length * 20));
+  const fixedWidth = Math.max(600, orderedData.length * Math.max(32, yColumns.length * 20));
 
-  const xLabelInterval = needsScroll ? 0 : (data.length > 20 ? Math.ceil(data.length / 12) - 1 : 0);
+  const xLabelInterval = needsScroll ? 0 : (orderedData.length > 20 ? Math.ceil(orderedData.length / 12) - 1 : 0);
   const chartMargin = { top: 12, right: 12, bottom: 45, left: 12 };
 
   const xAxisProps = {
@@ -140,13 +148,13 @@ export function LineChartModule({
         {yColumns.map((col, i) => {
           const color = COLORS[i % COLORS.length];
           const gradId = `grad-${col.replace(/\s+/g, '-')}`;
-          const colData = rawData.map(r => Number(r[col]) || 0);
+          const colData = orderedRawData.map(r => Number(r[col]) || 0);
           const firstVal = colData[0] || 0;
           const lastVal = colData[colData.length - 1] || 0;
           const diff = lastVal - firstVal;
           const pctChange = firstVal === 0 ? 0 : (diff / firstVal) * 100;
           const isDown = diff < 0;
-          const firstX = String(rawData[0]?.[xColumn] ?? '');
+          const firstX = String(orderedRawData[0]?.[xColumn] ?? '');
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const tooltipFmt = (v: any) => [
             typeof v === 'number' ? (isColCurrency(col) ? `$${v.toLocaleString()}` : v.toLocaleString()) : v,
@@ -167,7 +175,7 @@ export function LineChartModule({
               </div>
 
               <ResponsiveContainer width="100%" height={90}>
-                <AreaChart data={rawData} margin={{ top: 2, right: 4, bottom: 2, left: 4 }}>
+                <AreaChart data={orderedRawData} margin={{ top: 2, right: 4, bottom: 2, left: 4 }}>
                   <defs>
                     <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor={color} stopOpacity={0.4} />
@@ -190,7 +198,7 @@ export function LineChartModule({
 
   const renderSingleChart = () => {
     const margin = needsDualAxis ? { ...chartMargin, left: 40, right: 40 } : chartMargin;
-    const cp = { data, margin };
+    const cp = { data: orderedData, margin };
     const dims = needsScroll ? { width: fixedWidth, height: chartHeight } : {};
     const yAxisFmtLeft = (v: number) => formatYAxisValue(v, normalized, leftCols.some(isColCurrency));
     const yAxisFmtRight = (v: number) => formatYAxisValue(v, normalized, rightCols.some(isColCurrency));

@@ -338,8 +338,10 @@ export interface ChatMessageRecord {
   agent_run_stage?: string | null;
   agent_run_stage_label?: string | null;
   semantic_lineage?: SemanticLineageItem[];
-  response_kind?: 'answer' | 'clarification' | null;
+  response_kind?: ChatResponseKind | null;
   clarification_context?: { reason_code: string; expected_input: string } | null;
+  presentation_kind?: ChatPresentationKind | null;
+  answer_metadata?: ChatAnswerMetadata | null;
   timestamp: string;
 }
 
@@ -394,8 +396,29 @@ export interface ChatResponse {
   }> | null;
   agent_tier?: string | null;
   semantic_lineage?: SemanticLineageItem[];
-  response_kind?: 'answer' | 'clarification';
+  response_kind?: ChatResponseKind;
   clarification_context?: { reason_code: string; expected_input: string } | null;
+  presentation_kind?: ChatPresentationKind | null;
+  answer_metadata?: ChatAnswerMetadata | null;
+}
+
+export type ChatResponseKind = 'answer' | 'direct_answer' | 'clarification' | 'schema_answer' | 'data_analysis' | 'result_follow_up' | 'refusal';
+export type ChatPresentationKind = 'none' | 'table' | 'kpi' | 'chart';
+export interface ChatAnswerMetadata {
+  method?: string | null;
+  limitations?: string[];
+  evidence?: Array<{
+    claim: string;
+    result_ref: string;
+    columns: string[];
+    row_indexes: number[];
+  }>;
+  provenance?: {
+    kind: 'prior_result';
+    source_message_id: string;
+    captured_at: string;
+    reused_without_execution: boolean;
+  } | null;
 }
 
 export interface ChatUiMessage {

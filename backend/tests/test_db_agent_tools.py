@@ -46,9 +46,9 @@ def _ctx(catalog: SchemaCatalog | None = None) -> ToolContext:
     )
 
 
-def test_tool_list_excludes_execute_sql():
+def test_tool_list_registers_guarded_execute_sql():
     tools = {tool.name: tool for tool in build_tools(_ctx())}
-    assert "execute_sql" not in tools
+    assert "execute_sql" in tools
     assert "validate_sql" in tools
 
 
@@ -62,6 +62,57 @@ def test_search_schema_returns_matches():
     tools = {tool.name: tool for tool in build_tools(_ctx())}
     output = tools["search_schema"].invoke({"query": "customers email"})
     assert "customers" in output
+
+
+def test_schema_search_is_agent_led_and_does_not_require_lexical_grounding():
+    ctx = _ctx()
+    ctx.enforce_grounding = True
+    ctx.grounded_terms = {"database", "overview"}
+    tools = {tool.name: tool for tool in build_tools(ctx)}
+
+    output = tools["search_schema"].invoke({"query": "customers email"})
+
+    assert "customers" in output
+    assert "customers" in ctx.discovered_tables
+
+
+def test_successful_schema_tool_calls_are_cached_without_duplicate_trace_steps():
+    ctx = _ctx()
+    tools = {tool.name: tool for tool in build_tools(ctx)}
+
+    first = tools["list_tables"].invoke({})
+    second = tools["list_tables"].invoke({})
+
+    assert first == second
+    assert ctx.trace.record.call_count == 1
+
+
+@patch("app.agents.db_agent.tools.execute_query")
+def test_discovered_table_must_be_inspected_before_sql_execution(mock_execute):
+    mock_execute.return_value = QueryExecutionResult(
+        success=True,
+        columns=["customer_count"],
+        rows=[{"customer_count": 10}],
+        row_count=1,
+    )
+    ctx = _ctx()
+    ctx.enforce_grounding = True
+    tools = {tool.name: tool for tool in build_tools(ctx)}
+
+    tools["search_schema"].invoke({"query": "customers"})
+    refused = json.loads(
+        tools["execute_sql"].invoke({"sql": "SELECT COUNT(*) AS customer_count FROM customers"})
+    )
+    assert refused["success"] is False
+    assert refused["error_class"] == "schema_relevance_rejected"
+    mock_execute.assert_not_called()
+
+    tools["get_table_schema"].invoke({"table_names": ["customers"]})
+    accepted = json.loads(
+        tools["execute_sql"].invoke({"sql": "SELECT COUNT(*) AS customer_count FROM customers"})
+    )
+    assert accepted["success"] is True
+    mock_execute.assert_called_once()
 
 
 def test_get_sample_values_refuses_sensitive_column():

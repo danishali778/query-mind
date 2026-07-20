@@ -1,4 +1,4 @@
-import type { ChartRecommendation, ChatRunEvent, ChatRunStatus, DatabaseConnection, SessionSummary } from './api';
+import type { ChartRecommendation, ChatAnswerMetadata, ChatPresentationKind, ChatResponseKind, ChatRunEvent, ChatRunStatus, DatabaseConnection, SessionSummary } from './api';
 import type { SemanticLineageItem } from './semantics';
 
 export interface ChatMessageView {
@@ -35,8 +35,10 @@ export interface ChatMessageView {
   agent_run_events?: ChatRunEvent[];
   agent_stream_state?: 'connecting' | 'connected' | 'reconnecting' | 'closed';
   semantic_lineage?: SemanticLineageItem[];
-  response_kind?: 'answer' | 'clarification';
+  response_kind?: ChatResponseKind;
   clarification_context?: { reason_code: string; expected_input: string };
+  presentation_kind?: ChatPresentationKind;
+  answer_metadata?: ChatAnswerMetadata;
 }
 
 export interface ChatSidebarProps {

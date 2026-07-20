@@ -20,6 +20,7 @@ class BudgetDecision(str, Enum):
 class BudgetGuard:
     max_calls: int
     wall_clock_seconds: int
+    max_repeated_calls: int = 2
     started_at: float = field(default_factory=time.monotonic)
     call_count: int = 0
     history: list[str] = field(default_factory=list)
@@ -61,11 +62,9 @@ class BudgetGuard:
         sig = self._signature(tool_name, args)
         repeats = self.repeat_counts.get(sig, 0) + 1
         self.repeat_counts[sig] = repeats
-        if repeats >= 4:
+        if repeats > self.max_repeated_calls:
             return BudgetDecision.FORCE_FINISH
-        if repeats == 3:
-            return BudgetDecision.SKIP_REPEAT
-        if repeats == 2:
+        if repeats == self.max_repeated_calls:
             return BudgetDecision.WARN_REPEAT
         return BudgetDecision.ALLOW
 
@@ -87,7 +86,7 @@ class BudgetGuard:
             )
         if decision == BudgetDecision.FORCE_FINISH:
             return (
-                "Tool budget exhausted or time limit reached. "
+                "Tool budget exhausted, time limit reached, or identical call limit exceeded. "
                 "Respond now with your best validated SQL in the required JSON format, "
                 "or explain what you learned and what you would query next."
             )

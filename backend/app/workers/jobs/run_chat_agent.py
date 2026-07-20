@@ -41,17 +41,15 @@ def run_chat_agent_task(self, run_id: str) -> None:
     watcher.start()
     publish_event(run_id, "run.started", "Analyzing your question", stage="preparing")
     try:
-        history = chat_run_repository.get_history_for_run(run_id)
         triggering_message = chat_run_repository.get_triggering_user_message(run_id)
         question = triggering_message.content if triggering_message else ""
-        progress.stage_started("reasoning", "Understanding your question")
         result = asyncio.run(
             chat_service.execute_prepared_turn(
                 user_id=run.owner_id,
                 connection_id=run.connection_id,
                 session_id=run.session_id,
                 message=question,
-                history=history,
+                history=None,
                 progress=progress,
                 run_id=run_id,
             )
@@ -76,6 +74,9 @@ def run_chat_agent_task(self, run_id: str) -> None:
             "semantic_lineage": result.get("semantic_lineage", []),
             "response_kind": result.get("response_kind", "answer"),
             "clarification_context": result.get("clarification_context"),
+            "presentation_kind": result.get("presentation_kind"),
+            "answer_metadata": result.get("answer_metadata"),
+            "_conversation_memory": result.get("memory_update"),
         }
         if not chat_run_repository.finalize_run(run_id, status="completed", message_updates=updates):
             raise AgentRunCancelled("Cancellation won before final persistence.")

@@ -52,6 +52,8 @@ function mapSessionMessages(data: SessionMessagesResponse): ChatMessageView[] {
     semantic_lineage: message.semantic_lineage || undefined,
     response_kind: message.response_kind || 'answer',
     clarification_context: message.clarification_context || undefined,
+    presentation_kind: message.presentation_kind || undefined,
+    answer_metadata: message.answer_metadata || undefined,
   }));
 }
 
@@ -76,6 +78,8 @@ function applyCompletedResponse(message: ChatMessageView, response: ChatResponse
     semantic_lineage: response.semantic_lineage || undefined,
     response_kind: response.response_kind || 'answer',
     clarification_context: response.clarification_context || undefined,
+    presentation_kind: response.presentation_kind || undefined,
+    answer_metadata: response.answer_metadata || undefined,
     agent_run_status: 'completed',
     agent_run_stage: 'completed',
     agent_run_stage_label: response.response_kind === 'clarification' ? 'Clarification needed' : 'Answer ready',
@@ -501,6 +505,8 @@ export function ChatPage() {
         semantic_lineage: r.semantic_lineage || undefined,
         response_kind: r.response_kind || 'answer',
         clarification_context: r.clarification_context || undefined,
+        presentation_kind: r.presentation_kind || undefined,
+        answer_metadata: r.answer_metadata || undefined,
       };
       setMessages(prev => {
         const updated = [...prev];

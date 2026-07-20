@@ -30,6 +30,8 @@ class ChatMessage(BaseModel):
     semantic_lineage: list[dict] = Field(default_factory=list)
     response_kind: str = "answer"
     clarification_context: Optional[dict] = None
+    presentation_kind: Optional[str] = None
+    answer_metadata: Optional[dict] = None
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
 
     def __init__(self, **data):
@@ -48,6 +50,9 @@ class ChatSession(BaseModel):
     connection_ids: list[str] = Field(default_factory=list)
     last_connection_id: Optional[str] = None
     title: Optional[str] = None
+    memory_state: Dict = Field(default_factory=dict)
+    memory_revision: int = 1
+    memory_updated_at: Optional[str] = None
     messages: list[ChatMessage] = Field(default_factory=list)
     created_at: str = ""
 

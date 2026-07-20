@@ -6,7 +6,6 @@ import logging
 import anyio
 
 from app.agents.visualization.generator import generate_visualization_blueprint
-from app.core.config import settings
 from app.db.models.chat import ChatMessage, SessionSummary
 from app.db.models.llm import LlmExecutionContext
 from app.db.repositories.chat_repository import (
@@ -19,7 +18,6 @@ from app.db.repositories.chat_repository import (
     get_session,
     list_sessions,
     record_user_turn,
-    record_clarification_turn,
     reconstruct_dual_chain,
     rename_session,
     track_connection,
@@ -60,6 +58,8 @@ async def _execute_chat_turn(
     message: str,
     schema_context: str | None,
     history: list[dict],
+    prior_results: dict | None = None,
+    conversation_memory: dict | None = None,
     progress=None,
     llm_workflow_id: str | None = None,
     intent_result=None,
@@ -69,6 +69,8 @@ async def _execute_chat_turn(
         connection_id=connection_id,
         question=message,
         history=history,
+        prior_results=prior_results,
+        conversation_memory=conversation_memory,
         progress=progress,
         session_id=session_id,
         schema_context=schema_context,
@@ -81,6 +83,7 @@ async def _execute_chat_turn(
             interaction_type="explicit",
         ),
         intent_result=intent_result,
+        decision_agent=True,
     )
 
 
@@ -96,43 +99,7 @@ async def send_message(
         message=message,
         session_id=session_id,
     )
-    if prepared.intent.decision == "clarify":
-        resolved_session_id, user_msg, assistant_msg, prev_query_id = await record_clarification_turn(
-            user_id=user_id,
-            connection_id=connection_id,
-            message=message,
-            clarification=prepared.intent.clarification_message or "Clarification needed.",
-            clarification_context=prepared.intent.clarification_context or {},
-            session_id=session_id,
-        )
-        return {
-            "session_id": resolved_session_id,
-            "message_id": assistant_msg.id,
-            "user_message_id": user_msg.id,
-            "message": assistant_msg.content,
-            "sql": None,
-            "columns": [],
-            "rows": [],
-            "row_count": 0,
-            "truncated": False,
-            "execution_time_ms": 0.0,
-            "chart_recommendation": None,
-            "error": None,
-            "column_metadata": {},
-            "is_pinned": False,
-            "prev_query_id": prev_query_id,
-            "agent_trace": [],
-            "agent_tier": "deterministic",
-            "semantic_lineage": [],
-            "response_kind": "clarification",
-            "clarification_context": prepared.intent.clarification_context,
-        }
-
     schema_context: str | None = None
-    if settings.agent_mode != "tools":
-        schema_context = await connection_service.get_schema_for_ai(user_id, connection_id)
-        if not schema_context:
-            schema_context = "No schema available. Please connect to a database first."
 
     is_new_session = False
     try:
@@ -176,6 +143,8 @@ async def send_message(
         message=message,
         schema_context=schema_context,
         history=prepared.history,
+        prior_results=getattr(prepared, "prior_results", {}),
+        conversation_memory=getattr(prepared, "conversation_memory", {}),
         progress=None,
         intent_result=prepared.intent,
     )
@@ -191,6 +160,7 @@ async def send_message(
             "row_count": result.get("row_count", 0),
             "execution_time_ms": result.get("execution_time_ms", 0.0),
             "truncated": result.get("truncated", False),
+            "column_metadata": result.get("column_metadata", {}),
         },
         columns=result.get("columns", []),
         truncated=result.get("truncated", False),
@@ -202,10 +172,21 @@ async def send_message(
         semantic_lineage=result.get("semantic_lineage", []),
         response_kind=result.get("response_kind", "answer"),
         clarification_context=result.get("clarification_context"),
+        presentation_kind=result.get("presentation_kind"),
+        answer_metadata=result.get("answer_metadata"),
     )
     assistant_msg_id = assistant_msg.id
     try:
-        await add_message(user_id, session_id, assistant_msg)
+        memory_update = result.get("memory_update")
+        if memory_update is None:
+            await add_message(user_id, session_id, assistant_msg)
+        else:
+            await add_message(
+                user_id,
+                session_id,
+                assistant_msg,
+                memory_update=memory_update,
+            )
     except Exception as exc:
         logger.exception("Failed to persist assistant chat message %s", assistant_msg.id)
         raise ChatPersistenceError("Unable to persist chat state for this request.") from exc
@@ -233,6 +214,8 @@ async def send_message(
         "semantic_lineage": result.get("semantic_lineage", []),
         "response_kind": result.get("response_kind", "answer"),
         "clarification_context": result.get("clarification_context"),
+        "presentation_kind": result.get("presentation_kind"),
+        "answer_metadata": result.get("answer_metadata"),
     }
 
 
@@ -242,7 +225,7 @@ async def execute_prepared_turn(
     connection_id: str,
     session_id: str,
     message: str,
-    history: list[dict],
+    history: list[dict] | None,
     progress,
     run_id: str | None = None,
 ) -> dict:
@@ -254,32 +237,10 @@ async def execute_prepared_turn(
         message=message,
         session_id=session_id,
     )
-    if prepared.intent.decision == "clarify":
-        return {
-            "explanation": prepared.intent.clarification_message or "Clarification needed.",
-            "sql": None,
-            "columns": [],
-            "rows": [],
-            "row_count": 0,
-            "truncated": False,
-            "execution_time_ms": 0.0,
-            "chart_recommendation": None,
-            "error": None,
-            "trace": [],
-            "tier": "deterministic",
-            "semantic_lineage": [],
-            "response_kind": "clarification",
-            "clarification_context": prepared.intent.clarification_context,
-        }
     engine = await connection_service.get_engine(user_id, connection_id)
     if not engine:
         raise ValueError("Database connection not found. Connect first.")
     schema_context: str | None = None
-    if settings.agent_mode != "tools":
-        progress.stage_started("schema_search", "Loading schema context")
-        schema_context = await connection_service.get_schema_for_ai(user_id, connection_id)
-        schema_context = schema_context or "No schema available. Please connect to a database first."
-        progress.stage_completed("schema_search", "Schema context ready")
     return await _execute_chat_turn(
         user_id=user_id,
         connection_id=connection_id,
@@ -287,6 +248,8 @@ async def execute_prepared_turn(
         message=message,
         schema_context=schema_context,
         history=prepared.history,
+        prior_results=getattr(prepared, "prior_results", {}),
+        conversation_memory=getattr(prepared, "conversation_memory", {}),
         progress=progress,
         llm_workflow_id=run_id,
         intent_result=prepared.intent,

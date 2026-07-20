@@ -47,17 +47,6 @@ async def start_run(user_id: str, request) -> dict:
         message=request.message,
         session_id=request.session_id,
     )
-    if prepared.intent.decision == "clarify":
-        run, _ = await chat_run_repository.create_completed_clarification(
-            user_id=user_id,
-            connection_id=request.connection_id,
-            message=request.message,
-            client_request_id=request.client_request_id,
-            session_id=request.session_id,
-            clarification=prepared.intent.clarification_message or "Clarification needed.",
-            clarification_context=prepared.intent.clarification_context or {},
-        )
-        return _accepted(run)
     active_count = await anyio.to_thread.run_sync(chat_run_repository.active_run_count, user_id)
     if active_count >= settings.chat_run_max_active_per_user:
         raise RunLimitError("Too many active responses. Wait for an existing response to finish.")
@@ -123,6 +112,8 @@ def _chat_response(run, message, user_message=None) -> dict | None:
         "semantic_lineage": message.semantic_lineage,
         "response_kind": message.response_kind,
         "clarification_context": message.clarification_context,
+        "presentation_kind": message.presentation_kind,
+        "answer_metadata": message.answer_metadata,
     }
 
 

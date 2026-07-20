@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 from pydantic import ValidationError
 
-from app.agents.db_agent.output import AnalystProposal, parse_agent_proposal
+from app.agents.db_agent.output import ChatAgentOutcome, parse_agent_outcome
 from app.agents.db_agent.trace import TraceRecorder
 from app.agents.schema_context.scoring import score_tables
 from app.agents.schema_context.types import CatalogColumn, CatalogTable, SchemaCatalog
@@ -17,7 +17,6 @@ from app.services.chat_input_guard import ChatInputDecision, ChatInputGuard, Cha
 from app.services.question_intent_service import (
     analyze_question_intent,
     bounded_follow_up_history,
-    explicit_follow_up,
 )
 
 
@@ -95,18 +94,16 @@ def test_secret_guard_runs_before_durable_persistence(monkeypatch):
     repository_call.assert_not_awaited()
 
 
-def test_catalog_intent_clarifies_unrelated_text_and_accepts_schema_questions():
+def test_catalog_grounding_never_makes_the_user_facing_decision():
     ambiguous = analyze_question_intent(
         "Please help me with this thing",
         catalog=_catalog(),
         semantic_context=None,
         history=[],
     )
-    assert ambiguous.decision == "clarify"
-    assert ambiguous.clarification_context == {
-        "reason_code": "insufficient_analytical_intent",
-        "expected_input": "metric_table_or_outcome",
-    }
+    assert ambiguous.decision == "analyze"
+    assert ambiguous.reason_code == "agent_decision_required"
+    assert ambiguous.matched_tables == []
 
     analytical = analyze_question_intent(
         "top orders by customer",
@@ -123,7 +120,8 @@ def test_catalog_intent_clarifies_unrelated_text_and_accepts_schema_questions():
         semantic_context=None,
         history=[],
     )
-    assert substring_only.decision == "clarify"
+    assert substring_only.decision == "analyze"
+    assert substring_only.reason_code == "agent_decision_required"
 
 
 def test_semantic_description_overlap_does_not_create_analytical_intent():
@@ -150,7 +148,8 @@ def test_semantic_description_overlap_does_not_create_analytical_intent():
         semantic_context=context,
         history=[],
     )
-    assert ambiguous.decision == "clarify"
+    assert ambiguous.decision == "analyze"
+    assert ambiguous.matched_semantic_refs == []
 
     explicit = analyze_question_intent(
         "Show revenue",
@@ -163,7 +162,7 @@ def test_semantic_description_overlap_does_not_create_analytical_intent():
     assert explicit.matched_tables == ["payments"]
 
 
-def test_only_explicit_followups_receive_three_completed_pairs():
+def test_bounded_history_uses_token_budget_and_keeps_completed_pair_metadata(monkeypatch):
     history = []
     for index in range(5):
         user_id = f"u-{index}"
@@ -179,64 +178,93 @@ def test_only_explicit_followups_receive_three_completed_pairs():
                     "error": None,
                     "run_status": "completed",
                     "response_kind": "answer",
+                    "answer_metadata": {
+                        "method": "bounded method",
+                        "evidence": [{"claim": f"evidence {index}"}],
+                        "limitations": [],
+                    },
                 },
             ]
         )
     history.append({"id": "placeholder", "role": "assistant", "content": "", "run_status": "running"})
 
-    assert explicit_follow_up("Show orders", history) is False
     assert bounded_follow_up_history(history, include=False) == []
-    assert explicit_follow_up("What about last month?", history) is True
     bounded = bounded_follow_up_history(history, include=True)
-    assert len(bounded) == 6
-    assert bounded[0]["content"] == "question 2"
+    assert len(bounded) == 10
+    assert bounded[0]["content"] == "question 0"
+    assert "Method: bounded method" in bounded[1]["content"]
+    assert "Evidence: evidence 0" in bounded[1]["content"]
+
+    monkeypatch.setattr(
+        "app.services.question_intent_service.settings.agent_recent_history_token_budget",
+        1000,
+    )
+    long_history = []
+    for index in range(8):
+        user_id = f"long-u-{index}"
+        long_history.extend(
+            [
+                {"id": user_id, "role": "user", "content": f"question {index} " + "x" * 700},
+                {
+                    "id": f"long-a-{index}",
+                    "role": "assistant",
+                    "parent_id": user_id,
+                    "content": f"answer {index} " + "y" * 700,
+                    "run_status": "completed",
+                },
+            ]
+        )
+    compacted = bounded_follow_up_history(long_history)
+    assert len(compacted) < len(long_history)
+    assert compacted[-2]["content"].startswith("question 7")
 
 
 def test_zero_overlap_schema_search_ignores_table_importance():
     assert score_tables("completely unrelated prose", _catalog()) == []
 
 
-def test_agent_proposal_contract_distinguishes_query_and_clarification():
-    query = AnalystProposal(
-        analysis_summary="Use orders.",
+def test_agent_outcome_contract_distinguishes_analysis_and_clarification():
+    analysis = ChatAgentOutcome(
+        response_type="data_analysis",
+        answer="Customer one has the most orders.",
+        result_ref="result_1",
+        presentation={"kind": "table", "chart": None},
+        evidence=[{
+            "claim": "Customer one is first.",
+            "result_ref": "result_1",
+            "columns": ["customer_id", "order_count"],
+            "row_indexes": [0],
+        }],
         relevant_tables=["orders"],
         relevant_columns=["orders.customer_id"],
-        sql="SELECT customer_id, COUNT(*) FROM orders GROUP BY customer_id",
-        assumptions=[],
     )
-    assert query.response_type == "query"
+    assert analysis.response_type == "data_analysis"
 
-    clarification = AnalystProposal(
+    clarification = ChatAgentOutcome(
         response_type="clarification",
-        clarification_question="Which metric should I analyze?",
-        analysis_summary="More context is required.",
-        relevant_tables=[],
-        relevant_columns=[],
-        sql=None,
-        assumptions=[],
+        answer="Which metric should I analyze?",
+        clarification_context={
+            "reason_code": "missing_metric",
+            "expected_input": "metric",
+        },
+        presentation={"kind": "none", "chart": None},
     )
-    assert clarification.sql is None
+    assert clarification.result_ref is None
 
     with pytest.raises(ValidationError):
-        AnalystProposal(
+        ChatAgentOutcome(
             response_type="clarification",
-            clarification_question="Which metric?",
-            analysis_summary="Invalid evidence.",
-            relevant_tables=["orders"],
-            relevant_columns=[],
-            sql=None,
-            assumptions=[],
+            answer="Which metric?",
+            clarification_context={"reason_code": "missing_metric", "expected_input": "metric"},
+            result_ref="result_1",
         )
     with pytest.raises(Exception):
-        parse_agent_proposal(json.dumps({**query.model_dump(), "unknown": True}))
+        parse_agent_outcome(json.dumps({**analysis.model_dump(), "unknown": True}))
 
     with pytest.raises(ValidationError):
-        AnalystProposal(
-            analysis_summary="Unsafe generated proposal.",
-            relevant_tables=["orders"],
-            relevant_columns=[],
-            sql="SELECT 'sk-proj-" + "Ab3_" * 8 + "' FROM orders",
-            assumptions=[],
+        ChatAgentOutcome(
+            response_type="direct_answer",
+            answer="Unsafe generated answer sk-proj-" + "Ab3_" * 8,
         )
 
 

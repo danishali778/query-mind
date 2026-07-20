@@ -9,6 +9,7 @@ import { useSmartSave } from '../../hooks/useSmartSave';
 import { Pin, Plus } from 'lucide-react';
 import type { ChatMessageView } from '../../types/chat';
 import { AgentActivity } from './AgentActivity';
+import { SafeMarkdownText } from './SafeMarkdownText';
 
 export function MessageBubble({
   message,
@@ -84,6 +85,11 @@ export function MessageBubble({
   }
   // Assistant
   const isClarification = message.response_kind === 'clarification';
+  const isRefusal = message.response_kind === 'refusal';
+  const isSchemaAnswer = message.response_kind === 'schema_answer';
+  const isResultFollowUp = message.response_kind === 'result_follow_up';
+  const isNonQueryResponse = isClarification || isRefusal || message.response_kind === 'direct_answer';
+  const hasQueryResult = !isNonQueryResponse && Boolean(message.sql && message.columns && message.rows);
   const hasRunActivity = Boolean(message.agent_run_id && message.agent_run_status && !isClarification);
   return (
     <div id={message.id ? `msg-${message.id}` : undefined} style={{ padding: '24px 0', display: 'flex', flexDirection: 'column', alignItems: 'stretch', width: '100%', minWidth: 0, maxWidth: '100%' }}>
@@ -117,14 +123,27 @@ export function MessageBubble({
               Clarification needed
             </div>
           )}
+          {isRefusal && !message.error && (
+            <div style={{ marginBottom: 8, fontFamily: T.fontMono, fontSize: '0.62rem', fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.red }}>
+              Request not supported
+            </div>
+          )}
+          {isSchemaAnswer && !message.error && (
+            <div style={{ marginBottom: 8, fontFamily: T.fontMono, fontSize: '0.62rem', fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.purple }}>
+              Schema answer
+            </div>
+          )}
+          {isResultFollowUp && !message.error && (
+            <div style={{ marginBottom: 8, fontFamily: T.fontMono, fontSize: '0.62rem', fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.green }}>
+              Based on previous result
+            </div>
+          )}
           {message.error ? (
             <div style={{ color: T.red, background: 'rgba(239, 68, 68, 0.05)', padding: '12px 16px', borderRadius: 12, border: `1px solid ${T.red}20` }}>
               <span style={{ fontWeight: 700, marginRight: 8 }}>Error</span>
               {message.error}
             </div>
-          ) : (
-            message.content
-          )}
+          ) : <SafeMarkdownText text={message.content || ''} />}
         </div>
       </div>
       )}
@@ -199,8 +218,8 @@ export function MessageBubble({
         </div>
       )}
 
-      {/* Technical Result Box (SQL, Table, Charts) */}
-      {(message.sql || message.rows) && !message.error && (
+      {/* SQL-backed responses use the established SQL -> table -> chart -> actions layout. */}
+      {hasQueryResult && !message.error && (
         <div style={{
           width: '100%', minWidth: 0, marginLeft: 0,
           background: '#fff',
@@ -245,25 +264,23 @@ export function MessageBubble({
             />
           )}
 
-          {/* Results Table */}
-          {message.columns && message.rows && message.rows.length > 0 && (
-            <div style={{ width: '100%', minWidth: 0, overflowX: 'auto' }}>
-              <ResultsTable
-                columns={message.columns}
-                rows={message.rows}
-                rowCount={message.row_count}
-                executionTime={message.execution_time_ms}
-                truncated={message.truncated}
-              />
-            </div>
-          )}
+          {/* Every executed query keeps its authoritative table visible. */}
+          <div style={{ width: '100%', minWidth: 0, overflowX: 'auto' }}>
+            <ResultsTable
+              columns={message.columns || []}
+              rows={message.rows || []}
+              rowCount={message.row_count}
+              executionTime={message.execution_time_ms}
+              truncated={message.truncated}
+            />
+          </div>
 
-          {/* Chart Section */}
-          {message.chart_recommendation && message.chart_recommendation.type !== 'table' && message.rows && message.columns && (
+          {/* A valid chart supplements the table; it never replaces it. */}
+          {message.chart_recommendation && message.chart_recommendation.type !== 'table' && (
             <BaseChartContainer
               recommendation={message.chart_recommendation}
-              rows={message.rows}
-              columns={message.columns}
+              rows={message.rows || []}
+              columns={message.columns || []}
               column_metadata={message.column_metadata}
             />
           )}

@@ -43,6 +43,7 @@ class ChatState(TypedDict):
     broad_discovery: bool
     grounded_tables: list[str]
     relevance_rejected: bool
+    select_visualization: bool
 
 
 _DESTRUCTIVE_KEYWORDS = {"delete", "update", "insert", "drop", "truncate", "alter"}
@@ -160,7 +161,7 @@ def analyze_results_node(state: ChatState) -> dict:
     columns = state.get("columns", [])
     rows = state.get("rows", [])
 
-    if not columns or not rows:
+    if not columns or not rows or not state.get("select_visualization", True):
         return {"chart_recommendation": None}
 
     progress = state.get("progress")
@@ -254,6 +255,7 @@ def run_chat(
     grounded_tables: list[str] | None = None,
     enforce_grounding: bool = False,
     broad_discovery: bool = False,
+    select_visualization: bool = True,
 ) -> ChatState:
     llm_context = llm_context or LlmExecutionContext(
         owner_id=user_id,
@@ -294,5 +296,6 @@ def run_chat(
         "broad_discovery": broad_discovery,
         "grounded_tables": grounded_tables or [],
         "relevance_rejected": False,
+        "select_visualization": select_visualization,
     }
     return chat_graph.invoke(initial_state)

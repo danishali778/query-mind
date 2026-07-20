@@ -192,6 +192,60 @@ def test_chat_session_lookup_and_history_require_owner():
     assert asyncio.run(chat_repository.get_history_for_llm(user_b, session.id)) == []
 
 
+def test_chat_memory_is_owner_scoped_versioned_and_persisted_with_assistant_message():
+    user_a = _user_id()
+    user_b = _user_id()
+    session = asyncio.run(chat_repository.create_session(user_a))
+
+    asyncio.run(
+        chat_repository.add_message(
+            user_a,
+            session.id,
+            ChatMessage(role="assistant", content="Choose a support table."),
+            memory_update={
+                "summary": "The user is exploring support data.",
+                "active_topic": "support tickets",
+                "entities": ["support_tickets", "ticket_messages"],
+                "unresolved_choice": {
+                    "kind": "table",
+                    "prompt": "Which support table should be explored?",
+                    "options": ["support_tickets", "ticket_messages"],
+                },
+            },
+        )
+    )
+
+    owned = asyncio.run(chat_repository.get_conversation_memory(user_a, session.id))
+    other = asyncio.run(chat_repository.get_conversation_memory(user_b, session.id))
+    assert owned["revision"] == 2
+    assert owned["state"]["unresolved_choice"]["options"] == [
+        "support_tickets",
+        "ticket_messages",
+    ]
+    assert other == {}
+
+
+def test_chat_memory_rejects_secret_shaped_updates():
+    user_id = _user_id()
+    session = asyncio.run(chat_repository.create_session(user_id))
+
+    asyncio.run(
+        chat_repository.add_message(
+            user_id,
+            session.id,
+            ChatMessage(role="assistant", content="Safe response"),
+            memory_update={
+                "summary": "api_key=synthetic-secret-value",
+                "entities": [],
+            },
+        )
+    )
+
+    memory = asyncio.run(chat_repository.get_conversation_memory(user_id, session.id))
+    assert memory["revision"] == 1
+    assert memory["state"] == {}
+
+
 def test_connection_persistence_forces_readonly_true():
     user_id = _user_id()
 

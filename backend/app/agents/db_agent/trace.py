@@ -104,7 +104,7 @@ class TraceRecorder:
 def summarize_args(tool_name: str, args: dict) -> str:
     if tool_name in {"execute_sql", "preview_sql", "validate_sql", "explain_sql"}:
         sql = str(args.get("sql", ""))
-        return f"sql={sql[:200]}{'...' if len(sql) > 200 else ''}"
+        return f"sql_chars={len(sql)}"
     return str(args)[:300]
 
 

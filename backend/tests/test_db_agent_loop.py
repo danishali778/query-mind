@@ -6,13 +6,19 @@ from unittest.mock import MagicMock
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from app.agents.db_agent.agent import build_agent_graph
+from app.agents.db_agent.agent import (
+    _validate_outcome_context,
+    _validated_chart,
+    build_agent_graph,
+    infer_chart_from_result,
+)
 from app.agents.db_agent.budget import BudgetDecision, BudgetGuard
 from app.agents.db_agent.output import AgentFinishError, parse_agent_proposal
-from app.agents.db_agent.tools import ToolContext
+from app.agents.db_agent.tools import AnalysisExecution, PriorAnalysisExecution, ToolContext
 from app.agents.db_agent.trace import TraceRecorder
 from app.agents.schema_context.catalog import build_catalog
 from app.db.models.connection import ColumnInfo, TableInfo
+from app.query_engine.results import QueryExecutionResult
 
 
 def _catalog():
@@ -61,21 +67,18 @@ def test_budget_guard_forces_finish_on_cap():
     assert decision == BudgetDecision.FORCE_FINISH
 
 
-def test_parse_agent_proposal_accepts_json():
+def test_parse_agent_outcome_accepts_json():
     proposal = parse_agent_proposal(
         json.dumps(
             {
-                "analysis_summary": "ok",
-                "relevant_tables": ["customers"],
-                "relevant_columns": ["customers.id"],
-                "sql": "SELECT 1",
-                "column_metadata": {"x": "numeric"},
-                "assumptions": [],
+                "response_type": "direct_answer",
+                "answer": "I can explain database concepts without running SQL.",
+                "presentation": {"kind": "none", "chart": None},
             }
         )
     )
-    assert proposal.sql == "SELECT 1"
-    assert proposal.analysis_summary == "ok"
+    assert proposal.response_type == "direct_answer"
+    assert proposal.result_ref is None
 
 
 def test_parse_agent_proposal_rejects_invalid_json():
@@ -83,19 +86,193 @@ def test_parse_agent_proposal_rejects_invalid_json():
         parse_agent_proposal("not json")
 
 
-def test_parse_agent_proposal_rejects_missing_sql_for_answerable_shape():
+def test_parse_agent_outcome_rejects_analysis_without_result_reference():
     with pytest.raises(AgentFinishError):
         parse_agent_proposal(
             json.dumps(
                 {
-                    "analysis_summary": "ok",
-                    "relevant_tables": ["customers"],
-                    "relevant_columns": ["customers.id"],
-                    "column_metadata": {},
-                    "assumptions": [],
+                    "response_type": "data_analysis",
+                    "answer": "Analysis complete.",
+                    "presentation": {"kind": "table", "chart": None},
+                    "evidence": [],
                 }
             )
         )
+
+
+def test_chartable_categorical_result_gets_deterministic_bar_fallback():
+    outcome = parse_agent_proposal(
+        json.dumps(
+            {
+                "response_type": "data_analysis",
+                "answer": "CreativeHub has 50 active employees.",
+                "result_ref": "result_1",
+                "presentation": {"kind": "table", "chart": None},
+                "evidence": [
+                    {
+                        "claim": "CreativeHub has 50 active employees.",
+                        "result_ref": "result_1",
+                        "columns": ["company_name", "active_employee_count"],
+                        "row_indexes": [0],
+                    }
+                ],
+                "column_metadata": {
+                    "company_name": "categorical",
+                    "active_employee_count": "numeric",
+                },
+            }
+        )
+    )
+
+    kind, chart = _validated_chart(
+        outcome,
+        ["company_name", "active_employee_count"],
+        [
+            {"company_name": "CreativeHub", "active_employee_count": 50},
+            {"company_name": "SkyBuild Group", "active_employee_count": 50},
+        ],
+    )
+
+    assert kind == "chart"
+    assert chart is not None
+    assert chart["type"] == "bar"
+    assert chart["x_column"] == "company_name"
+    assert chart["y_columns"] == ["active_employee_count"]
+
+
+def test_identifier_only_result_remains_table_only():
+    outcome = parse_agent_proposal(
+        json.dumps(
+            {
+                "response_type": "data_analysis",
+                "answer": "The matching identifiers are listed.",
+                "result_ref": "result_1",
+                "presentation": {"kind": "none", "chart": None},
+                "evidence": [
+                    {
+                        "claim": "A matching identifier was returned.",
+                        "result_ref": "result_1",
+                        "columns": ["id", "company_id"],
+                        "row_indexes": [0],
+                    }
+                ],
+                "column_metadata": {"id": "identifier", "company_id": "identifier"},
+            }
+        )
+    )
+
+    kind, chart = _validated_chart(
+        outcome,
+        ["id", "company_id"],
+        [{"id": 1, "company_id": 10}, {"id": 2, "company_id": 10}],
+    )
+
+    assert kind == "table"
+    assert chart is None
+
+
+def test_two_temporal_points_use_bar_instead_of_implying_a_trend():
+    chart = infer_chart_from_result(
+        ["payment_month", "average_payment"],
+        [
+            {"payment_month": "2026-01-01", "average_payment": 1000},
+            {"payment_month": "2026-02-01", "average_payment": 1200},
+        ],
+        {"payment_month": "date", "average_payment": "currency"},
+    )
+
+    assert chart is not None
+    assert chart["type"] == "bar"
+    assert chart["x_column"] == "payment_month"
+    assert chart["y_columns"] == ["average_payment"]
+
+
+def _analysis_outcome(result_ref: str, columns: list[str], *, response_type: str = "data_analysis"):
+    return parse_agent_proposal(
+        json.dumps(
+            {
+                "response_type": response_type,
+                "answer": "The requested evidence is available.",
+                "result_ref": result_ref,
+                "presentation": {"kind": "none", "chart": None},
+                "evidence": [
+                    {
+                        "claim": "Evidence checked.",
+                        "result_ref": result_ref,
+                        "columns": columns,
+                        "row_indexes": [0],
+                    }
+                ],
+                "method": "Compared the returned analytical score.",
+            }
+        )
+    )
+
+
+def _prior_execution(columns=None, rows=None):
+    columns = columns or ["month", "z_score"]
+    rows = rows or [{"month": "2025-01-01", "z_score": 3.2}]
+    return PriorAnalysisExecution(
+        result_ref="prior_result_1",
+        source_message_id="message-1",
+        question="Which payment months were anomalies?",
+        answer="One month was unusual.",
+        sql="SELECT month, z_score FROM payments",
+        result=QueryExecutionResult(success=True, columns=columns, rows=rows, row_count=len(rows)),
+        captured_at="2026-07-18T00:00:00Z",
+        relevant_tables=["payments"],
+    )
+
+
+def test_result_follow_up_requires_inspection_but_not_rule_based_pronoun_matching():
+    ctx = _ctx()
+    ctx.prior_results["prior_result_1"] = _prior_execution()
+    outcome = _analysis_outcome(
+        "prior_result_1", ["month", "z_score"], response_type="result_follow_up"
+    )
+
+    with pytest.raises(AgentFinishError, match="Inspect"):
+        _validate_outcome_context(outcome, "What were those anomalies?", ctx)
+
+    ctx.inspected_prior_results.add("prior_result_1")
+    ctx.inspected_prior_row_indexes["prior_result_1"] = {0}
+    _validate_outcome_context(outcome, "What were those anomalies?", ctx)
+    # Linguistic relevance is selected by the decision agent. This validator
+    # enforces only reference existence, inspection, and evidence integrity.
+    _validate_outcome_context(outcome, "Explain the selected historical result", ctx)
+
+
+def test_anomaly_analysis_requires_method_evidence_column():
+    ctx = _ctx()
+    ctx.analysis_results["result_1"] = AnalysisExecution(
+        result_ref="result_1",
+        sql="SELECT month, payment_count FROM payments",
+        result=QueryExecutionResult(
+            success=True,
+            columns=["month", "payment_count"],
+            rows=[{"month": "2025-01-01", "payment_count": 42}],
+            row_count=1,
+        ),
+    )
+    outcome = _analysis_outcome("result_1", ["month", "payment_count"])
+    with pytest.raises(AgentFinishError, match="score, change, flag"):
+        _validate_outcome_context(outcome, "Identify payment anomalies", ctx)
+
+
+def test_past_twelve_months_rejects_thirteen_month_buckets():
+    rows = [{"month": f"2025-{month:02d}-01", "revenue": month} for month in range(1, 13)]
+    rows.append({"month": "2026-01-01", "revenue": 13})
+    ctx = _ctx()
+    ctx.analysis_results["result_1"] = AnalysisExecution(
+        result_ref="result_1",
+        sql="SELECT month, revenue FROM payments",
+        result=QueryExecutionResult(
+            success=True, columns=["month", "revenue"], rows=rows, row_count=len(rows)
+        ),
+    )
+    outcome = _analysis_outcome("result_1", ["month", "revenue"])
+    with pytest.raises(AgentFinishError, match="13 monthly buckets"):
+        _validate_outcome_context(outcome, "Show revenue for the past 12 months", ctx)
 
 
 class ScriptedLLM:
@@ -123,12 +300,15 @@ class FakeTool:
 
 PROPOSAL_JSON = json.dumps(
     {
-        "analysis_summary": "done",
-        "relevant_tables": ["customers"],
-        "relevant_columns": ["customers.id"],
-        "sql": "SELECT 1",
+        "response_type": "direct_answer",
+        "answer": "Done without querying data.",
+        "presentation": {"kind": "none", "chart": None},
+        "evidence": [],
+        "limitations": [],
+        "relevant_tables": [],
+        "relevant_columns": [],
         "column_metadata": {},
-        "assumptions": [],
+        "semantic_refs": [],
     }
 )
 
@@ -162,7 +342,7 @@ def test_graph_happy_path_tool_then_finish():
     final = graph.invoke(_initial_state())
 
     assert final["proposal"] is not None
-    assert final["proposal"].sql == "SELECT 1"
+    assert final["proposal"].response_type == "direct_answer"
     assert tool.invocations == [{"query": "customers"}]
     assert budget.call_count == 1
     assert any(isinstance(m, ToolMessage) for m in final["messages"])
@@ -242,7 +422,7 @@ def test_graph_budget_cap_forces_finish():
     assert budget.call_count == 1
     assert final["force_finish"] is True
     assert final["proposal"] is not None
-    assert final["proposal"].sql == "SELECT 1"
+    assert final["proposal"].response_type == "direct_answer"
 
 
 def test_graph_wall_clock_forces_finish():
@@ -270,8 +450,8 @@ def test_graph_mechanical_salvage_when_force_finish_llm_fails():
     final = graph.invoke(state)
 
     assert final["proposal"] is not None
-    assert final["proposal"].sql is None
-    assert "list_tables" in final["proposal"].analysis_summary
+    assert final["proposal"].result_ref is None
+    assert final["proposal"].response_type == "clarification"
 
 
 def test_graph_skip_repeat_returns_tool_message_without_executing():
@@ -291,5 +471,5 @@ def test_graph_skip_repeat_returns_tool_message_without_executing():
 
     assert tool.invocations == [{"query": "customers"}, {"query": "customers"}]
     assert any(
-        isinstance(m, ToolMessage) and "identical arguments" in m.content for m in final["messages"]
+        isinstance(m, ToolMessage) and "identical call" in m.content for m in final["messages"]
     )

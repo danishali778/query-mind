@@ -22,7 +22,7 @@ def test_budget_warning_at_eighty_percent():
     assert "8 of 10" in warning
 
 
-def test_repeat_ladder_warn_skip_force():
+def test_repeat_ladder_warns_then_forces_after_two_identical_calls():
     guard = BudgetGuard(max_calls=20, wall_clock_seconds=120)
     args = {"query": "customers"}
 
@@ -31,13 +31,9 @@ def test_repeat_ladder_warn_skip_force():
     second = guard.check_before_call("search_schema", args)
     guard.record_call("search_schema", args)
     third = guard.check_before_call("search_schema", args)
-    guard.record_call("search_schema", args)
-    fourth = guard.check_before_call("search_schema", args)
-
     assert first == BudgetDecision.ALLOW
     assert second == BudgetDecision.WARN_REPEAT
-    assert third == BudgetDecision.SKIP_REPEAT
-    assert fourth == BudgetDecision.FORCE_FINISH
+    assert third == BudgetDecision.FORCE_FINISH
 
 
 def test_skip_repeat_guard_message():

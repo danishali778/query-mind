@@ -4,13 +4,15 @@ from datetime import datetime
 from typing import Optional
 
 import anyio
-from sqlalchemy import and_, func
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, func, or_
+from sqlalchemy.orm import Session, aliased
 
 from app.db.models.chat import ChatMessage, ChatSession, SessionSummary
 from app.db.orm_models import ChatAgentRunORM, ChatMessageORM, ChatSessionORM
 from app.db.session import read_session_scope, session_scope
 from app.db.repositories import semantic_repository
+from app.core.config import settings
+from app.core.secret_detection import detect_secret
 
 
 logger = logging.getLogger(__name__)
@@ -48,6 +50,8 @@ def _map_message(row: ChatMessageORM, run: ChatAgentRunORM | None = None) -> Cha
         semantic_lineage=row.semantic_lineage or [],
         response_kind=row.response_kind or "answer",
         clarification_context=row.clarification_context,
+        presentation_kind=row.presentation_kind,
+        answer_metadata=row.answer_metadata,
         created_at=_iso(row.created_at),
     )
 
@@ -59,6 +63,9 @@ def _map_session(row: ChatSessionORM, messages: list[ChatMessage] | None = None)
         connection_ids=row.connection_ids or [],
         last_connection_id=row.last_connection_id,
         title=row.title,
+        memory_state=row.memory_state or {},
+        memory_revision=row.memory_revision or 1,
+        memory_updated_at=_iso(row.memory_updated_at) if row.memory_updated_at else None,
         messages=messages or [],
         created_at=_iso(row.created_at),
     )
@@ -263,10 +270,109 @@ def _rename_session_sync(session: Session, user_id: str, session_id: str, title:
     return True
 
 
-async def add_message(user_id: str, session_id: str, message: ChatMessage) -> None:
+def _sanitize_memory_update(update: dict | None) -> dict | None:
+    if not isinstance(update, dict):
+        return None
+    summary = str(update.get("summary") or "").strip()[
+        : settings.agent_memory_summary_max_characters
+    ]
+    active_topic = str(update.get("active_topic") or "").strip()[:240] or None
+    entities = [
+        str(value).strip()[:160]
+        for value in (update.get("entities") or [])[:30]
+        if str(value).strip()
+    ]
+    unresolved = update.get("unresolved_choice")
+    clean_unresolved = None
+    if isinstance(unresolved, dict):
+        prompt = str(unresolved.get("prompt") or "").strip()[:500]
+        options = [
+            str(value).strip()[:200]
+            for value in (unresolved.get("options") or [])[:12]
+            if str(value).strip()
+        ]
+        if prompt and options:
+            clean_unresolved = {
+                "kind": str(unresolved.get("kind") or "other")[:32],
+                "prompt": prompt,
+                "options": options,
+            }
+    sensitive_values = [summary, active_topic or "", *entities]
+    if clean_unresolved:
+        sensitive_values.extend(
+            [clean_unresolved["prompt"], *clean_unresolved["options"]]
+        )
+    if any(detect_secret(value) for value in sensitive_values):
+        return None
+    return {
+        "version": 1,
+        "summary": summary,
+        "active_topic": active_topic,
+        "entities": list(dict.fromkeys(entities)),
+        "unresolved_choice": clean_unresolved,
+    }
+
+
+def apply_conversation_memory_sync(
+    session: Session,
+    *,
+    user_id: str,
+    session_id: str,
+    update: dict | None,
+) -> bool:
+    clean = _sanitize_memory_update(update)
+    if clean is None:
+        return False
+    row = (
+        session.query(ChatSessionORM)
+        .filter(ChatSessionORM.id == session_id, ChatSessionORM.owner_id == user_id)
+        .one_or_none()
+    )
+    if row is None:
+        return False
+    row.memory_state = clean
+    row.memory_revision = int(row.memory_revision or 1) + 1
+    row.memory_updated_at = datetime.now().astimezone()
+    return True
+
+
+async def get_conversation_memory(user_id: str, session_id: str) -> dict:
+    def _run() -> dict:
+        with read_session_scope() as session:
+            row = (
+                session.query(ChatSessionORM)
+                .filter(
+                    ChatSessionORM.id == session_id,
+                    ChatSessionORM.owner_id == user_id,
+                )
+                .one_or_none()
+            )
+            if row is None:
+                return {}
+            return {
+                "state": row.memory_state or {},
+                "revision": int(row.memory_revision or 1),
+                "updated_at": _iso(row.memory_updated_at) if row.memory_updated_at else None,
+            }
+    return await anyio.to_thread.run_sync(_run)
+
+
+async def add_message(
+    user_id: str,
+    session_id: str,
+    message: ChatMessage,
+    *,
+    memory_update: dict | None = None,
+) -> None:
     def _run() -> None:
         with session_scope() as session:
             _add_message_sync(session, user_id, session_id, message)
+            apply_conversation_memory_sync(
+                session,
+                user_id=user_id,
+                session_id=session_id,
+                update=memory_update,
+            )
     await anyio.to_thread.run_sync(_run)
 
 
@@ -292,6 +398,8 @@ def _add_message_sync(session: Session, user_id: str, session_id: str, message: 
         semantic_lineage=message.semantic_lineage or [],
         response_kind=message.response_kind,
         clarification_context=message.clarification_context,
+        presentation_kind=message.presentation_kind,
+        answer_metadata=message.answer_metadata,
     )
     session.add(row)
     _record_semantic_message_usages(session, user_id, message)
@@ -349,36 +457,70 @@ def _get_history_for_llm_sync(session: Session, user_id: str, session_id: str) -
 
 
 async def get_intent_history(user_id: str, session_id: str) -> list[dict]:
-    """Return safe lifecycle metadata used to decide whether history is relevant."""
+    """Return a bounded lookback; token selection happens in the context builder."""
     def _run() -> list[dict]:
         with read_session_scope() as session:
-            rows = (
-                session.query(ChatMessageORM)
-                .filter(ChatMessageORM.session_id == session_id, ChatMessageORM.owner_id == user_id)
-                .order_by(ChatMessageORM.created_at.asc())
+            user_message = aliased(ChatMessageORM)
+            pairs = (
+                session.query(ChatMessageORM, user_message, ChatAgentRunORM.status)
+                .join(
+                    user_message,
+                    and_(
+                        ChatMessageORM.parent_id == user_message.id,
+                        user_message.owner_id == user_id,
+                        user_message.session_id == session_id,
+                        user_message.role == "user",
+                    ),
+                )
+                .outerjoin(ChatAgentRunORM, ChatAgentRunORM.id == ChatMessageORM.agent_run_id)
+                .filter(
+                    ChatMessageORM.session_id == session_id,
+                    ChatMessageORM.owner_id == user_id,
+                    ChatMessageORM.role == "assistant",
+                    ChatMessageORM.content != "",
+                    or_(ChatMessageORM.error.is_(None), ChatMessageORM.error == ""),
+                    or_(
+                        ChatAgentRunORM.id.is_(None),
+                        ChatAgentRunORM.status == "completed",
+                    ),
+                )
+                .order_by(ChatMessageORM.created_at.desc())
+                .limit(settings.agent_history_lookback_pairs)
                 .all()
             )
-            run_ids = [row.agent_run_id for row in rows if row.agent_run_id]
-            statuses = {}
-            if run_ids:
-                statuses = {
-                    row.id: row.status
-                    for row in session.query(ChatAgentRunORM).filter(ChatAgentRunORM.id.in_(run_ids)).all()
-                }
-            return [
-                {
-                    "id": row.id,
-                    "role": row.role,
-                    "content": row.content,
-                    "sql": row.sql,
-                    "error": row.error,
-                    "parent_id": row.parent_id,
-                    "response_kind": row.response_kind or "answer",
-                    "clarification_context": row.clarification_context,
-                    "run_status": statuses.get(row.agent_run_id),
-                }
-                for row in rows
-            ]
+            history: list[dict] = []
+            for assistant, parent, run_status in reversed(pairs):
+                history.append(
+                    {
+                        "id": parent.id,
+                        "role": parent.role,
+                        "content": parent.content,
+                        "connection_id": parent.connection_id,
+                        "created_at": _iso(parent.created_at),
+                    }
+                )
+                history.append(
+                    {
+                        "id": assistant.id,
+                        "role": assistant.role,
+                        "content": assistant.content,
+                        "sql": assistant.sql,
+                        "results": assistant.results,
+                        "columns": assistant.columns or [],
+                        "error": assistant.error,
+                        "connection_id": assistant.connection_id,
+                        "parent_id": assistant.parent_id,
+                        "response_kind": assistant.response_kind or "answer",
+                        "clarification_context": assistant.clarification_context,
+                        "presentation_kind": assistant.presentation_kind,
+                        "chart_recommendation": assistant.chart_recommendation,
+                        "answer_metadata": assistant.answer_metadata,
+                        "agent_tier": assistant.agent_tier,
+                        "created_at": _iso(assistant.created_at),
+                        "run_status": run_status,
+                    }
+                )
+            return history
     return await anyio.to_thread.run_sync(_run)
 
 

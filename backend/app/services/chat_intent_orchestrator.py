@@ -4,15 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.agents.db_agent.tools import PriorAnalysisExecution
 from app.services import connection_service, llm_credential_service, semantic_context_service
 from app.services.chat_input_guard import ChatInputGuard
+from app.services.conversation_evidence_service import build_conversation_evidence_context
 from app.services.question_intent_service import (
     QuestionIntentResult,
-    analyze_question_intent,
-    bounded_follow_up_history,
+    build_grounding_context,
     latest_clarification_context,
 )
-from app.db.repositories.chat_repository import get_intent_history
+from app.db.repositories.chat_repository import get_conversation_memory, get_intent_history
 from app.core import chat_guard_metrics
 
 
@@ -20,6 +21,8 @@ from app.core import chat_guard_metrics
 class PreparedChatIntent:
     intent: QuestionIntentResult
     history: list[dict]
+    prior_results: dict[str, PriorAnalysisExecution]
+    conversation_memory: dict
 
 
 async def prepare_chat_intent(
@@ -34,6 +37,7 @@ async def prepare_chat_intent(
     ChatInputGuard.enforce_sensitive(message)
 
     intent_history = await get_intent_history(user_id, session_id) if session_id else []
+    memory_record = await get_conversation_memory(user_id, session_id) if session_id else {}
     clarification_context = latest_clarification_context(intent_history)
     expects_identifier = bool(
         clarification_context and clarification_context.get("expected_input") == "identifier"
@@ -49,26 +53,34 @@ async def prepare_chat_intent(
         semantic_context = await semantic_context_service.load_context(
             user_id, connection_id, catalog, message
         )
-    intent = analyze_question_intent(
+    intent = build_grounding_context(
         message,
         catalog=catalog,
         semantic_context=semantic_context,
         history=intent_history,
     )
-    history = bounded_follow_up_history(
-        intent_history,
-        include=intent.history_mode == "explicit_follow_up",
+    conversation = (
+        build_conversation_evidence_context(
+            intent_history,
+            connection_id=connection_id,
+            catalog=catalog,
+            semantic_context=semantic_context,
+        )
+        if catalog is not None and semantic_context is not None
+        else None
     )
-    if history:
+    history = conversation.messages if conversation else []
+    prior_results = conversation.prior_results if conversation else {}
+    if history or prior_results:
         chat_guard_metrics.increment("explicit_history_inclusions")
-    if intent.decision == "clarify":
-        chat_guard_metrics.increment("clarifications_returned")
-        chat_guard_metrics.increment("prevented_llm_calls")
-        chat_guard_metrics.increment("prevented_sql_executions")
-    if intent.decision == "analyze":
-        if intent.reason_code != "schema_command":
-            llm_credential_service.preflight(user_id, "chat", interaction_type="explicit")
-    return PreparedChatIntent(intent=intent, history=history)
+    if not message.lstrip().startswith("/"):
+        llm_credential_service.preflight(user_id, "chat", interaction_type="explicit")
+    return PreparedChatIntent(
+        intent=intent,
+        history=history,
+        prior_results=prior_results,
+        conversation_memory=dict(memory_record.get("state") or {}),
+    )
 
 
 __all__ = ["PreparedChatIntent", "prepare_chat_intent"]
