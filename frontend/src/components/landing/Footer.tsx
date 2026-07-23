@@ -1,75 +1,95 @@
-import { T } from '../dashboard/tokens';
+import { Database } from 'lucide-react';
+import { L, gradient } from './tokens';
 
-const productLinks = ['FEATURES', 'INTEGRATIONS', 'PRICING', 'CHANGELOG', 'ROADMAP'];
-const resourceLinks = ['DOCUMENTATION', 'API_REFERENCE', 'SQL_GUIDE', 'BLOG', 'COMMUNITY'];
-const companyLinks = ['ABOUT', 'CAREERS', 'PRIVACY_POLICY', 'TERMS_OF_SERVICE', 'CONTACT'];
+const COLUMNS = [
+  { heading: 'Product', links: ['How it works', 'Features', 'Security', 'Pricing'] },
+  { heading: 'Resources', links: ['Docs', 'API reference', 'Blog', 'Support'] },
+  { heading: 'Company', links: ['About', 'Careers', 'Privacy', 'Terms'] },
+];
 
 export function Footer() {
-    return (
-        <footer style={{ background: T.bg, borderTop: `1px solid ${T.border}`, padding: '80px 60px 48px', color: T.text }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 1fr', gap: 60, maxWidth: 1200, margin: '0 auto 80px' }}>
-                {/* Brand */}
-                <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
-                        <div style={{ width: 28, height: 28, background: T.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#000', fontSize: '1rem', fontWeight: 950, fontFamily: T.fontHead }}>Q</div>
-                        <span style={{ fontFamily: T.fontHead, fontWeight: 950, fontSize: '1.4rem', color: T.text, letterSpacing: '-1px', textTransform: 'uppercase' }}>
-                            QUERY<span style={{ color: T.accent }}>MIND</span>
-                        </span>
-                    </div>
-                    <p style={{ fontSize: '0.7rem', color: T.text3, lineHeight: 1.8, maxWidth: 280, fontFamily: T.fontMono, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                        INITIALIZING NATURAL LANGUAGE INVESTIGATIONS. TRANSFORM PLAIN TEXT INTO PRODUCTION-READY SQL NODES INSTANTLY.
-                    </p>
-                </div>
-
-                {/* Columns */}
-                {[
-                    { title: 'PRODUCT', links: productLinks },
-                    { title: 'RESOURCES', links: resourceLinks },
-                    { title: 'COMPANY', links: companyLinks },
-                ].map((col) => (
-                    <div key={col.title}>
-                        <h4 style={{ fontFamily: T.fontHead, fontWeight: 950, fontSize: '0.75rem', marginBottom: 24, color: T.text, letterSpacing: '2px' }}>{col.title}</h4>
-                        <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 14, margin: 0, padding: 0 }}>
-                            {col.links.map((link) => (
-                                <li key={link}>
-                                    <a href="#" style={{ 
-                                      fontSize: '0.65rem', color: T.text3, textDecoration: 'none', 
-                                      fontFamily: T.fontMono, fontWeight: 800, letterSpacing: '1px',
-                                      transition: 'color 0.2s'
-                                    }}
-                                    onMouseEnter={e => e.currentTarget.style.color = T.accent}
-                                    onMouseLeave={e => e.currentTarget.style.color = T.text3}
-                                    >{link}</a>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-                ))}
+  return (
+    <footer
+      style={{
+        position: 'relative',
+        zIndex: 1,
+        background: L.surface,
+        borderTop: `1px solid ${L.border}`,
+        padding: '60px clamp(20px, 4vw, 48px) 40px',
+      }}
+    >
+      <div style={{ maxWidth: 1180, margin: '0 auto' }}>
+        <div
+          className="landing-footer-grid"
+          style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 40, marginBottom: 48 }}
+        >
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+              <span
+                style={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: 9,
+                  background: gradient(L.sky),
+                  boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.5)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#fff',
+                }}
+              >
+                <Database size={17} strokeWidth={2.1} />
+              </span>
+              <span style={{ fontFamily: L.fontDisplay, fontWeight: 700, fontSize: 19, letterSpacing: '-0.03em' }}>
+                QueryMind
+              </span>
             </div>
+            <p style={{ fontSize: 14.5, lineHeight: 1.6, color: L.text2, margin: 0, maxWidth: 270, fontWeight: 500 }}>
+              Plain-English analytics for every team. Ask, and your database answers.
+            </p>
+          </div>
 
-            {/* Bottom bar */}
-            <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 32, display: 'flex', alignItems: 'center', justifyContent: 'space-between', maxWidth: 1200, margin: '0 auto' }}>
-                <p style={{ fontSize: '0.6rem', color: T.text3, fontFamily: T.fontMono, fontWeight: 800, letterSpacing: '1px' }}>
-                    © 2025 QUERYMIND_SYSTEMS // ALL_RIGHTS_RESERVED
-                </p>
-                <div style={{ display: 'flex', gap: 16 }}>
-                    {['𝕏', 'IN', 'GH'].map((icon) => (
-                        <div
-                            key={icon}
-                            style={{ 
-                              width: 36, height: 36, borderRadius: 0, border: `1px solid ${T.border}`, 
-                              display: 'flex', alignItems: 'center', justifyContent: 'center', 
-                              fontSize: '0.8rem', cursor: 'pointer', color: T.text,
-                              fontFamily: T.fontMono, fontWeight: 950, transition: 'all 0.2s'
-                            }}
-                            onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; }}
-                            onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text; }}
-                        >
-                            {icon}
-                        </div>
-                    ))}
-                </div>
+          {COLUMNS.map((col) => (
+            <div
+              key={col.heading}
+              style={{ display: 'flex', flexDirection: 'column', gap: 11, fontSize: 14, color: L.text2, fontWeight: 500 }}
+            >
+              <span
+                style={{
+                  fontWeight: 800,
+                  color: L.text,
+                  fontSize: 12,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em',
+                  marginBottom: 4,
+                }}
+              >
+                {col.heading}
+              </span>
+              {col.links.map((link) => (
+                <span key={link}>{link}</span>
+              ))}
             </div>
-        </footer>
-    );
+          ))}
+        </div>
+
+        <div
+          style={{
+            borderTop: `1px solid ${L.border}`,
+            paddingTop: 24,
+            display: 'flex',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 12,
+            fontSize: 13,
+            color: L.text3,
+            fontWeight: 500,
+          }}
+        >
+          <span>© {new Date().getFullYear()} QueryMind</span>
+          <span>Privacy · Terms</span>
+        </div>
+      </div>
+    </footer>
+  );
 }
