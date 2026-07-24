@@ -198,6 +198,69 @@
   }
 }
 
+/* ── Auth page ────────────────────────────────────────────────── */
+
+.auth-split {
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+}
+/* display lives here (not inline) so the media query below can hide it */
+.auth-brand {
+  display: flex;
+  flex-direction: column;
+}
+.auth-form-panel ::selection {
+  background: rgba(14, 165, 233, 0.22);
+}
+
+/* Tactile controls */
+.auth-switch-btn,
+.auth-submit {
+  transition:
+    transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.auth-switch-btn:hover,
+.auth-submit:not(:disabled):hover {
+  transform: translateY(-2px);
+}
+.auth-switch-btn:active,
+.auth-submit:not(:disabled):active {
+  transform: translateY(1px);
+  box-shadow: inset 0 2px 5px rgba(28, 34, 58, 0.18);
+}
+
+/* Keyboard focus rings (never removed for looks) */
+.auth-switch-btn:focus-visible,
+.auth-submit:focus-visible,
+.auth-form-panel button:focus-visible,
+.auth-form-panel a:focus-visible {
+  outline: 2px solid #0ea5e9;
+  outline-offset: 2px;
+}
+
+@media (max-width: 880px) {
+  .auth-split {
+    grid-template-columns: 1fr;
+  }
+  /* the branded panel is decorative — drop it on narrow screens */
+  .auth-brand {
+    display: none;
+  }
+  .auth-form-panel {
+    min-height: 100vh;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-split *,
+  .auth-split *::before,
+  .auth-split *::after {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* Stagger reveal for dashboard sections */
 @keyframes dashReveal {
   from { opacity: 0; transform: translateY(18px); }
@@ -513,15 +576,4 @@
   .header-action-label {
     display: none;
   }
-
-  .auth-visual {
-    display: none !important;
-  }
-
-  .auth-form-container {
-    width: 100% !important;
-    border-left: none !important;
-    padding: clamp(24px, 5vw, 40px) !important;
-  }
-
 }

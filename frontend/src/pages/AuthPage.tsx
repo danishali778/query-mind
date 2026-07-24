@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { T } from '../components/dashboard/tokens';
+import { ArrowRight, Check, Eye, EyeOff, Lock, Mail } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
-import { Mail, ChevronRight, Activity, Globe, LockKeyhole } from 'lucide-react';
-import { LandingOverlay } from '../components/landing/LandingOverlay';
 import { ApiRequestError } from '../services/http';
+import { AuthBrandPanel } from '../components/auth/AuthBrandPanel';
+import { GitHubIcon, GoogleIcon } from '../components/auth/SocialIcons';
+import { L, gradient, glow, raisedAccent } from '../components/landing/tokens';
 
 const SIGNUP_PASSWORD_MIN_LENGTH = 12;
 const PASSWORD_MAX_LENGTH = 1024;
@@ -12,18 +13,44 @@ const PASSWORD_MAX_LENGTH = 1024;
 function authErrorMessage(error: unknown, isLogin: boolean): string {
   if (error instanceof ApiRequestError) {
     if (isLogin && error.status === 401) {
-      return 'INVALID EMAIL OR PASSWORD';
+      return 'Invalid email or password.';
     }
     if (!isLogin && [400, 422].includes(error.status)) {
-      return 'COULD NOT CREATE ACCOUNT. CHECK EMAIL AND PASSWORD';
+      return 'Could not create account. Check your email and password.';
     }
-    if (error.status === 0 || error.status === 503 || error.code === 'network_error' || error.code === 'service_unavailable') {
-      return 'AUTHENTICATION IS TEMPORARILY UNAVAILABLE';
+    if (
+      error.status === 0 ||
+      error.status === 503 ||
+      error.code === 'network_error' ||
+      error.code === 'service_unavailable'
+    ) {
+      return 'Authentication is temporarily unavailable. Please try again shortly.';
     }
   }
 
-  return 'AUTHENTICATION FAILED. PLEASE TRY AGAIN';
+  return 'Authentication failed. Please try again.';
 }
+
+const inputBase: React.CSSProperties = {
+  width: '100%',
+  fontFamily: L.fontBody,
+  fontSize: 15,
+  fontWeight: 500,
+  color: L.text,
+  padding: '13px 14px 13px 42px',
+  borderRadius: 12,
+  background: L.surface,
+  border: `1px solid ${L.border}`,
+  outline: 'none',
+  boxShadow: L.inset,
+  transition: 'border-color 0.2s, box-shadow 0.2s',
+};
+
+const labelText: React.CSSProperties = {
+  fontSize: 13,
+  fontWeight: 700,
+  color: L.text2,
+};
 
 export function AuthPage() {
   const navigate = useNavigate();
@@ -31,29 +58,15 @@ export function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPw, setShowPw] = useState(false);
+  const [agree, setAgree] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [auditLogs, setAuditLogs] = useState<string[]>([]);
 
   useEffect(() => {
     if (user || isDevMode) {
       navigate('/dashboard');
     }
-
-    const logs = [
-      'SECURE_GATEWAY_INITIALIZED',
-      'LISTENING_ON_PORT_443',
-      'ENCRYPTION_LAYER: AES-256',
-      'SCANNING_IDENTITY_SIGNALS...',
-      'NODE_READY_FOR_HANDSHAKE',
-    ];
-    let i = 0;
-    const iv = setInterval(() => {
-      if (i < logs.length) {
-        setAuditLogs(prev => [...prev, logs[i++]]);
-      }
-    }, 1000);
-    return () => clearInterval(iv);
   }, [user, isDevMode, navigate]);
 
   const handleEmailAuth = async (e: React.FormEvent) => {
@@ -62,16 +75,14 @@ export function AuthPage() {
       setLoading(true);
       setError(null);
 
-      const session = isLogin
-        ? await signIn(email, password)
-        : await signUp(email, password);
+      const session = isLogin ? await signIn(email, password) : await signUp(email, password);
 
       if (session.authenticated) {
         navigate('/dashboard');
         return;
       }
 
-      setError((session.message || 'Check your email to complete sign up.').toUpperCase());
+      setError(session.message || 'Check your email to complete sign up.');
     } catch (err) {
       setError(authErrorMessage(err, isLogin));
     } finally {
@@ -79,227 +90,339 @@ export function AuthPage() {
     }
   };
 
-  return (
-    <div style={{ minHeight: '100vh', display: 'flex', background: T.bg, position: 'relative', overflow: 'hidden' }}>
-      <LandingOverlay />
+  const focusRing = (el: HTMLInputElement) => {
+    el.style.borderColor = L.sky.base;
+    el.style.boxShadow = `${L.inset}, 0 0 0 3px ${glow(L.sky.base, 0.18)}`;
+  };
+  const blurRing = (el: HTMLInputElement) => {
+    el.style.borderColor = L.border;
+    el.style.boxShadow = L.inset;
+  };
 
+  return (
+    <div className="auth-split" style={{ minHeight: '100vh', fontFamily: L.fontBody, color: L.text, background: L.bg }}>
+      <AuthBrandPanel />
+
+      {/* form panel */}
       <div
+        className="auth-form-panel"
         style={{
-          flex: 1, position: 'relative', overflow: 'hidden', background: T.text,
-          display: 'flex', flexDirection: 'column', padding: 'clamp(24px, 5vw, 60px)', color: T.bg
+          position: 'relative',
+          display: 'flex',
+          flexDirection: 'column',
+          padding: '40px clamp(24px, 5vw, 56px)',
+          background: L.bg,
         }}
-        className="auth-visual"
       >
+        {/* top switch */}
         <div
           style={{
-            position: 'absolute', inset: 0,
-            backgroundImage: `linear-gradient(${T.accent}11 1px, transparent 1px), linear-gradient(90deg, ${T.accent}11 1px, transparent 1px)`,
-            backgroundSize: '40px 40px', opacity: 0.3
+            display: 'flex',
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            gap: 12,
+            fontSize: 14,
+            fontWeight: 600,
+            color: L.text2,
           }}
-        />
-
-        <div style={{ position: 'relative', zIndex: 1 }}>
-          <div
+        >
+          <span>{isLogin ? 'New to QueryMind?' : 'Already have an account?'}</span>
+          <button
+            type="button"
+            className="auth-switch-btn"
+            onClick={() => {
+              setIsLogin((v) => !v);
+              setError(null);
+              setAgree(false);
+            }}
             style={{
-              display: 'inline-flex', alignItems: 'center', gap: 12,
-              background: 'rgba(0,0,0,0.3)', border: `1px solid ${T.accent}33`,
-              padding: '8px 16px', fontFamily: T.fontMono, fontSize: '0.55rem',
-              letterSpacing: 2, fontWeight: 950, marginBottom: 40
+              fontFamily: L.fontBody,
+              fontWeight: 700,
+              fontSize: 14,
+              color: L.sky.deep,
+              padding: '8px 16px',
+              borderRadius: 10,
+              border: `1px solid ${L.border}`,
+              background: L.surface,
+              boxShadow: L.raised,
+              cursor: 'pointer',
             }}
           >
-            <Activity size={10} color={T.accent} />
-            SECURITY_AUDIT_PROTOCOL
-          </div>
-
-          <h2
-            className="auth-visual-headline"
-            style={{
-              fontFamily: T.fontHead, fontWeight: 950, fontSize: 'clamp(2.5rem, 6vw, 4.5rem)',
-              letterSpacing: -3, lineHeight: 0.9, textTransform: 'uppercase', fontStyle: 'italic',
-              maxWidth: '100%', overflowWrap: 'anywhere',
-            }}
-          >
-            PROTECTING_YOUR_<br />
-            <span style={{ color: T.accent }}>INTELLIGENCE.</span>
-          </h2>
+            {isLogin ? 'Create account' : 'Sign in'}
+          </button>
         </div>
 
-        <div style={{ marginTop: 'auto', position: 'relative', zIndex: 1 }}>
-          <div
-            style={{
-              fontFamily: T.fontMono, fontSize: '0.6rem', color: T.accent,
-              display: 'flex', flexDirection: 'column', gap: 8
-            }}
-          >
-            {auditLogs.map((log, i) => (
-              <div key={i} style={{ display: 'flex', gap: 12, opacity: 0.7 + (i * 0.05) }}>
-                <span style={{ color: T.accent }}>[{new Date().toLocaleTimeString()}]</span>
-                <span>{'>'} {log}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div
-        style={{
-          width: 600, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          padding: 40, borderLeft: `1px solid ${T.border}`, background: T.bg, zIndex: 1
-        }}
-        className="auth-form-container"
-      >
-        <div style={{ width: '100%', maxWidth: 400 }}>
-          <div style={{ marginBottom: 48 }}>
-            <div
-              style={{
-                width: 40, height: 40, background: T.text, display: 'flex',
-                alignItems: 'center', justifyContent: 'center', color: '#fff',
-                fontFamily: T.fontHead, fontWeight: 950, fontSize: '1.4rem',
-                marginBottom: 32, boxShadow: `6px 6px 0px ${T.accent}`
-              }}
-            >Q</div>
+        {/* form body */}
+        <div style={{ margin: 'auto', width: '100%', maxWidth: 404 }}>
+          <div key={isLogin ? 'login' : 'signup'} style={{ animation: `qm-fade-up 0.5s ${L.ease} both` }}>
             <h1
               style={{
-                fontFamily: T.fontHead, fontWeight: 950, fontSize: '2.5rem',
-                letterSpacing: -1, textTransform: 'uppercase', marginBottom: 12
+                fontFamily: L.fontDisplay,
+                fontWeight: 800,
+                fontSize: 'clamp(2rem, 4vw, 38px)',
+                lineHeight: 1.05,
+                letterSpacing: '-0.04em',
+                margin: '0 0 10px',
               }}
             >
-              {isLogin ? 'Welcome Back' : 'Get Started'}
+              {isLogin ? 'Welcome back' : 'Create your account'}
             </h1>
-            <p style={{ fontFamily: T.fontMono, fontSize: '0.65rem', color: T.text3, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: 800 }}>
-              {isLogin ? 'Sign in to access your data nodes' : 'Create an account to begin initialization'}
+            <p style={{ fontSize: 15.5, lineHeight: 1.55, color: L.text2, fontWeight: 500, margin: '0 0 30px' }}>
+              {isLogin
+                ? 'Sign in to keep talking to your data.'
+                : 'Start querying in plain English — free for individuals, no card required.'}
             </p>
-          </div>
 
-          {error && (
-            <div
-              role="alert"
-              aria-live="polite"
-              style={{
-                padding: '16px', background: `${T.red}11`, border: `1px solid ${T.red}`,
-                color: T.red, fontFamily: T.fontMono, fontSize: '0.7rem', fontWeight: 950,
-                marginBottom: 32, textTransform: 'uppercase'
-              }}
-            >
-              {error}
-            </div>
-          )}
-
-          <form onSubmit={handleEmailAuth} style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-            <div>
-              <label htmlFor="auth-email" style={{ display: 'block', fontFamily: T.fontMono, fontSize: '0.6rem', fontWeight: 950, letterSpacing: 1.5, marginBottom: 8, color: T.text3, textTransform: 'uppercase' }}>Email Address</label>
-              <div style={{ position: 'relative' }}>
-                <Mail size={16} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: T.text3 }} />
-                <input
-                  type="email"
-                  id="auth-email"
-                  name="email"
-                  autoComplete="email"
-                  required
-                  maxLength={320}
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  placeholder="name@company.com"
+            {/* social — not yet wired to the backend */}
+            <div style={{ display: 'flex', gap: 12, marginBottom: 24 }}>
+              {[
+                { label: 'Google', icon: <GoogleIcon /> },
+                { label: 'GitHub', icon: <GitHubIcon /> },
+              ].map((s) => (
+                <button
+                  key={s.label}
+                  type="button"
+                  disabled
+                  title="Coming soon"
+                  aria-label={`Continue with ${s.label} — coming soon`}
                   style={{
-                    width: '100%', padding: '16px 16px 16px 48px', background: T.s2,
-                    border: `1px solid ${T.border}`, fontFamily: T.fontMono, fontSize: '0.8rem',
-                    color: T.text, outline: 'none', transition: 'all 0.2s'
-                  }}
-                  onFocus={e => e.currentTarget.style.borderColor = T.accent}
-                  onBlur={e => e.currentTarget.style.borderColor = T.border}
-                />
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="auth-password" style={{ display: 'block', fontFamily: T.fontMono, fontSize: '0.6rem', fontWeight: 950, letterSpacing: 1.5, marginBottom: 8, color: T.text3, textTransform: 'uppercase' }}>Password</label>
-              <div style={{ position: 'relative' }}>
-                <LockKeyhole size={16} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: T.text3 }} />
-                <input
-                  type="password"
-                  id="auth-password"
-                  name="password"
-                  autoComplete={isLogin ? 'current-password' : 'new-password'}
-                  required
-                  minLength={isLogin ? 1 : SIGNUP_PASSWORD_MIN_LENGTH}
-                  maxLength={PASSWORD_MAX_LENGTH}
-                  aria-describedby={!isLogin ? 'signup-password-guidance' : undefined}
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  placeholder="............"
-                  style={{
-                    width: '100%', padding: '16px 16px 16px 48px', background: T.s2,
-                    border: `1px solid ${T.border}`, fontFamily: T.fontMono, fontSize: '0.8rem',
-                    color: T.text, outline: 'none', transition: 'all 0.2s'
-                  }}
-                  onFocus={e => e.currentTarget.style.borderColor = T.accent}
-                  onBlur={e => e.currentTarget.style.borderColor = T.border}
-                />
-              </div>
-              {!isLogin && (
-                <p
-                  id="signup-password-guidance"
-                  style={{
-                    marginTop: 8, color: T.text3, fontFamily: T.fontMono,
-                    fontSize: '0.58rem', fontWeight: 800, letterSpacing: 1,
-                    textTransform: 'uppercase'
+                    flex: 1,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 9,
+                    fontFamily: L.fontBody,
+                    fontSize: 14.5,
+                    fontWeight: 700,
+                    color: L.text2,
+                    padding: 12,
+                    borderRadius: 12,
+                    background: L.surface,
+                    border: `1px solid ${L.border}`,
+                    boxShadow: L.raised,
+                    cursor: 'not-allowed',
+                    opacity: 0.6,
                   }}
                 >
-                  Use at least {SIGNUP_PASSWORD_MIN_LENGTH} characters.
-                </p>
-              )}
+                  {s.icon}
+                  {s.label}
+                  <span
+                    style={{
+                      fontSize: 9.5,
+                      fontWeight: 700,
+                      letterSpacing: '0.04em',
+                      textTransform: 'uppercase',
+                      color: L.text3,
+                      background: L.surfaceSunken,
+                      borderRadius: 5,
+                      padding: '2px 5px',
+                    }}
+                  >
+                    Soon
+                  </span>
+                </button>
+              ))}
             </div>
 
-            <button
-              type="submit"
-              disabled={loading}
+            {/* divider */}
+            <div
               style={{
-                background: T.text, color: T.bg, padding: '18px', fontWeight: 950,
-                fontFamily: T.fontMono, fontSize: '0.8rem', textTransform: 'uppercase',
-                letterSpacing: 3, border: 'none', cursor: 'pointer',
-                transition: 'all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12
+                display: 'flex',
+                alignItems: 'center',
+                gap: 14,
+                marginBottom: 24,
+                color: L.text3,
+                fontSize: 12.5,
+                fontWeight: 700,
+                letterSpacing: '0.04em',
               }}
-              onMouseEnter={e => { e.currentTarget.style.background = T.accent; e.currentTarget.style.color = '#000'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = T.text; e.currentTarget.style.color = T.bg; }}
             >
-              {loading ? 'PROCESSING...' : (isLogin ? 'Sign In' : 'Sign Up')}
-              <ChevronRight size={16} />
-            </button>
-          </form>
+              <span style={{ flex: 1, height: 1, background: L.border }} />
+              OR
+              <span style={{ flex: 1, height: 1, background: L.border }} />
+            </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', margin: '40px 0', color: T.border }}>
-            <div style={{ flex: 1, height: 1, background: T.border }} />
-            <span style={{ padding: '0 20px', fontFamily: T.fontMono, fontSize: '0.6rem', fontWeight: 950, letterSpacing: 2 }}>GOOGLE OAUTH DEFERRED</span>
-            <div style={{ flex: 1, height: 1, background: T.border }} />
+            {error && (
+              <div
+                role="alert"
+                aria-live="polite"
+                style={{
+                  padding: '12px 14px',
+                  marginBottom: 20,
+                  borderRadius: 12,
+                  background: 'rgba(239,68,68,0.08)',
+                  border: '1px solid rgba(239,68,68,0.35)',
+                  color: '#b91c1c',
+                  fontSize: 13.5,
+                  fontWeight: 600,
+                }}
+              >
+                {error}
+              </div>
+            )}
+
+            <form onSubmit={handleEmailAuth} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                <label htmlFor="auth-email" style={labelText}>
+                  Email address
+                </label>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <Mail
+                    size={17}
+                    style={{ position: 'absolute', left: 14, color: L.text3, pointerEvents: 'none' }}
+                    aria-hidden="true"
+                  />
+                  <input
+                    id="auth-email"
+                    type="email"
+                    name="email"
+                    autoComplete="email"
+                    required
+                    maxLength={320}
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@company.com"
+                    style={inputBase}
+                    onFocus={(e) => focusRing(e.currentTarget)}
+                    onBlur={(e) => blurRing(e.currentTarget)}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                <label htmlFor="auth-password" style={labelText}>
+                  Password
+                </label>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <Lock
+                    size={17}
+                    style={{ position: 'absolute', left: 14, color: L.text3, pointerEvents: 'none' }}
+                    aria-hidden="true"
+                  />
+                  <input
+                    id="auth-password"
+                    type={showPw ? 'text' : 'password'}
+                    name="password"
+                    autoComplete={isLogin ? 'current-password' : 'new-password'}
+                    required
+                    minLength={isLogin ? 1 : SIGNUP_PASSWORD_MIN_LENGTH}
+                    maxLength={PASSWORD_MAX_LENGTH}
+                    aria-describedby={!isLogin ? 'signup-password-guidance' : undefined}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder={isLogin ? 'Enter your password' : 'Create a password'}
+                    style={{ ...inputBase, paddingRight: 44 }}
+                    onFocus={(e) => focusRing(e.currentTarget)}
+                    onBlur={(e) => blurRing(e.currentTarget)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPw((v) => !v)}
+                    aria-label={showPw ? 'Hide password' : 'Show password'}
+                    style={{
+                      position: 'absolute',
+                      right: 10,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: 4,
+                      border: 'none',
+                      background: 'transparent',
+                      color: L.text3,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {showPw ? <EyeOff size={17} /> : <Eye size={17} />}
+                  </button>
+                </div>
+                {!isLogin && (
+                  <span id="signup-password-guidance" style={{ fontSize: 12, color: L.text3, fontWeight: 500, marginTop: 1 }}>
+                    Use at least {SIGNUP_PASSWORD_MIN_LENGTH} characters.
+                  </span>
+                )}
+              </div>
+
+              {/* decorative meta row */}
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 9,
+                  fontSize: 13.5,
+                  fontWeight: 600,
+                  color: L.text2,
+                  cursor: 'pointer',
+                  marginTop: 2,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={agree}
+                  onChange={(e) => setAgree(e.target.checked)}
+                  style={{ position: 'absolute', opacity: 0, width: 1, height: 1 }}
+                />
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 19,
+                    height: 19,
+                    borderRadius: 6,
+                    border: `1px solid ${agree ? L.sky.base : L.border}`,
+                    background: agree ? gradient(L.sky) : L.surface,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.8)',
+                    transition: 'background 0.15s, border-color 0.15s',
+                  }}
+                >
+                  {agree && <Check size={12} strokeWidth={3.2} color="#fff" />}
+                </span>
+                {isLogin ? 'Keep me signed in' : 'I agree to the Terms & Privacy Policy'}
+              </label>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="auth-submit"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 9,
+                  fontFamily: L.fontBody,
+                  fontSize: 16,
+                  fontWeight: 700,
+                  color: '#fff',
+                  padding: 15,
+                  border: 'none',
+                  borderRadius: 13,
+                  cursor: loading ? 'wait' : 'pointer',
+                  background: gradient(L.sky),
+                  boxShadow: raisedAccent(L.sky, 0.45),
+                  opacity: loading ? 0.75 : 1,
+                  marginTop: 6,
+                }}
+              >
+                {loading ? 'Processing…' : isLogin ? 'Sign in' : 'Create account'}
+                {!loading && <ArrowRight size={16} strokeWidth={2.4} />}
+              </button>
+            </form>
+
+            <p style={{ fontSize: 12, lineHeight: 1.55, color: L.text3, fontWeight: 500, margin: '22px 0 0', textAlign: 'center' }}>
+              {isLogin
+                ? 'Read-only by default · Encrypted in transit'
+                : 'By creating an account you agree to our Terms and Privacy Policy.'}
+            </p>
           </div>
+        </div>
 
-          <button
-            disabled
-            style={{
-              width: '100%', padding: '16px', background: 'transparent',
-              border: `1px solid ${T.border}`, color: T.text3, fontWeight: 950,
-              fontFamily: T.fontMono, fontSize: '0.75rem', textTransform: 'uppercase',
-              letterSpacing: 2, cursor: 'not-allowed', opacity: 0.65,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12
-            }}
-          >
-            <Globe size={16} />
-            Google Identity Soon
-          </button>
-
-          <p style={{ textAlign: 'center', marginTop: 40, fontFamily: T.fontMono, fontSize: '0.65rem', color: T.text3, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>
-            {isLogin ? "Don't have an account?" : 'Already have an account?'}
-            <button
-              onClick={() => {
-                setIsLogin(!isLogin);
-                setError(null);
-              }}
-              style={{ background: 'none', border: 'none', color: T.accent, fontWeight: 950, cursor: 'pointer', marginLeft: 8, textTransform: 'uppercase' }}
-            >
-              {isLogin ? 'Sign Up' : 'Sign In'}
-            </button>
-          </p>
+        {/* bottom */}
+        <div style={{ textAlign: 'center', fontSize: 13, color: L.text3, fontWeight: 500 }}>
+          <a href="/" style={{ color: L.text2, fontWeight: 600, textDecoration: 'none' }}>
+            ← Back to home
+          </a>
         </div>
       </div>
     </div>
