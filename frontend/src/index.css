@@ -1,4 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700;1,900&family=DM+Mono:ital,wght@0,400;0,500;1,400&display=swap');
+/* Landing page display faces */
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 
 @layer base {
@@ -43,16 +45,157 @@
   font-style: normal !important;
 }
 
-/* Scroll reveal animations */
+/* Scroll reveal — driven by useScrollReveal() */
 .reveal {
   opacity: 0;
-  transform: translateY(24px);
-  transition: opacity 0.7s ease, transform 0.7s ease;
+  transform: translateY(30px);
+  transition:
+    opacity 0.7s cubic-bezier(0.2, 0.7, 0.3, 1),
+    transform 0.7s cubic-bezier(0.2, 0.7, 0.3, 1);
 }
 
-.reveal.visible {
+.reveal-visible {
   opacity: 1;
-  transform: translateY(0);
+  transform: none;
+}
+
+/* ── Landing page ─────────────────────────────────────────────── */
+
+@keyframes qm-fade-up {
+  from { opacity: 0; transform: translateY(30px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes qm-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes qm-float {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50%      { transform: translateY(-14px) rotate(2deg); }
+}
+@keyframes qm-float-b {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-18px); }
+}
+@keyframes qm-grow {
+  from { transform: scaleY(0); }
+  to   { transform: scaleY(1); }
+}
+@keyframes qm-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
+}
+@keyframes qm-drift {
+  0%, 100% { transform: translate(0, 0); }
+  50%      { transform: translate(0, -10px); }
+}
+
+.landing-root ::selection {
+  background: rgba(14, 165, 233, 0.22);
+}
+
+/* Tactile controls: lift on hover, depress on press */
+.landing-btn-primary,
+.landing-btn-secondary,
+.landing-db-chip,
+.landing-step-card {
+  transition:
+    transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.landing-btn-primary:hover,
+.landing-btn-secondary:hover {
+  transform: translateY(-3px);
+}
+.landing-btn-primary:active,
+.landing-btn-secondary:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 2px 5px rgba(28, 34, 58, 0.18);
+}
+.landing-db-chip:hover,
+.landing-step-card:hover {
+  transform: translateY(-4px);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.9), 0 20px 40px rgba(28, 34, 58, 0.13);
+}
+
+.landing-nav-link,
+.landing-nav-login {
+  transition: color 0.2s ease, background 0.2s ease;
+}
+.landing-nav-link:hover,
+.landing-nav-login:hover {
+  color: #1a1a1a;
+}
+
+.landing-hero-card {
+  animation: qm-float-b 8s 1.4s ease-in-out infinite;
+}
+.landing-hero-pill {
+  animation: qm-float-b 6.5s 2s ease-in-out infinite;
+}
+
+.landing-nav-toggle {
+  display: none;
+}
+
+@media (max-width: 1100px) {
+  /* the orbit is positioned in fixed px — it stops making sense once it overlaps the copy */
+  .landing-orbit { display: none; }
+}
+
+@media (max-width: 900px) {
+  .landing-nav-links { display: none !important; }
+  .landing-nav-actions { display: none !important; }
+  .landing-nav-toggle { display: inline-flex !important; }
+
+  .landing-split,
+  .landing-security-grid,
+  .landing-steps-grid {
+    grid-template-columns: 1fr !important;
+    gap: 40px !important;
+  }
+  .landing-steps-connector { display: none; }
+  /* keep the visual above the copy on mobile for the reversed section */
+  .landing-split-reverse > *:first-child { order: 2; }
+
+  .landing-cta {
+    grid-template-columns: 1fr !important;
+    gap: 28px !important;
+  }
+  .landing-footer-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 32px !important;
+  }
+}
+
+@media (max-width: 560px) {
+  .landing-hero-pill {
+    right: 0 !important;
+    bottom: -14px !important;
+  }
+  .landing-footer-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Hero elements animate in from hidden; the class (not an inline style) holds the
+   start state so reduced-motion can reliably restore them. */
+.landing-enter {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-root *,
+  .landing-root *::before,
+  .landing-root *::after {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+  .landing-root .landing-enter,
+  .landing-root .reveal {
+    opacity: 1 !important;
+    transform: none !important;
+  }
 }
 
 /* Stagger reveal for dashboard sections */
@@ -381,23 +524,4 @@
     padding: clamp(24px, 5vw, 40px) !important;
   }
 
-  .landing-features-grid {
-    grid-template-columns: 1fr !important;
-    gap: 48px !important;
-  }
-
-  .landing-feature-cards {
-    grid-template-columns: 1fr !important;
-  }
-
-  .landing-footer {
-    flex-direction: column !important;
-    align-items: flex-start !important;
-    gap: 32px !important;
-    padding: 48px clamp(20px, 5vw, 60px) !important;
-  }
-
-  .landing-section {
-    padding: 96px clamp(20px, 5vw, 60px) !important;
-  }
 }

@@ -1,45 +1,167 @@
-import { T } from '../dashboard/tokens';
+import { BarChart3, Link2, MessageSquare } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import { L, gradient, raisedAccent } from './tokens';
+import type { AccentRamp } from './tokens';
 
-const steps = [
-    { num: '01', title: 'CONNECT_SOURCE', desc: 'Link any database, spreadsheet, or data tool in minutes with a secure one-click connector.' },
-    { num: '02', title: 'INPUT_NATURAL_TEXT', desc: 'Type your question naturally — no SQL needed. Our AI understands your intent and schema.' },
-    { num: '03', title: 'VALIDATE_SQL_NODE', desc: 'See the generated SQL before execution. Edit, save, or approve it with full transparency.' },
-    { num: '04', title: 'EXTRACT_INSIGHTS', desc: 'Get a table, chart, and AI summary automatically. Export or share with your team instantly.' },
+type Step = {
+  icon: LucideIcon;
+  ramp: AccentRamp;
+  step: string;
+  title: string;
+  body: string;
+};
+
+const STEPS: Step[] = [
+  {
+    icon: Link2,
+    ramp: L.indigo,
+    step: 'STEP 01',
+    title: 'Connect your database',
+    body: 'Paste a connection string or use a one-click connector. Read-only by default — your data never leaves your warehouse.',
+  },
+  {
+    icon: MessageSquare,
+    ramp: L.sky,
+    step: 'STEP 02',
+    title: 'Ask in plain English',
+    body: "Type your question like you'd ask a teammate. QueryMind understands your schema and writes correct, optimized SQL.",
+  },
+  {
+    icon: BarChart3,
+    ramp: L.emerald,
+    step: 'STEP 03',
+    title: 'Get tables & charts',
+    body: 'Results arrive as clean tables and auto-generated charts. Save them, share them, or keep drilling with follow-ups.',
+  },
 ];
 
 export function HowItWorks() {
-    return (
-        <section id="how" style={{ background: T.s2, padding: '120px 60px', borderTop: `1px solid ${T.border}` }}>
-            <div style={{ textAlign: 'center', marginBottom: 80 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 20 }}>
-                  <div style={{ width: 40, height: 1, background: T.accent }} />
-                  <span style={{ fontFamily: T.fontMono, fontSize: '0.65rem', color: T.accent, letterSpacing: 4, textTransform: 'uppercase', fontWeight: 950 }}>WORKFLOW_PROTOCOL</span>
-                </div>
-                <h2 style={{ fontFamily: T.fontHead, fontWeight: 950, fontSize: 'clamp(2.5rem, 5vw, 4rem)', letterSpacing: -3, lineHeight: 0.9, color: T.text, textTransform: 'uppercase' }}>
-                    FROM_QUESTION_TO_INSIGHT
-                </h2>
-            </div>
+  return (
+    <section
+      id="how-it-works"
+      style={{
+        position: 'relative',
+        zIndex: 1,
+        background: L.surface,
+        borderTop: `1px solid ${L.border}`,
+        borderBottom: `1px solid ${L.border}`,
+        padding: '92px clamp(20px, 4vw, 48px)',
+      }}
+    >
+      <div style={{ maxWidth: 1180, margin: '0 auto' }}>
+        <div className="reveal" data-reveal style={{ textAlign: 'center', marginBottom: 60 }}>
+          <p
+            style={{
+              fontSize: 12.5,
+              fontWeight: 800,
+              letterSpacing: '0.14em',
+              textTransform: 'uppercase',
+              color: L.sky.base,
+              margin: '0 0 14px',
+            }}
+          >
+            How it works
+          </p>
+          <h2
+            style={{
+              fontFamily: L.fontDisplay,
+              fontSize: 'clamp(2rem, 4.5vw, 44px)',
+              fontWeight: 700,
+              letterSpacing: '-0.035em',
+              margin: 0,
+              lineHeight: 1.05,
+            }}
+          >
+            From question to insight{' '}
+            <span
+              style={{
+                fontFamily: L.fontSerif,
+                fontStyle: 'italic',
+                fontWeight: 400,
+                color: L.sky.base,
+                fontSize: '1.14em',
+              }}
+            >
+              in three steps
+            </span>
+          </h2>
+        </div>
 
-            <div style={{ display: 'flex', gap: 40, maxWidth: 1100, margin: '0 auto', position: 'relative' }}>
-                {steps.map((step, i) => (
-                    <div key={step.num} style={{ flex: 1, textAlign: 'left', padding: '40px 32px', background: T.s1, border: `1px solid ${T.border}`, position: 'relative' }}>
-                        <div style={{ 
-                          width: 44, height: 44, background: T.accent, color: '#000', 
-                          display: 'flex', alignItems: 'center', justifyContent: 'center', 
-                          fontFamily: T.fontMono, fontSize: '0.75rem', fontWeight: 950, 
-                          marginBottom: 32, position: 'relative', zIndex: 2 
-                        }}>
-                            {step.num}
-                        </div>
-                        <div style={{ fontFamily: T.fontHead, fontWeight: 950, fontSize: '1rem', marginBottom: 12, color: T.text, letterSpacing: '-1px', textTransform: 'uppercase' }}>{step.title}</div>
-                        <div style={{ fontSize: '0.7rem', color: T.text3, lineHeight: 1.8, fontFamily: T.fontMono, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{step.desc}</div>
-                        
-                        {i < steps.length - 1 && (
-                          <div style={{ position: 'absolute', top: '50%', right: -25, width: 20, height: 1, background: T.accent, opacity: 0.4, zIndex: 1 }} />
-                        )}
-                    </div>
-                ))}
-            </div>
-        </section>
-    );
+        <div
+          className="landing-steps-grid"
+          style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 26, position: 'relative' }}
+        >
+          {/* dashed connector behind the cards */}
+          <div
+            className="landing-steps-connector"
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              top: 42,
+              left: '16%',
+              right: '16%',
+              height: 2,
+              background: `repeating-linear-gradient(90deg, ${L.border} 0 8px, transparent 8px 16px)`,
+              zIndex: 0,
+            }}
+          />
+
+          {STEPS.map((s, i) => {
+            const Icon = s.icon;
+            return (
+              <div
+                key={s.step}
+                className="reveal landing-step-card"
+                data-reveal
+                data-reveal-delay={i * 130}
+                style={{
+                  position: 'relative',
+                  zIndex: 1,
+                  background: L.bg,
+                  borderRadius: 20,
+                  padding: 32,
+                  border: `1px solid ${L.border}`,
+                  boxShadow: L.raisedLg,
+                }}
+              >
+                <div
+                  style={{
+                    width: 54,
+                    height: 54,
+                    borderRadius: 16,
+                    background: gradient(s.ramp),
+                    boxShadow: raisedAccent(s.ramp),
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#fff',
+                    marginBottom: 22,
+                  }}
+                >
+                  <Icon size={26} strokeWidth={2} />
+                </div>
+                <div
+                  style={{ fontFamily: L.fontMono, fontSize: 12, fontWeight: 600, color: s.ramp.deep, marginBottom: 8 }}
+                >
+                  {s.step}
+                </div>
+                <h3
+                  style={{
+                    fontFamily: L.fontDisplay,
+                    fontSize: 22,
+                    fontWeight: 700,
+                    letterSpacing: '-0.02em',
+                    margin: '0 0 10px',
+                  }}
+                >
+                  {s.title}
+                </h3>
+                <p style={{ fontSize: 15, lineHeight: 1.62, color: L.text2, margin: 0, fontWeight: 500 }}>{s.body}</p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
 }

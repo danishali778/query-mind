@@ -1,207 +1,250 @@
-import { useEffect, useRef, useState } from 'react';
-import { T } from '../dashboard/tokens';
-import { Terminal, Activity } from 'lucide-react';
+import { ArrowRight, BarChart3, Cloud, Database, Play, Server, Sparkles, Table, Zap } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import { L, gradient, raisedAccent } from './tokens';
+import { HeroQueryCard } from './HeroQueryCard';
 
-const QUERY_TEXT = "SELECT total_revenue FROM regional_sales WHERE quarter = 'Q3_2025';";
+type Chip = {
+  icon: LucideIcon;
+  color: string;
+  /** Position within the 1000×1000 orbit box. */
+  pos: { top: number; left?: number; right?: number };
+  size: number;
+  /** Entrance delay + float duration, staggered so the chips never move in unison. */
+  enter: string;
+  float: string;
+};
+
+const CHIPS: Chip[] = [
+  { icon: Database, color: L.sky.base, pos: { top: 150, left: 150 }, size: 60, enter: '0.30s', float: '7s 0.2s' },
+  { icon: Server, color: L.indigo.base, pos: { top: 110, right: 190 }, size: 56, enter: '0.44s', float: '8s 1.1s' },
+  { icon: Cloud, color: L.emerald.base, pos: { top: 330, left: 70 }, size: 58, enter: '0.58s', float: '9s 0.6s' },
+  { icon: BarChart3, color: L.sky.base, pos: { top: 360, right: 100 }, size: 60, enter: '0.68s', float: '7.6s 1.4s' },
+  { icon: Table, color: L.indigo.base, pos: { top: 560, left: 200 }, size: 54, enter: '0.8s', float: '8.4s 0.9s' },
+  { icon: Zap, color: L.emerald.base, pos: { top: 600, right: 210 }, size: 52, enter: '0.9s', float: '7.2s 1.7s' },
+];
 
 export function Hero() {
-    const typewriterRef = useRef<HTMLSpanElement>(null);
-    const [auditLogs, setAuditLogs] = useState<string[]>([]);
+  return (
+    <section
+      style={{
+        position: 'relative',
+        zIndex: 1,
+        maxWidth: 1180,
+        margin: '0 auto',
+        padding: '72px clamp(20px, 4vw, 48px) 40px',
+        textAlign: 'center',
+      }}
+    >
+      {/* orbit rings + floating source chips (decorative) */}
+      <div
+        className="landing-orbit"
+        aria-hidden="true"
+        style={{
+          position: 'absolute',
+          top: 40,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          width: 1000,
+          height: 1000,
+          pointerEvents: 'none',
+          zIndex: 0,
+        }}
+      >
+        <div style={{ position: 'absolute', inset: 120, borderRadius: '50%', border: `1px solid ${L.border}` }} />
+        <div style={{ position: 'absolute', inset: 210, borderRadius: '50%', border: `1px solid ${L.border}` }} />
+        <div style={{ position: 'absolute', inset: 300, borderRadius: '50%', border: `1px dashed ${L.border}` }} />
 
-    useEffect(() => {
-        const el = typewriterRef.current;
-        if (!el) return;
-        el.textContent = '';
-        let i = 0;
-        const timeout = setTimeout(() => {
-            const iv = setInterval(() => {
-                if (i < QUERY_TEXT.length) {
-                    el.textContent += QUERY_TEXT[i++];
-                } else {
-                    clearInterval(iv);
-                }
-            }, 40);
-            return () => clearInterval(iv);
-        }, 1500);
-
-        // Mock audit logs
-        const logs = [
-            'INITIALIZING_CORE_ENGINE...',
-            'CONNECTING_TO_NODE_778...',
-            'HANDSHAKE_PROTOCOL_SUCCESS',
-            'SCHEMA_AUDIT_COMPLETE',
-            'LATENCY: 12ms',
-            'SECURITY_LEVEL: ALPHA',
-        ];
-        let logIdx = 0;
-        const logIv = setInterval(() => {
-          if (logIdx < logs.length) {
-            setAuditLogs(prev => [...prev, logs[logIdx++]]);
-          } else {
-            clearInterval(logIv);
-          }
-        }, 800);
-
-        return () => {
-          clearTimeout(timeout);
-          clearInterval(logIv);
-        }
-    }, []);
-
-    return (
-        <section style={{ 
-            minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', 
-            padding: '160px clamp(20px, 5vw, 60px) 100px', position: 'relative', overflow: 'clip',
-            background: T.bg, width: '100%', boxSizing: 'border-box',
-        }}>
-            {/* Background Grid */}
-            <div style={{ 
-                position: 'absolute', inset: 0, 
-                backgroundImage: `linear-gradient(${T.border} 1px, transparent 1px), linear-gradient(90deg, ${T.border} 1px, transparent 1px)`, 
-                backgroundSize: '100px 100px', opacity: 0.2, pointerEvents: 'none' 
-            }} />
-            
-            {/* Tele-Audit Sidebar (WOW Element) */}
-            <div style={{ 
-              position: 'absolute', top: '20%', left: 40, width: 200, 
-              fontFamily: T.fontMono, fontSize: '0.55rem', color: T.text3,
-              display: 'flex', flexDirection: 'column', gap: 6, zIndex: 1,
-              opacity: 0.6
-            }} className="hero-audit">
-              <div style={{ fontWeight: 950, color: T.accent, marginBottom: 10, letterSpacing: 2 }}>// LIVE_AUDIT_LOG</div>
-              {auditLogs.map((log, i) => (
-                <div key={i} style={{ animation: 'fadeIn 0.5s ease forwards' }}>{'>'} {log}</div>
-              ))}
+        {CHIPS.map((chip, i) => {
+          const Icon = chip.icon;
+          return (
+            <div
+              key={i}
+              className="landing-enter"
+              style={{
+                position: 'absolute',
+                ...chip.pos,
+                animation: `qm-fade-up 0.8s ${chip.enter} ${L.ease} both`,
+              }}
+            >
+              <div
+                style={{
+                  width: chip.size,
+                  height: chip.size,
+                  borderRadius: 18,
+                  background: L.surface,
+                  border: `1px solid ${L.border}`,
+                  boxShadow: L.raisedLg,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: chip.color,
+                  animation: `qm-float ${chip.float} ease-in-out infinite`,
+                }}
+              >
+                <Icon size={Math.round(chip.size * 0.43)} strokeWidth={1.9} />
+              </div>
             </div>
+          );
+        })}
+      </div>
 
-            {/* Content Container */}
-            <div style={{ position: 'relative', zIndex: 2, textAlign: 'center', maxWidth: 1100, width: '100%', minWidth: 0 }}>
-                {/* Status Badge */}
-                <div style={{ 
-                    display: 'inline-flex', alignItems: 'center', gap: 12, 
-                    background: T.s2, border: `1px solid ${T.border}`, borderRadius: 0, 
-                    padding: '10px 24px', fontFamily: T.fontMono, fontSize: '0.65rem', 
-                    color: T.text, marginBottom: 48, fontWeight: 950, letterSpacing: '4px',
-                    textTransform: 'uppercase', boxShadow: `8px 8px 0px ${T.s3}`
-                }}>
-                    <Activity size={12} color={T.accent} />
-                    SYSTEM_PROTOCOL // RELEASE_2.4.0
-                </div>
+      {/* headline */}
+      <div style={{ position: 'relative', zIndex: 2, maxWidth: 760, margin: '0 auto' }}>
+        <div
+          className="landing-enter"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 10,
+            marginBottom: 26,
+            padding: '8px 16px',
+            borderRadius: 999,
+            background: L.surface,
+            border: `1px solid ${L.border}`,
+            boxShadow: L.raised,
+            fontSize: 13.5,
+            fontWeight: 700,
+            color: L.text2,
+            animation: `qm-fade-up 0.7s 0.05s ${L.ease} both`,
+          }}
+        >
+          <span
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: '50%',
+              background: L.emerald.base,
+              boxShadow: `0 0 0 3px ${L.emerald.light}33`,
+            }}
+          />
+          Postgres, MySQL, Snowflake, BigQuery &amp; more
+        </div>
 
-                {/* Main Heading (Editorial Style) */}
-                <h1 className="hero-headline" style={{ 
-                    fontFamily: T.fontHead, fontWeight: 950, fontSize: 'clamp(2rem, 7vw, 7.5rem)', 
-                    lineHeight: 1.05, letterSpacing: '-0.04em', marginBottom: 48, color: T.text, 
-                    textTransform: 'uppercase', fontStyle: 'italic',
-                    maxWidth: '100%', overflowWrap: 'anywhere', wordBreak: 'break-word',
-                }}>
-                    STOP_WRITING_SQL.<br />
-                    <span style={{ 
-                      color: 'transparent', WebkitTextStroke: `2px ${T.text}`, 
-                      opacity: 0.8
-                    }}>START_GETTING_</span><br />
-                    <span style={{ color: T.accent }}>ANSWERS.</span>
-                </h1>
+        <h1
+          className="landing-hero-title landing-enter"
+          style={{
+            fontFamily: L.fontDisplay,
+            fontWeight: 800,
+            fontSize: 'clamp(2.5rem, 6.5vw, 66px)',
+            lineHeight: 1.0,
+            letterSpacing: '-0.045em',
+            margin: '0 0 22px',
+            animation: `qm-fade-up 0.75s 0.15s ${L.ease} both`,
+          }}
+        >
+          Talk to your database.
+          <br />
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, verticalAlign: 'baseline' }}>
+            <Sparkles
+              size={42}
+              strokeWidth={1.7}
+              color={L.sky.base}
+              style={{ animation: 'qm-drift 4s ease-in-out infinite', flexShrink: 0 }}
+              aria-hidden="true"
+            />
+            <span
+              className="landing-hero-serif"
+              style={{
+                fontFamily: L.fontSerif,
+                fontWeight: 400,
+                fontStyle: 'italic',
+                fontSize: 'clamp(2.9rem, 7.5vw, 76px)',
+                letterSpacing: '-0.01em',
+                color: L.sky.base,
+              }}
+            >
+              Get answers,
+            </span>
+          </span>
+          <br />
+          <span style={{ color: L.text3 }}>not queries.</span>
+        </h1>
 
-                {/* Sub-headline */}
-                <p style={{ 
-                    fontSize: '0.85rem', color: T.text2, lineHeight: 2, maxWidth: 680, 
-                    margin: '0 auto 64px', fontWeight: 800, fontFamily: T.fontMono, 
-                    textTransform: 'uppercase', letterSpacing: '2px', opacity: 0.9
-                }}>
-                    TRANSFORM NATURAL LANGUAGE INTO PRODUCTION-READY ANALYTICS NODES INSTANTLY. THE NEXT EVOLUTION OF DATA INTELLIGENCE.
-                </p>
+        <p
+          className="landing-enter"
+          style={{
+            fontSize: 19,
+            lineHeight: 1.6,
+            color: L.text2,
+            margin: '0 auto 34px',
+            maxWidth: 520,
+            fontWeight: 500,
+            animation: `qm-fade-up 0.75s 0.28s ${L.ease} both`,
+          }}
+        >
+          Connect your database, ask in plain English, and QueryMind writes the SQL, runs it, and returns clean tables
+          and charts — in seconds.
+        </p>
 
-                {/* Standard Labels CTAs */}
-                <div style={{ display: 'flex', gap: 32, justifyContent: 'center', flexWrap: 'wrap' }}>
-                    <a href="/auth" style={{ 
-                        background: T.text, color: T.bg, padding: '22px 56px', borderRadius: 0, 
-                        fontWeight: 950, fontSize: '0.85rem', textDecoration: 'none', 
-                        fontFamily: T.fontMono, textTransform: 'uppercase', letterSpacing: '3px',
-                        transition: 'all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)',
-                        boxShadow: `12px 12px 0px ${T.accent}`
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.transform = 'translate(-4px, -4px)'; e.currentTarget.style.boxShadow = `16px 16px 0px ${T.accent}`; }}
-                    onMouseLeave={e => { e.currentTarget.style.transform = 'translate(0, 0)'; e.currentTarget.style.boxShadow = `12px 12px 0px ${T.accent}`; }}
-                    >
-                        GET STARTED FREE
-                    </a>
-                    <a href="#how" style={{ 
-                        background: 'transparent', border: `1px solid ${T.border}`, color: T.text, 
-                        padding: '22px 56px', borderRadius: 0, fontWeight: 950, fontSize: '0.85rem', 
-                        textDecoration: 'none', fontFamily: T.fontMono, textTransform: 'uppercase', 
-                        letterSpacing: '3px', transition: 'all 0.3s' 
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.background = T.s2; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-                    >
-                        VIEW PROTOCOL
-                    </a>
-                </div>
+        <div
+          className="landing-enter"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 14,
+            flexWrap: 'wrap',
+            animation: `qm-fade-up 0.75s 0.4s ${L.ease} both`,
+          }}
+        >
+          <a
+            href="/auth"
+            className="landing-btn-primary"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 9,
+              fontSize: 16,
+              fontWeight: 700,
+              color: '#fff',
+              padding: '16px 30px',
+              borderRadius: 14,
+              textDecoration: 'none',
+              background: gradient(L.sky),
+              boxShadow: raisedAccent(L.sky, 0.45),
+            }}
+          >
+            Start free
+            <ArrowRight size={16} strokeWidth={2.4} />
+          </a>
+          <a
+            href="#how-it-works"
+            className="landing-btn-secondary"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 10,
+              fontSize: 16,
+              fontWeight: 700,
+              color: L.text,
+              padding: '16px 26px',
+              borderRadius: 14,
+              textDecoration: 'none',
+              background: L.surface,
+              border: `1px solid ${L.border}`,
+              boxShadow: L.raised,
+            }}
+          >
+            <span
+              style={{
+                width: 26,
+                height: 26,
+                borderRadius: '50%',
+                background: L.surfaceSunken,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: L.sky.base,
+              }}
+            >
+              <Play size={12} fill="currentColor" strokeWidth={0} />
+            </span>
+            See how it works
+          </a>
+        </div>
+      </div>
 
-                {/* High-Fidelity Preview Node */}
-                <div style={{ 
-                    marginTop: 120, background: T.s1, border: `2px solid ${T.text}`, 
-                    borderRadius: 0, overflow: 'hidden', maxWidth: 900, 
-                    marginLeft: 'auto', marginRight: 'auto',
-                    boxShadow: `40px 40px 0px ${T.s2}`,
-                    textAlign: 'left'
-                }}>
-                    {/* Header */}
-                    <div style={{ 
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                        padding: '20px 32px', background: T.text, color: T.bg
-                    }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                          <Terminal size={16} color={T.accent} />
-                          <span style={{ fontFamily: T.fontMono, fontSize: '0.7rem', fontWeight: 950, letterSpacing: '2px' }}>
-                            QUERY_TERMINAL // NODE_ALPHA
-                          </span>
-                        </div>
-                        <div style={{ display: 'flex', gap: 8 }}>
-                          <div style={{ width: 8, height: 8, background: T.accent }} />
-                          <div style={{ width: 8, height: 8, background: T.s3 }} />
-                        </div>
-                    </div>
-                    
-                    {/* Terminal Body */}
-                    <div style={{ padding: '40px', fontFamily: T.fontMono }}>
-                        <div style={{ display: 'flex', gap: 24, marginBottom: 40 }}>
-                          <div style={{ 
-                            padding: '6px 14px', background: T.accent, color: '#000', 
-                            fontSize: '0.65rem', fontWeight: 950, letterSpacing: '2px' 
-                          }}>INPUT</div>
-                          <span ref={typewriterRef} style={{ fontSize: '1rem', fontWeight: 800, color: T.text }} />
-                        </div>
-                        
-                        <div style={{ 
-                          padding: '32px', background: T.s2, border: `1px solid ${T.border}`,
-                          fontSize: '0.85rem', color: T.text2, lineHeight: 2, position: 'relative'
-                        }}>
-                          <div style={{ position: 'absolute', top: 12, right: 24, fontSize: '0.55rem', color: T.accent, fontWeight: 950 }}>EXECUTING_SQL...</div>
-                          <code style={{ color: T.text }}>
-                            <span style={{ color: T.accent }}>SELECT</span> region, <span style={{ color: T.accent }}>SUM</span>(revenue)<br />
-                            <span style={{ color: T.accent }}>FROM</span> sales_nodes<br />
-                            <span style={{ color: T.accent }}>WHERE</span> quarter = <span style={{ color: T.green }}>'Q3_2025'</span><br />
-                            <span style={{ color: T.accent }}>GROUP BY</span> 1;
-                          </code>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <style>{`
-                @keyframes fadeIn {
-                    from { opacity: 0; transform: translateX(-10px); }
-                    to { opacity: 1; transform: translateX(0); }
-                }
-                @media (max-width: 1200px) {
-                  .hero-audit { display: none; }
-                }
-                @media (max-width: 640px) {
-                  .hero-headline { font-size: clamp(1.75rem, 11vw, 2.75rem) !important; letter-spacing: -0.02em !important; }
-                }
-            `}</style>
-        </section>
-    );
+      <HeroQueryCard />
+    </section>
+  );
 }
