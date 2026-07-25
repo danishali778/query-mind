@@ -17,10 +17,6 @@ vi.mock('../src/context/useAuth', () => ({
   useAuth: vi.fn(),
 }));
 
-vi.mock('../src/components/landing/LandingOverlay', () => ({
-  LandingOverlay: () => null,
-}));
-
 describe('authentication page validation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -46,7 +42,7 @@ describe('authentication page validation', () => {
 
   it('requires twelve characters only in signup mode', () => {
     render(<AuthPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Sign Up' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
 
     const password = screen.getByLabelText('Password');
     expect(password).toHaveAttribute('minlength', '12');
